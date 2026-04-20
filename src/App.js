@@ -196,10 +196,13 @@ const AppContent = () => {
   const setStocks = async (newStocks) => {
     setStocksState(newStocks); // 화면 즉시 업데이트
 
+    // 🎯 해결 1: 하드코딩된 임시 ID 대신 실제 로그인된 유저 ID 사용 (없으면 방어코드)
+    const userIdToSave = session?.user?.id || currentUserId;
+
     try {
       // (1) 화면에서 삭제된 항목 찾아 DB에서도 지우기
       const currentIds = newStocks.map(s => s.id);
-      const { data: existing } = await supabase.from('stocks').select('id').eq('user_id', currentUserId);
+      const { data: existing } = await supabase.from('stocks').select('id').eq('user_id', userIdToSave);
       
       if (existing) {
         const idsToDelete = existing.map(e => e.id).filter(id => !currentIds.includes(id));
@@ -210,11 +213,9 @@ const AppContent = () => {
 
       // (2) 남은 항목들은 DB에 추가 또는 덮어쓰기 (Upsert)
       if (newStocks.length > 0) {
-        
-        // 🎯 JS 변수명을 DB 컬럼명(소문자 등)에 정확히 맞추어 변환(Mapping)
         const mappedStocks = newStocks.map(s => ({
           id: s.id,
-          user_id: currentUserId, // 기존의 currentUserId 유지
+          user_id: userIdToSave, // 🎯 수정됨: 실제 유저 ID
           name: s.name,
           ticker: s.ticker || '',
           buyprice: s.buyPrice,       
@@ -222,7 +223,7 @@ const AppContent = () => {
           quantity: s.quantity,
           isusd: s.isUSD,             
           targetratio: s.targetRatio, 
-          accountId: s.accountId || 'default', 
+          accountid: s.accountId || 'default', // 🎯 해결 2: DB 소문자 컬럼명(accountid)에 완벽 매칭
         }));
 
         const { error: stocksError } = await supabase.from('stocks').upsert(mappedStocks);
@@ -286,7 +287,20 @@ const AppContent = () => {
   const [isNbbang, setIsNbbang] = useState(false);
   const [nbbangCount, setNbbangCount] = useState(1);
   const [nbbangNames, setNbbangNames] = useState('');
+  const [nbbangList, setNbbangList] = useState([{ id: Date.now(), name: '' }]); // 🎯 다이나믹 N빵 멤버
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
+  const [newCardTarget, setNewCardTarget] = useState('');
+  const [newCardPeriod, setNewCardPeriod] = useState(''); // 🎯 카드 실적 인정 기간
+  const [isNbbangConfirmed, setIsNbbangConfirmed] = useState(false); // 🎯 N빵 입력 완료 상태
+  const [nbbangFilter, setNbbangFilter] = useState('person'); // 🎯 N빵 필터링 (person, history)
+  const [expandedPersons, setExpandedPersons] = useState({}); // 🎯 N빵 인원별 아코디언 상태
+  const [expandedRestaurants, setExpandedRestaurants] = useState({}); // 🎯 N빵 식당별 아코디언 상태
+  const [editingNbbang, setEditingNbbang] = useState(null); // 🎯 N빵 개별 금액 수정 상태 { id, amount }
+  const [prepayModalState, setPrepayModalState] = useState({ isOpen: false, cardName: '' }); // 🎯 카드 선결제 모달 상태
+  const [expenseDateInput, setExpenseDateInput] = useState(''); // 🎯 소비 날짜 입력
+  const [isSettledHistoryView, setIsSettledHistoryView] = useState(false); // 🎯 N빵 완료내역 뷰
+  const [newCardType, setNewCardType] = useState('신용'); // 🎯 등록 카드 종류 (신용/체크)
+  const [newCardLinkedAcc, setNewCardLinkedAcc] = useState('wallet'); // 🎯 체크카드 연동 계좌
   const [accountbookTab, setAccountbookTab] = useState('calendar');
   const [newCardName, setNewCardName] = useState('');
   const [session, setSession] = useState(null);
@@ -294,6 +308,17 @@ const AppContent = () => {
   const [authPassword, setAuthPassword] = useState('');
   const [isSignUpMode, setIsSignUpMode] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    const savedId = localStorage.getItem('savedRichId');
+    const savedPw = localStorage.getItem('savedRichPw');
+    if (savedId && savedPw) {
+      setAuthId(savedId);
+      setAuthPassword(savedPw);
+      setRememberMe(true);
+    }
+  }, []);
 
   // 1. 로그인 상태 확인 로직
   useEffect(() => {
@@ -354,8 +379,19 @@ const AppContent = () => {
       else showToast('✅ 가입 성공! 이제 로그인해주세요.');
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email: fakeEmail, password: authPassword });
-      if (error) showToast(`❌ 로그인 실패: 아이디나 비밀번호를 확인해주세요.`);
-      else showToast('🎉 환영합니다!');
+      if (error) {
+        showToast(`❌ 로그인 실패: 아이디나 비밀번호를 확인해주세요.`);
+      } else {
+        // 🎯 해결: 로그인 성공 시 ID/PW 저장 로직 (자동 로그인용)
+        if (rememberMe) {
+          localStorage.setItem('savedRichId', authId);
+          localStorage.setItem('savedRichPw', authPassword);
+        } else {
+          localStorage.removeItem('savedRichId');
+          localStorage.removeItem('savedRichPw');
+        }
+        showToast('🎉 환영합니다!');
+      }
     }
     setAuthLoading(false);
   };
@@ -1365,14 +1401,21 @@ const AppContent = () => {
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl flex flex-col items-center">
           <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-md">
-            <span className="text-3xl">🚀</span>
+            <span className="text-3xl">💰</span>
           </div>
-          <h1 className="text-xl font-black text-slate-800 mb-2">나만의 자산 관리 앱</h1>
+          <h1 className="text-xl font-black text-slate-800 mb-2">{characterName} 부자 포트폴리오</h1>
           <p className="text-xs font-bold text-slate-400 mb-8 text-center">원하는 아이디를 만들어 시작하세요</p>
           
           <form onSubmit={handleAuthSubmit} className="w-full flex flex-col gap-3">
             <input type="text" placeholder="아이디 (영문/숫자)" className="w-full bg-slate-50 p-3.5 rounded-xl font-bold text-sm outline-none border focus:border-slate-800 transition-colors" value={authId} onChange={e => setAuthId(e.target.value.replace(/[^A-Za-z0-9]/g, ''))} required />
             <input type="password" placeholder="비밀번호 (6자리 이상)" className="w-full bg-slate-50 p-3.5 rounded-xl font-bold text-sm outline-none border focus:border-slate-800 transition-colors" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} />
+            
+            {/* 🎯 해결: ID/PW 저장 체크박스 추가 */}
+            <label className="flex items-center gap-2 mt-1 cursor-pointer w-fit">
+              <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 accent-slate-800 cursor-pointer" />
+              <span className="text-xs font-bold text-slate-500">ID / PW 기억하기</span>
+            </label>
+
             <button type="submit" className="w-full bg-slate-800 text-white py-3.5 rounded-xl font-black text-sm mt-2 shadow-md hover:bg-slate-900 transition-colors">{isSignUpMode ? '가입하고 시작하기' : '안전하게 로그인'}</button>
           </form>
           
@@ -1440,11 +1483,18 @@ const AppContent = () => {
                 <p className={`text-[9px] ${t.text} opacity-80 font-bold uppercase tracking-wider mt-0.5 text-left w-full break-all sm:break-normal whitespace-normal leading-tight`}>{appSubtitle}</p>
               </div>
               {/* 모바일에서만 보이는 갱신 버튼 그룹 */}
-              <div className="md:hidden flex items-center gap-1 shrink-0 bg-white/60 p-1 rounded-full border border-slate-200 shadow-sm ml-2 h-[28px]">
-                <button onClick={handleUpdateStockPrices} disabled={isFetchingStocks} className={`px-2 h-full rounded-full text-[9px] font-black transition-all flex items-center gap-1 text-slate-500 hover:bg-slate-200 ${isFetchingStocks ? 'opacity-50' : ''}`}><RefreshCw size={10} className={isFetchingStocks ? 'animate-spin' : ''}/>갱신</button>
-                <div className="w-px h-3 bg-slate-200 mx-0.5"></div>
-                <button onClick={handleUndo} disabled={pastStates.length === 0} className={`px-2 h-full rounded-full text-[9px] font-black transition-all ${pastStates.length > 0 ? `${t.light}` : 'text-slate-300'}`}>슝</button>
-                <button onClick={handleRedo} disabled={futureStates.length === 0} className={`px-2 h-full rounded-full text-[9px] font-black transition-all ${futureStates.length > 0 ? `${t.light}` : 'text-slate-300'}`}>뿅</button>
+              <div className="md:hidden flex items-center gap-1 shrink-0 ml-2 h-[28px]">
+                {activeTab === 'accountbook' && (
+                  <div className="bg-slate-800 text-white px-2.5 h-full rounded-full text-[10px] font-black flex items-center shadow-sm">
+                    ₩{formatNum(globalCash)}
+                  </div>
+                )}
+                <div className="flex items-center gap-1 bg-white/60 p-1 rounded-full border border-slate-200 shadow-sm h-full">
+                  <button onClick={handleUpdateStockPrices} disabled={isFetchingStocks} className={`px-2 h-full rounded-full text-[9px] font-black transition-all flex items-center gap-1 text-slate-500 hover:bg-slate-200 ${isFetchingStocks ? 'opacity-50' : ''}`}><RefreshCw size={10} className={isFetchingStocks ? 'animate-spin' : ''}/>갱신</button>
+                  <div className="w-px h-3 bg-slate-200 mx-0.5"></div>
+                  <button onClick={handleUndo} disabled={pastStates.length === 0} className={`px-2 h-full rounded-full text-[9px] font-black transition-all ${pastStates.length > 0 ? `${t.light}` : 'text-slate-300'}`}>슝</button>
+                  <button onClick={handleRedo} disabled={futureStates.length === 0} className={`px-2 h-full rounded-full text-[9px] font-black transition-all ${futureStates.length > 0 ? `${t.light}` : 'text-slate-300'}`}>뿅</button>
+                </div>
               </div>
             </div>
           </div>
@@ -1452,12 +1502,12 @@ const AppContent = () => {
         
         <div className="flex flex-col justify-center items-center md:items-end gap-2 w-full md:flex-1">
           {/* 메뉴 탭 영역 */}
-          <div className="bg-white p-1 sm:p-1.5 rounded-[1.25rem] sm:rounded-full flex shadow-sm border border-slate-200 w-full mx-auto md:mx-0 shrink-0 overflow-x-auto custom-scrollbar snap-x">
-            <button onClick={() => setActiveTab('portfolio')} className={`flex-1 min-w-[85px] py-2 px-1.5 sm:px-4 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap snap-center tracking-tighter ${activeTab === 'portfolio' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>📊 나만의 포트폴리오</button>
-            <button onClick={() => setActiveTab('dashboard')} className={`flex-1 min-w-[85px] py-2 px-1.5 sm:px-4 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap snap-center tracking-tighter ${activeTab === 'dashboard' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🏦 내 자산 한눈에!</button>
-            <button onClick={() => setActiveTab('history')} className={`flex-1 min-w-[85px] py-2 px-1.5 sm:px-4 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap snap-center tracking-tighter ${activeTab === 'history' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🐾 재테크 발자취</button>
-            <button onClick={() => setActiveTab('yield')} className={`flex-1 min-w-[85px] py-2 px-1.5 sm:px-4 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap snap-center tracking-tighter ${activeTab === 'yield' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🌱 {characterName} 성장일기</button>
-            <button onClick={() => setActiveTab('accountbook')} className={`flex-1 min-w-[85px] py-2 px-1.5 sm:px-4 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap snap-center tracking-tighter ${activeTab === 'accountbook' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>📔 가계부</button>
+          <div className="bg-white p-1 sm:p-1.5 rounded-[1.25rem] sm:rounded-full flex shadow-sm border border-slate-200 w-full mx-auto md:mx-0 shrink-0 overflow-hidden">
+            <button onClick={() => setActiveTab('portfolio')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'portfolio' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>📊 포트폴리오</button>
+            <button onClick={() => setActiveTab('dashboard')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'dashboard' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🏦 내 자산</button>
+            <button onClick={() => setActiveTab('history')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'history' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🐾 재테크</button>
+            <button onClick={() => setActiveTab('yield')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'yield' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🌱 성장일기</button>
+            <button onClick={() => setActiveTab('accountbook')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'accountbook' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>📔 가계부</button>
           </div>
           {/* 웹에서만 보이는 갱신 버튼 그룹 */}
           <div className="hidden md:flex items-center justify-end gap-1.5 w-full relative z-20 h-[32px]">
@@ -1568,15 +1618,14 @@ const AppContent = () => {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 px-1 gap-2">
-              <h3 className={`font-black text-slate-800 flex items-center gap-1.5 text-sm h-[28px]`}>
+            <div className="flex justify-between items-center mb-3 px-1 gap-1 w-full">
+              <h3 className={`font-black text-slate-800 flex items-center gap-1 text-[11px] sm:text-sm h-[28px] shrink-0`}>
                 <Heart size={14} className={t.text} /> 내 {currentAccountStat?.type === 'stock' ? '보유 종목' : '저축 상품'}
-               {currentAccountStat?.type === 'stock' && 
-<span onClick={() => openTransferModal(currentAccountStat.id, '')} className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-600 rounded-md text-[10px] md:text-xs font-black border border-blue-100 shadow-sm cursor-pointer hover:bg-blue-100 transition-colors">주문가능 ₩{formatNum(currentAccountStat?.cash)}</span>               }
               </h3>
               {currentAccountStat?.type === 'stock' && (
-                <div className="flex gap-1.5 items-center h-[28px] w-full sm:w-auto overflow-x-auto custom-scrollbar pb-1 sm:pb-0">
-                  <button onClick={() => openGlobalDivModal('batch')} className={`${t.light} px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm whitespace-nowrap`}>💰 전체 배당 관리</button>
+                <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1 sm:pb-0 justify-end flex-1">
+                  <span onClick={() => openTransferModal(currentAccountStat.id, '')} className="px-1.5 sm:px-2 py-1 bg-blue-50 text-blue-600 rounded-md text-[9px] sm:text-[10px] font-black border border-blue-100 shadow-sm cursor-pointer hover:bg-blue-100 transition-colors shrink-0 whitespace-nowrap">주문가능 ₩{formatNum(currentAccountStat?.cash)}</span>
+                  <button onClick={() => openGlobalDivModal('batch')} className={`${t.light} px-1.5 sm:px-2 py-1 rounded-lg text-[9px] sm:text-[10px] font-black shadow-sm whitespace-nowrap shrink-0`}>💰 배당관리</button>
 <button onClick={() => { 
   const initial = {}; 
   const currentCash = toPureNumber(currentAccountStat?.cash || 0);
@@ -1593,8 +1642,8 @@ const AppContent = () => {
   }); 
   setBatchBuyInputs(initial); 
   setIsBatchBuyModalOpen(true); 
-}} className={`bg-blue-500 text-white px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm whitespace-nowrap flex items-center gap-1`}><ShoppingCart size={12}/> 일괄 구매</button> 
-<button onClick={() => setIsRebalanceModalOpen(true)} className={`${t.main} px-2.5 py-1 rounded-lg text-[10px] font-black shadow-sm whitespace-nowrap flex items-center gap-1 hover:opacity-80 transition-opacity`}><Scale size={12}/> 리밸런싱</button>
+}} className={`bg-blue-500 text-white px-1.5 sm:px-2 py-1 rounded-lg text-[9px] sm:text-[10px] font-black shadow-sm whitespace-nowrap flex items-center gap-1 shrink-0`}><ShoppingCart size={10}/> 일괄구매</button> 
+<button onClick={() => setIsRebalanceModalOpen(true)} className={`${t.main} px-1.5 sm:px-2 py-1 rounded-lg text-[9px] sm:text-[10px] font-black shadow-sm whitespace-nowrap flex items-center gap-1 hover:opacity-80 transition-opacity shrink-0`}><Scale size={10}/> 리밸런싱</button>
                </div>
               )}
             </div>
@@ -1873,67 +1922,293 @@ const AppContent = () => {
               )}
 
               {/* 엔빵 정산소 탭 */}
-              {accountbookTab === 'dutch' && (
-                <div className="flex flex-col gap-2">
-                   <div className="bg-purple-50 rounded-xl p-3 border border-purple-100 text-center">
-                      <span className="text-xs font-black text-purple-600">🍰 이번 달 엔빵 기록</span>
-                   </div>
-                   {nbbangRecords.length === 0 ? (
-                     <div className="text-center py-6 text-[10px] font-bold text-slate-400">이번 달엔 엔빵 기록이 없네요!</div>
-                   ) : (
-                     <div className="space-y-2">
-                       {nbbangRecords.map((r, i) => (
-                         <div key={i} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-                           <div className="flex justify-between items-center mb-1.5">
-                             <span className="text-[11px] font-black text-slate-800">{r?.name || 'N빵 결제'}</span>
-                             <span className="text-[9px] font-bold text-slate-400">{r?.date || new Date(r?.timestamp).toLocaleDateString()}</span>
-                           </div>
-                           <div className="flex justify-between text-[10px] mb-1">
-                             <span className="font-bold text-slate-500">전체 결제액 (총 {r?.nbbangCount || 1}명)</span>
-                             <span className="font-black text-slate-700">₩{formatNum(Number(r?.totalAmount || 0))}</span>
-                           </div>
-                           <div className="flex justify-between text-[10px] mb-2 pb-2 border-b border-slate-200">
-                             <span className="font-bold text-purple-500">내가 낸 돈 (내 몫)</span>
-                             <span className="font-black text-purple-600">₩{formatNum(Number(r?.amount || 0))}</span>
-                           </div>
-                           <div className="flex justify-between text-[10px]">
-                             <span className="font-bold text-slate-600">받아야 할 돈 ({r?.nbbangNames || '일행'})</span>
-                             <span className="font-black text-rose-500">₩{formatNum(Number(r?.totalAmount || 0) - Number(r?.amount || 0))}</span>
-                           </div>
-                         </div>
-                       ))}
+              {accountbookTab === 'dutch' && (() => {
+                const othersOweMe = nbbangRecords.filter(r => r?.category === 'N빵' && !r?.isSettled);
+                const totalOwed = othersOweMe.reduce((sum, r) => sum + Number(r?.amount || 0), 0);
+                
+                // 🎯 인원별 그룹화
+                const groupedByPerson = {};
+                othersOweMe.forEach(r => {
+                   const match = r.name.match(/\((.*?)\s*몫\)/);
+                   const personName = match ? match[1] : '일행';
+                   if(!groupedByPerson[personName]) groupedByPerson[personName] = { total: 0, details: [] };
+                   groupedByPerson[personName].total += Number(r.amount || 0);
+                   groupedByPerson[personName].details.push(r);
+                });
+
+                // 🎯 식당(건별) 통합 그룹화
+                const groupedByRestaurant = {};
+                othersOweMe.forEach(r => {
+                   const baseName = r.name.replace(/\s*\(.*?몫\)/, '').trim();
+                   const key = `${r.date}_${baseName}`;
+                   if(!groupedByRestaurant[key]) groupedByRestaurant[key] = { name: baseName, date: r.date, total: 0, details: [] };
+                   groupedByRestaurant[key].total += Number(r.amount || 0);
+                   groupedByRestaurant[key].details.push(r);
+                });
+
+                // 🎯 개별 정산 금액 수정 로직
+                const handleEditNbbangAmount = (logId, newAmount) => {
+                   const amt = toPureNumber(newAmount);
+                   if (amt < 0) return;
+                   saveStateToHistory();
+                   const updatedLogs = tradeLogs.map(r => r.id === logId ? { ...r, amount: amt } : r);
+                   setTradeLogs(updatedLogs);
+                   localStorage.setItem('kj_final_v87_tradeLogs', JSON.stringify(updatedLogs));
+                   setEditingNbbang(null);
+                   showToast('✅ 정산 금액이 수정되었습니다.');
+                };
+
+                const handleSettleNbbang = () => {
+                   if (totalOwed <= 0) return showToast('⚠️ 정산할 금액이 없습니다.');
+                   saveStateToHistory();
+                   const newCash = globalCash + totalOwed;
+                   setGlobalCash(newCash);
+                   const updatedLogs = tradeLogs.map(r => {
+                     if (r.category === 'N빵' && !r.isSettled) return { ...r, isSettled: true };
+                     return r;
+                   });
+                   setTradeLogs(updatedLogs);
+                   saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
+                   showToast(`🎉 정산 완료! 지갑에 ₩${formatNum(totalOwed)} 합산되었습니다.`);
+                };
+
+                return (
+                  <div className="flex flex-col gap-2 animate-in fade-in duration-300">
+                     <div className="flex justify-between items-center bg-purple-50 rounded-xl p-3 border border-purple-100 shadow-sm">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black text-purple-600">미정산된 N빵 총액</span>
+                          <span className="text-lg font-black text-purple-800">₩{formatNum(totalOwed)}</span>
+                        </div>
+                        <button onClick={handleSettleNbbang} disabled={totalOwed <= 0} className="bg-purple-500 text-white px-3 py-2 rounded-lg text-[10px] font-black shadow-sm hover:bg-purple-600 disabled:bg-slate-300 transition-colors">💰 일괄 정산받기</button>
                      </div>
-                   )}
-                </div>
-              )}
+
+                     <div className="flex gap-2 mb-1 mt-1 bg-slate-50 p-1 rounded-lg">
+                        <button onClick={() => { setNbbangFilter('person'); setIsSettledHistoryView(false); }} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${nbbangFilter === 'person' && !isSettledHistoryView ? 'bg-white text-purple-600 shadow-sm border border-slate-200' : 'text-slate-500'}`}>인원별 모아보기</button>
+                        <button onClick={() => { setNbbangFilter('history'); setIsSettledHistoryView(false); }} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${nbbangFilter === 'history' && !isSettledHistoryView ? 'bg-white text-purple-600 shadow-sm border border-slate-200' : 'text-slate-500'}`}>식당별 상세내역</button>
+                        <button onClick={() => setIsSettledHistoryView(true)} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${isSettledHistoryView ? 'bg-purple-500 text-white shadow-sm' : 'text-slate-500'}`}>완료 내역보기</button>
+                     </div>
+
+                     {isSettledHistoryView ? (
+                        <div className="space-y-2 mt-2">
+                          {nbbangRecords.filter(r => r?.category === 'N빵' && r?.isSettled).length === 0 ? (
+                            <div className="text-center py-6 text-[10px] font-bold text-slate-400">정산 완료된 내역이 없습니다.</div>
+                          ) : (
+                            nbbangRecords.filter(r => r?.category === 'N빵' && r?.isSettled).map((r, i) => (
+                              <div key={i} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-purple-100 shadow-sm opacity-60">
+                                <div className="flex flex-col gap-0.5 min-w-0 pr-2">
+                                  <span className="text-[10px] font-black text-slate-800 truncate">{r.name}</span>
+                                  <span className="text-[8px] font-bold text-slate-400">{r.date || '날짜 없음'}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] font-black text-slate-500 line-through">₩{formatNum(r.amount)}</span>
+                                  <span className="text-[9px] font-black text-emerald-500 bg-emerald-50 px-1 py-0.5 rounded">완료</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                     ) : othersOweMe.length === 0 ? (
+                       <div className="text-center py-6 text-[10px] font-bold text-slate-400">받을 돈이 없습니다! 모두 정산 완료✨</div>
+                     ) : (
+                       <div className="space-y-2">
+                         {nbbangFilter === 'person' ? (
+                            // 🎯 인원별 3열(grid-cols-3) 컴팩트 뷰
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {Object.keys(groupedByPerson).map(person => (
+                                <div key={person} className="bg-slate-50 p-2.5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-full">
+                                   <div className="text-center border-b border-slate-200 pb-1.5 mb-1.5">
+                                     <span className="text-[11px] font-black text-slate-800"><Heart size={10} className="inline text-purple-400 relative -top-0.5"/> {person}</span>
+                                     <div className="text-[13px] font-black text-rose-500 mt-0.5">₩{formatNum(groupedByPerson[person].total)}</div>
+                                   </div>
+                                   <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar flex-1 max-h-[90px]">
+                                     {groupedByPerson[person].details.map(detail => (
+                                       <div key={detail.id} className="text-[9px] flex justify-between items-center bg-white p-1.5 rounded-md border border-slate-100 cursor-pointer hover:border-purple-300 transition-colors" onClick={() => setEditingNbbang({id: detail.id, amount: String(detail.amount)})}>
+                                         {editingNbbang?.id === detail.id ? (
+                                            <input type="text" className="w-full text-right outline-none bg-slate-100 px-1 rounded font-black text-blue-500 py-0.5" value={toCommaString(editingNbbang.amount)} onChange={e=>setEditingNbbang({...editingNbbang, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus onBlur={()=>handleEditNbbangAmount(detail.id, editingNbbang.amount)} onKeyDown={(e) => e.key==='Enter' && handleEditNbbangAmount(detail.id, editingNbbang.amount)} />
+                                         ) : (
+                                            <><span className="truncate w-[55%] font-bold text-slate-500">{detail.name.replace(`(${person} 몫)`, '').trim()}</span><span className="font-black text-slate-700">₩{formatNum(detail.amount)}</span></>
+                                         )}
+                                       </div>
+                                     ))}
+                                   </div>
+                                </div>
+                              ))}
+                            </div>
+                         ) : (
+                            // 🎯 식당별 통합 뷰 (아코디언)
+                            <div className="space-y-2">
+                              {Object.keys(groupedByRestaurant).map(key => (
+                                <div key={key} className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-sm">
+                                  <div className="flex justify-between items-center cursor-pointer" onClick={() => setExpandedRestaurants(p=>({...p, [key]: !p[key]}))}>
+                                    <div className="flex flex-col">
+                                      <span className="text-[12px] font-black text-slate-800">{groupedByRestaurant[key].name}</span>
+                                      <span className="text-[9px] font-bold text-slate-400">{groupedByRestaurant[key].date}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-black text-purple-600 bg-purple-100 px-2 py-0.5 rounded-md">총 ₩{formatNum(groupedByRestaurant[key].total)}</span>
+                                      {expandedRestaurants[key] ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
+                                    </div>
+                                  </div>
+                                  {expandedRestaurants[key] && (
+                                     <div className="mt-2.5 pt-2.5 border-t border-slate-200 grid grid-cols-2 gap-1.5">
+                                        {groupedByRestaurant[key].details.map(detail => {
+                                           const personName = detail.name.match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                                           return (
+                                             <div key={detail.id} className="text-[9px] flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 cursor-pointer hover:border-purple-300 transition-colors shadow-sm" onClick={() => setEditingNbbang({id: detail.id, amount: String(detail.amount)})}>
+                                                {editingNbbang?.id === detail.id ? (
+                                                   <input type="text" className="w-full text-right outline-none bg-slate-100 px-1 rounded font-black text-blue-500 py-0.5" value={toCommaString(editingNbbang.amount)} onChange={e=>setEditingNbbang({...editingNbbang, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus onBlur={()=>handleEditNbbangAmount(detail.id, editingNbbang.amount)} onKeyDown={(e) => e.key==='Enter' && handleEditNbbangAmount(detail.id, editingNbbang.amount)} />
+                                                ) : (
+                                                   <><span className="font-bold text-slate-500 flex items-center gap-1"><Heart size={8} className="text-purple-400"/> {personName}</span><span className="font-black text-slate-700">₩{formatNum(detail.amount)}</span></>
+                                                )}
+                                             </div>
+                                           )
+                                        })}
+                                     </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                         )}
+                       </div>
+                     )}
+                  </div>
+                );
+              })()}
 
               {/* 카드 내역서 탭 */}
-              {accountbookTab === 'card' && (
-                <div className="flex flex-col gap-2">
-                   <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 text-center flex flex-col gap-1">
-                      <span className="text-xs font-black text-blue-600">💳 이번 달 신용카드 누적 사용액</span>
-                      <span className="text-lg font-black text-blue-800">₩{formatNum(cardRecords.reduce((sum, r) => sum + Number(r?.amount || 0), 0))}</span>
-                   </div>
-                   {cardRecords.length === 0 ? (
-                     <div className="text-center py-6 text-[10px] font-bold text-slate-400">이번 달엔 신용카드 결제 내역이 없습니다.</div>
-                   ) : (
-                     <div className="space-y-2">
-                       {cardRecords.map((r, i) => (
-                         <div key={i} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100">
-                           <div className="flex flex-col gap-0.5">
-                             <span className="text-[11px] font-black text-slate-800">{r?.name || '카드 결제'}</span>
-                             <div className="flex items-center gap-1">
-                               <span className="text-[8px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded font-black">{r?.cardName || '카드'}</span>
-                               <span className="text-[8px] font-bold text-slate-400">{r?.date || new Date(r?.timestamp).toLocaleDateString()}</span>
-                             </div>
-                           </div>
-                           <span className="text-[11px] font-black text-rose-500">-₩{formatNum(Number(r?.amount || 0))}</span>
-                         </div>
-                       ))}
+              {accountbookTab === 'card' && (() => {
+                const unpaidCardRecords = cardRecords.filter(r => r?.paymentMethod === '신용카드' && !r?.isPaid);
+                const totalUnpaid = unpaidCardRecords.reduce((sum, r) => sum + Number(r?.amount || 0), 0);
+
+                // 🎯 카드 내역 모달창에서 '단건 선결제' 실행 로직
+                const handlePaySingleItem = (log) => {
+                   if (globalCash < Number(log.amount)) return showToast('⚠️ 지갑 잔액이 부족합니다.');
+                   saveStateToHistory();
+                   const newCash = globalCash - Number(log.amount);
+                   setGlobalCash(newCash);
+                   
+                   const updatedLogs = tradeLogs.map(r => r.id === log.id ? { ...r, isPaid: true } : r);
+                   const paymentLog = {
+                      id: Date.now().toString(), type: 'expense', name: `${log.name} 개별 선결제`, category: '카드대금', amount: Number(log.amount), totalAmount: Number(log.amount), date: new Date().toISOString().substring(0, 10), timestamp: Date.now()
+                   };
+                   
+                   setTradeLogs([paymentLog, ...updatedLogs]);
+                   saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
+                   showToast(`💳 ${log.name} ₩${formatNum(log.amount)} 결제 완료!`);
+                   
+                   // 모달 내역이 0개가 되면 자동 닫기
+                   if (unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName && r.id !== log.id).length === 0) {
+                     setPrepayModalState({ isOpen: false, cardName: '' });
+                   }
+                };
+
+                return (
+                  <div className="flex flex-col gap-2 animate-in fade-in duration-300">
+                     <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 flex justify-between items-center shadow-sm">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-black text-blue-600">이번 달 결제 예정 금액</span>
+                          <span className="text-lg font-black text-blue-800">₩{formatNum(totalUnpaid)}</span>
+                        </div>
                      </div>
-                   )}
-                </div>
-              )}
+                     
+                     {myCards.length > 0 ? (
+                       <div className="flex flex-col gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                         <span className="text-[10px] font-black text-slate-500 flex items-center gap-1"><TrendingUp size={12}/> 내 카드 실적 및 결제 관리</span>
+                         {myCards.map(c => {
+                           const totalUsed = cardRecords.filter(r => r.cardName === c.name).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+                           const toPay = unpaidCardRecords.filter(r => r.cardName === c.name).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+                           const target = Number(c.target || 0);
+                           const percent = target > 0 ? Math.min((totalUsed / target) * 100, 100) : 0;
+                           const isReached = target > 0 && totalUsed >= target;
+                           
+                           return (
+                             <div key={`prog-${c.id}`} className="flex flex-col bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                               <div className="flex justify-between items-center mb-1.5">
+                                 <div className="flex flex-col">
+                                    <span className="text-[11px] font-black text-slate-800">{c.name} {isReached && <span className="text-[8px] bg-emerald-100 text-emerald-600 px-1 py-0.5 rounded shadow-sm ml-1">실적 달성!</span>}</span>
+                                    {c.period && <span className="text-[8px] font-bold text-slate-400 mt-0.5">결제기준: 매월 {c.period}일</span>}
+                                 </div>
+                                 <button onClick={() => setPrepayModalState({ isOpen: true, cardName: c.name })} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors">미리 갚기</button>
+                               </div>
+
+                               <div className="flex justify-between items-center mb-1 bg-slate-50 p-1.5 rounded-md border border-slate-100">
+                                 <span className="text-[9px] font-bold text-slate-500">결제 예정</span>
+                                 <span className="text-[10px] font-black text-rose-500">₩{formatNum(toPay)}</span>
+                               </div>
+
+                               {target > 0 && (
+                                 <div className="mt-1">
+                                   <div className="flex justify-between text-[8px] font-bold text-slate-400 mb-0.5">
+                                      <span>실적 ₩{formatNum(totalUsed)}</span>
+                                      <span>목표 ₩{formatNum(target)}</span>
+                                   </div>
+                                   <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden relative shadow-inner">
+                                     <div className={`h-full rounded-full transition-all duration-500 ${isReached ? 'bg-emerald-400' : 'bg-blue-400'}`} style={{ width: `${percent}%` }}></div>
+                                   </div>
+                                 </div>
+                               )}
+                             </div>
+                           );
+                         })}
+                       </div>
+                     ) : (
+                        <div className="text-center py-6 text-[10px] font-bold text-slate-400 bg-slate-50 rounded-xl border border-slate-100">우측 상단 톱니바퀴 > 내 카드에서<br/>카드를 먼저 등록해주세요.</div>
+                     )}
+
+                     {/* 🎯 카드 선결제 상세 모달 UI */}
+                     {prepayModalState.isOpen && (
+                       <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4">
+                         <div className="bg-white w-full max-w-sm md:max-w-md rounded-2xl p-5 shadow-2xl relative flex flex-col max-h-[80vh] animate-in zoom-in duration-200">
+                           <button onClick={() => setPrepayModalState({ isOpen: false, cardName: '' })} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100"><X size={14}/></button>
+                           <h3 className="font-black text-sm mb-1 text-slate-800">💳 {prepayModalState.cardName} 미결제 내역</h3>
+                           <p className="text-[9px] font-bold text-slate-400 mb-4">내역을 클릭하면 지갑 잔액으로 즉시 결제됩니다.</p>
+                           
+                           {/* 모바일 최적화 가로 2열, PC 3열 그리드 (동일 결제건 자동 합산 처리) */}
+                           <div className="grid grid-cols-2 md:grid-cols-3 gap-2 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                             {Object.values(unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName).reduce((acc, log) => {
+                                const groupKey = log.isNbbang ? `${log.date}_${log.memo||log.name.split('(')[0].trim()}` : log.id;
+                                if (!acc[groupKey]) acc[groupKey] = { ...log, combinedIds: [log.id], combinedAmount: Number(log.amount), displayTitle: log.isNbbang ? (log.memo || log.name.split('(')[0].trim()) : log.name };
+                                else {
+                                  acc[groupKey].combinedIds.push(log.id);
+                                  acc[groupKey].combinedAmount += Number(log.amount);
+                                }
+                                return acc;
+                             }, {})).map(log => (
+                               <div key={log.id} onClick={() => {
+                                  const totalAmt = log.combinedAmount;
+                                  if (globalCash < totalAmt) return showToast('⚠️ 지갑 잔액이 부족합니다.');
+                                  saveStateToHistory();
+                                  const newCash = globalCash - totalAmt;
+                                  setGlobalCash(newCash);
+                                  const updatedLogs = tradeLogs.map(r => log.combinedIds.includes(r.id) ? { ...r, isPaid: true } : r);
+                                  const paymentLog = {
+                                     id: Date.now().toString(), type: 'expense', name: `${log.displayTitle} 선결제`, category: '카드대금', amount: totalAmt, totalAmount: totalAmt, date: new Date().toISOString().substring(0, 10), timestamp: Date.now()
+                                  };
+                                  setTradeLogs([paymentLog, ...updatedLogs]);
+                                  saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
+                                  showToast(`💳 ${log.displayTitle} ₩${formatNum(totalAmt)} 결제 완료!`);
+                                  
+                                  if (unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName && !log.combinedIds.includes(r.id)).length === 0) {
+                                    setPrepayModalState({ isOpen: false, cardName: '' });
+                                  }
+                               }} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors flex flex-col justify-between min-h-[75px] group">
+                                 <div className="flex justify-between items-start mb-1.5">
+                                   <span className="text-[10px] font-black text-slate-800 truncate pr-1">{log.displayTitle}</span>
+                                   <span className="text-[8px] font-bold text-slate-400 shrink-0">{log.date?.substring(5)}</span>
+                                 </div>
+                                 <div className="flex justify-between items-end mt-auto">
+                                   <span className="text-[9px] font-bold text-blue-500 bg-blue-100 px-1.5 py-0.5 rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">결제하기</span>
+                                   <span className="text-[11px] font-black text-rose-500 ml-auto">₩{formatNum(log.combinedAmount)}</span>
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                         </div>
+                       </div>
+                     )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* 달력 하단 상세 내역 팝업 */}
@@ -1965,25 +2240,55 @@ const AppContent = () => {
                 </div>
 
                 {selectedDay && stats.daily[selectedDay]?.records?.length > 0 && (
-                  <div className="bg-slate-800 text-white rounded-2xl p-4 animate-in slide-in-from-bottom-2 duration-200 shadow-lg max-h-[160px] overflow-y-auto custom-scrollbar">
-                    <div className="space-y-2">
-                      {stats.daily[selectedDay].records.map((r, idx) => {
-                        let badgeColor = "bg-slate-600 text-slate-300"; let badgeText = "기타"; let prefix = "+"; let amtColor = "text-slate-300";
-                        if(r?.viewCategory === 'salary') { badgeColor = "bg-emerald-500/20 text-emerald-300"; badgeText = "급여"; amtColor = "text-emerald-400"; }
-                        else if(r?.viewCategory === 'income') { badgeColor = "bg-blue-500/20 text-blue-300"; badgeText = "수익"; amtColor = "text-blue-400"; }
-                        else if(r?.viewCategory === 'invest') { badgeColor = "bg-purple-500/20 text-purple-300"; badgeText = "투자"; amtColor = "text-purple-400"; prefix = "-"; }
-                        else if(r?.viewCategory === 'expense') { badgeColor = "bg-rose-500/20 text-rose-300"; badgeText = "소비"; amtColor = "text-rose-400"; prefix = "-"; }
+                  <div className="bg-slate-800 text-white rounded-2xl p-3 animate-in slide-in-from-bottom-2 duration-200 shadow-lg flex flex-col gap-3">
+                    {/* 상단 50:50 요약 (수익 vs 지출) */}
+                    <div className="flex gap-2">
+                      <div className="flex-1 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2 text-center">
+                        <div className="text-[9px] font-black text-emerald-400 mb-0.5">수익 합계</div>
+                        <div className="text-xs font-black text-emerald-300">+₩{formatNum((stats.daily[selectedDay]?.salary || 0) + (stats.daily[selectedDay]?.income || 0))}</div>
+                      </div>
+                      <div className="flex-1 bg-rose-500/10 border border-rose-500/20 rounded-xl p-2 text-center">
+                        <div className="text-[9px] font-black text-rose-400 mb-0.5">지출/투자 합계</div>
+                        <div className="text-xs font-black text-rose-300">-₩{formatNum((stats.daily[selectedDay]?.invest || 0) + (stats.daily[selectedDay]?.expense || 0))}</div>
+                      </div>
+                    </div>
 
-                        return (
-                          <div key={idx} className="flex justify-between items-center border-b border-slate-700/50 pb-2 last:border-0 last:pb-0">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-black ${badgeColor}`}>{badgeText}</span>
-                              <span className="text-[10px] md:text-[11px] font-bold text-slate-200">{r?.name || '내역'} {r?.isNbbang && <span className="text-[9px] text-purple-400 ml-1">(N빵)</span>}</span>
+                    {/* 하단 2열 내역 리스트 */}
+                    <div className="grid grid-cols-2 gap-3 max-h-[160px] overflow-y-auto custom-scrollbar pr-1">
+                      {/* 좌측: 수익 리스트 */}
+                      <div className="space-y-2 border-r border-slate-700/50 pr-2">
+                        {stats.daily[selectedDay].records.filter(r => r?.viewCategory === 'salary' || r?.viewCategory === 'income').map((r, idx) => {
+                          let badgeColor = r?.viewCategory === 'salary' ? "bg-emerald-500/20 text-emerald-300" : "bg-blue-500/20 text-blue-300";
+                          let badgeText = r?.viewCategory === 'salary' ? "급여" : "수익";
+                          let amtColor = r?.viewCategory === 'salary' ? "text-emerald-400" : "text-blue-400";
+                          return (
+                            <div key={`inc-${idx}`} className="flex flex-col gap-1 border-b border-slate-700/50 pb-1.5 last:border-0 last:pb-0">
+                              <div className="flex items-center justify-between">
+                                 <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${badgeColor}`}>{badgeText}</span>
+                                 <span className={`text-[9px] md:text-[10px] font-black ${amtColor}`}>+₩{formatNum(Number(r?.amount || r?.total || 0))}</span>
+                              </div>
+                              <span className="text-[9px] font-bold text-slate-300 truncate">{r?.name || '내역'}</span>
                             </div>
-                            <span className={`text-[10px] md:text-[11px] font-black ${amtColor}`}>{prefix}₩{formatNum(Number(r?.amount || r?.total || 0))}</span>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+                      {/* 우측: 지출/투자 리스트 */}
+                      <div className="space-y-2 pl-1">
+                        {stats.daily[selectedDay].records.filter(r => r?.viewCategory === 'invest' || r?.viewCategory === 'expense').map((r, idx) => {
+                          let badgeColor = r?.viewCategory === 'invest' ? "bg-purple-500/20 text-purple-300" : "bg-rose-500/20 text-rose-300";
+                          let badgeText = r?.viewCategory === 'invest' ? "투자" : "소비";
+                          let amtColor = r?.viewCategory === 'invest' ? "text-purple-400" : "text-rose-400";
+                          return (
+                            <div key={`exp-${idx}`} className="flex flex-col gap-1 border-b border-slate-700/50 pb-1.5 last:border-0 last:pb-0">
+                              <div className="flex items-center justify-between">
+                                 <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${badgeColor}`}>{badgeText}</span>
+                                 <span className={`text-[9px] md:text-[10px] font-black ${amtColor}`}>-₩{formatNum(Number(r?.amount || r?.total || 0))}</span>
+                              </div>
+                              <span className="text-[9px] font-bold text-slate-300 truncate">{r?.name || '내역'} {r?.isNbbang && <span className="text-[8px] text-purple-400 ml-0.5">(N빵)</span>}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -1995,10 +2300,12 @@ const AppContent = () => {
         {/* --- YIELD TAB --- */}
         {activeTab === 'yield' && (() => {
           // 🎯 원형 차트에 들어갈 자산 데이터 계산 (현금, 저축, 주식 각각 분리)
+          // 🎯 다양한 색상 팔레트 적용
+          const pieColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F06292', '#AED581', '#FFD54F', '#4DB6AC', '#7986CB', '#A1887F', '#90A4AE'];
           const pieData = [
-            { name: '지갑 (현금)', value: Number(globalCash), color: '#3b82f6' },
-            ...accounts.filter(a => a.type === 'savings').map((a, i) => ({ name: a.name, value: Number(a.cash), color: ['#10b981', '#34d399', '#059669', '#6ee7b7'][i%4] })),
-            ...stocks.map((s, i) => ({ name: s.name, value: Number(s.quantity) * Number(s.currentPrice) * (s.isUSD ? toPureNumber(exchangeRate) : 1), color: ['#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#f97316'][i%6] }))
+            { name: '지갑 (현금)', value: Number(globalCash), color: pieColors[0] },
+            ...accounts.filter(a => a.type === 'savings').map((a, i) => ({ name: a.name, value: Number(a.cash), color: pieColors[(i + 1) % pieColors.length] })),
+            ...stocks.map((s, i) => ({ name: s.name, value: Number(s.quantity) * Number(s.currentPrice) * (s.isUSD ? toPureNumber(exchangeRate) : 1), color: pieColors[(i + 1 + accounts.filter(a=>a.type==='savings').length) % pieColors.length] }))
           ].filter(d => d.value > 0).sort((a,b) => b.value - a.value);
 
           return (
@@ -2010,19 +2317,22 @@ const AppContent = () => {
                 </div>
               </div>
 
-              {/* 🎯 원형 차트 (도넛 모양) UI */}
+              {/* 🎯 원형 차트 (도넛 모양) UI - 시인성 강화 (라벨 기본 표시) */}
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-5 flex flex-col md:flex-row items-center gap-4 shadow-inner">
-                <div className="w-full md:w-1/2 h-[180px] md:h-[200px]">
+                <div className="w-full md:w-1/2 h-[220px] md:h-[250px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <RePieChart>
                       <Pie
                         data={pieData}
                         cx="50%" cy="50%"
-                        innerRadius={55} outerRadius={75}
+                        innerRadius={50} outerRadius={85}
                         paddingAngle={3}
                         dataKey="value"
                         stroke="none"
                         cornerRadius={4}
+                        label={({name, percent}) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
+                        className="text-[9px] md:text-[10px] font-black fill-slate-600"
                       >
                         {pieData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
@@ -2217,10 +2527,37 @@ const AppContent = () => {
                  ))
                )}
             </div>
-            <div className="flex gap-1.5 mb-2">
-              <input type="text" placeholder="카드 별칭 (예: 국민 탄탄대로)" className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 text-center bg-slate-50" value={newCardName} onChange={e=>setNewCardName(e.target.value)} />
+            <div className="flex flex-col gap-1.5 mb-3">
+              <input type="text" placeholder="카드 이름 (예: 신한 RPM)" className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50" value={newCardName} onChange={e=>setNewCardName(e.target.value)} />
+              
+              <div className="flex gap-1.5">
+                <select className="p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50" value={newCardType} onChange={e=>setNewCardType(e.target.value)}>
+                  <option value="신용">신용</option><option value="체크">체크</option>
+                </select>
+                <div className="flex-1 flex gap-1.5">
+                  <input type="text" placeholder="실적 기준액 (예: 300,000)" className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-right" value={toCommaString(newCardTarget)} onChange={e=>setNewCardTarget(e.target.value.replace(/[^0-9]/g, ''))} />
+                  <span className="text-[10px] font-black text-slate-500 flex items-center pr-1 whitespace-nowrap">원</span>
+                </div>
+              </div>
+
+              {newCardType === '체크' && (
+                <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center" value={newCardLinkedAcc} onChange={e=>setNewCardLinkedAcc(e.target.value)}>
+                  <option value="wallet">체크 연동: 내 지갑 출금</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>체크 연동: {a.name}</option>)}
+                </select>
+              )}
+
+              <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center text-slate-700" value={newCardPeriod} onChange={e=>setNewCardPeriod(e.target.value)}>
+                <option value="">실적 인정 기준일 (예: 매월 말일)</option>
+                {Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={d} value={String(d)}>매월 {d}일 기준</option>)}
+                <option value="말일">매월 말일 기준</option>
+              </select>
             </div>
-            <button onClick={() => { if(!newCardName) return; setMyCards([...myCards, {id: Date.now(), name: newCardName}]); setNewCardName(''); }} className="w-full bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-md hover:bg-slate-900 transition-colors">새 카드 추가</button>
+            <button onClick={() => { 
+              if(!newCardName) return; 
+              setMyCards([...myCards, {id: Date.now(), name: newCardName, target: toPureNumber(newCardTarget), period: newCardPeriod, type: newCardType, linkedAcc: newCardLinkedAcc}]); 
+              setNewCardName(''); setNewCardTarget(''); setNewCardPeriod(''); 
+            }} className="w-full bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-md hover:bg-slate-900 transition-colors">새 카드 추가</button>
           </div>
         </div>
       )}
@@ -2320,9 +2657,9 @@ const AppContent = () => {
                   {/* 🎯 가계부 연동을 위한 수익/소비 버튼 */}
                   <div className="flex justify-between items-center mt-2 mb-1">
                     <div className="flex gap-1.5 flex-1">
-                      <button onClick={() => { setIncomeMode('salary'); setIncomeAmount(''); setIsNbbang(false); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'salary' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>월급 💵</button>
-                      <button onClick={() => { setIncomeMode('bonus'); setIncomeAmount(''); setIsNbbang(false); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'bonus' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>수익 🧧</button>
-                      <button onClick={() => { setIncomeMode('expense'); setIncomeAmount(''); setIsNbbang(false); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'expense' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>소비 💳</button>
+                      <button onClick={() => { setIncomeMode('salary'); setIncomeAmount(''); setIsNbbang(false); setExpenseDateInput(''); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'salary' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>월급 💵</button>
+                      <button onClick={() => { setIncomeMode('bonus'); setIncomeAmount(''); setIsNbbang(false); setExpenseDateInput(''); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'bonus' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>수익 🧧</button>
+                      <button onClick={() => { setIncomeMode('expense'); setIncomeAmount(''); setIsNbbang(false); setIsNbbangConfirmed(false); setNbbangList([{id:Date.now(), name:''}]); setExpenseDateInput(''); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'expense' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>소비 💳</button>
                     </div>
                     <button onClick={() => setIsCardModalOpen(true)} className="ml-2 px-2 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-[9px] font-black shadow-sm flex items-center gap-1 hover:bg-slate-200"><CreditCard size={12}/> 내 카드</button>
                   </div>
@@ -2352,21 +2689,43 @@ const AppContent = () => {
                             </select>
                           )}
                           <div className="flex gap-1.5">
+                            <input type="text" className="w-[60px] text-center text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-rose-400 bg-white shrink-0" placeholder="MMDD" value={expenseDateInput} onChange={e => {
+                               let val = e.target.value.replace(/[^0-9]/g, '');
+                               if (val.length > 4) val = val.slice(0, 4);
+                               if (val.length >= 3) val = val.slice(0, 2) + '/' + val.slice(2);
+                               setExpenseDateInput(val);
+                            }} />
                             <input type="text" className="flex-1 text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-rose-400 bg-white" placeholder="무엇을 샀나요?" value={expenseMemo} onChange={e => setExpenseMemo(e.target.value)} />
-                            <button onClick={() => setIsNbbang(!isNbbang)} className={`px-2 py-1.5 rounded-lg text-[10px] font-black transition-colors flex items-center gap-1 ${isNbbang ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-white border-slate-200 text-slate-600'} border shadow-sm`}>🍰 N빵</button>
+                            <button onClick={() => { setIsNbbang(!isNbbang); setIsNbbangConfirmed(false); if(!isNbbang) setNbbangList([{id:Date.now(), name:''}]); }} className={`px-2 py-1.5 rounded-lg text-[10px] font-black transition-colors flex items-center gap-1 ${isNbbang ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-white border-slate-200 text-slate-600'} border shadow-sm`}>🍰 N빵</button>
                           </div>
                           
                           {isNbbang && (
-                            <div className="bg-purple-50 p-2.5 rounded-lg border border-purple-100 flex flex-col gap-2 animate-in zoom-in duration-200">
-                              <div className="flex items-center justify-between">
-                                <span className="text-[9px] font-black text-purple-600">총 몇 명인가요?</span>
-                                <div className="flex items-center gap-2">
-                                  <button onClick={() => setNbbangCount(Math.max(1, nbbangCount - 1))} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm">-</button>
-                                  <span className="text-xs font-black text-purple-800 w-4 text-center">{nbbangCount}</span>
-                                  <button onClick={() => setNbbangCount(nbbangCount + 1)} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm">+</button>
+                            <div className="bg-purple-50 p-2.5 rounded-lg border border-purple-100 flex flex-col gap-2 animate-in zoom-in duration-200 mt-1">
+                              {isNbbangConfirmed ? (
+                                <div className="flex justify-between items-center bg-white p-2 rounded-lg border border-purple-200 shadow-sm">
+                                  <span className="text-[10px] font-black text-purple-700 truncate flex-1">함께한 사람: {nbbangList.map(n=>n.name).filter(Boolean).join(', ')}</span>
+                                  <button onClick={() => setIsNbbangConfirmed(false)} className="px-2 py-1 bg-purple-100 text-purple-600 rounded text-[9px] font-black shadow-sm hover:bg-purple-200 shrink-0 transition-colors">수정</button>
                                 </div>
-                              </div>
-                              <input type="text" className="w-full text-[10px] font-black text-slate-800 border border-purple-200 rounded-lg p-2 outline-none focus:border-purple-400 bg-white" placeholder="함께한 사람 (예: 철수, 영희)" value={nbbangNames} onChange={e => setNbbangNames(e.target.value)} />
+                              ) : (
+                                <>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[9px] font-black text-purple-600">총 인원 설정 (본인 제외)</span>
+                                    <div className="flex items-center gap-2">
+                                      <button onClick={() => setNbbangList(nbbangList.length > 1 ? nbbangList.slice(0, -1) : nbbangList)} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm border border-purple-200 hover:bg-purple-50 transition-colors">-</button>
+                                      <span className="text-xs font-black text-purple-800 w-4 text-center">{nbbangList.length}</span>
+                                      <button onClick={() => setNbbangList([...nbbangList, { id: Date.now() + nbbangList.length, name: '' }])} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm border border-purple-200 hover:bg-purple-50 transition-colors">+</button>
+                                    </div>
+                                  </div>
+                                  <div className="grid grid-cols-5 gap-1.5 max-h-[120px] overflow-y-auto custom-scrollbar">
+                                    {nbbangList.map((person, index) => (
+                                      <input key={person.id} type="text" className="w-full text-[10px] font-black text-slate-800 border border-purple-200 rounded-lg p-1.5 outline-none focus:border-purple-400 bg-white text-center shadow-sm" placeholder={`인원${index+1}`} value={person.name} onChange={e => { const newList = [...nbbangList]; newList[index].name = e.target.value; setNbbangList(newList); }} />
+                                    ))}
+                                  </div>
+                                  <div className="flex justify-end mt-1">
+                                    <button onClick={() => setIsNbbangConfirmed(true)} className="px-3 py-1.5 bg-purple-500 text-white rounded-lg text-[10px] font-black shadow-sm hover:bg-purple-600 transition-colors">입력완료</button>
+                                  </div>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>
@@ -2381,41 +2740,96 @@ const AppContent = () => {
                           
                           const isExpense = incomeMode === 'expense';
                           let myShare = amt;
+                          let finalNbbangCount = 1;
+                          let finalNbbangNames = '';
+                          let perPersonShare = 0; 
 
-                          if (isExpense && isNbbang && nbbangCount > 1) {
-                            myShare = Math.floor(amt / nbbangCount);
+                          if (isExpense && isNbbang) {
+                            const validPeople = nbbangList.filter(n => n.name.trim() !== '');
+                            finalNbbangCount = validPeople.length + 1; 
+                            if (finalNbbangCount > 1) {
+                              myShare = Math.floor(amt / finalNbbangCount);
+                              perPersonShare = Math.floor(amt / finalNbbangCount);
+                              finalNbbangNames = validPeople.map(n => n.name.trim()).join(', ');
+                            }
                           }
                           
-                          let newGlobalCash = Number(globalCash);
+                          let updatedGlobalCash = Number(globalCash);
+                          let updatedAccs = [...accounts];
+                          let isPaidNow = false;
+
                           if (!isExpense) {
-                            newGlobalCash += amt;
-                          } else if (isExpense && paymentMethod === '현금/체크카드') {
-                            newGlobalCash -= myShare; 
-                            if (newGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                            updatedGlobalCash += amt;
+                            isPaidNow = true;
+                          } else {
+                            if (paymentMethod === '현금/체크카드') {
+                               updatedGlobalCash -= myShare; 
+                               if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                               isPaidNow = true;
+                            } else if (paymentMethod === '신용카드') {
+                               const selectedCardInfo = myCards.find(c => c.name === selectedCard);
+                               if (selectedCardInfo && selectedCardInfo.type === '체크') {
+                                  const linkedAccId = selectedCardInfo.linkedAcc || 'wallet';
+                                  if (linkedAccId === 'wallet') {
+                                     updatedGlobalCash -= myShare;
+                                     if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                                  } else {
+                                     const acc = updatedAccs.find(a => a.id === linkedAccId);
+                                     if (!acc || toPureNumber(acc.cash) < myShare) return showToast("⚠️ 연동된 계좌 잔액이 부족합니다.");
+                                     updatedAccs = updatedAccs.map(a => a.id === linkedAccId ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
+                                  }
+                                  isPaidNow = true;
+                               } else {
+                                  isPaidNow = false;
+                               }
+                            }
                           }
                           
-                          setGlobalCash(newGlobalCash);
+                          setGlobalCash(updatedGlobalCash);
+                          setAccounts(updatedAccs);
                           
                           let logType = 'income'; let logCat = '기타'; let logName = ''; let logMemo = expenseMemo;
                           if (incomeMode === 'salary') { logCat = '급여'; logName = '월급 입금'; }
                           else if (incomeMode === 'bonus') { logCat = incomeCategory; logName = `${incomeCategory} 입금`; }
-                          else if (incomeMode === 'expense') { 
-                            logType = 'expense'; 
-                            logCat = expenseCategory; 
-                            logName = expenseMemo || '소비'; 
-                          }
+                          else if (incomeMode === 'expense') { logType = 'expense'; logCat = expenseCategory; logName = expenseMemo || '소비'; }
                           
-                          // 🎯 확실하게 날짜(date)를 찍어서 기존 발자취 화면이 뻗지 않도록 방어합니다.
-                          logTrade({ 
+                          let finalDate = new Date().toISOString().substring(0, 10);
+                          if (expenseDateInput && expenseDateInput.length === 5) {
+                             const year = new Date().getFullYear();
+                             const formatted = expenseDateInput.replace('/', '-');
+                             finalDate = `${year}-${formatted}`;
+                          }
+
+                          let logsToAdd = [];
+                          const baseLog = { 
                             type: logType, name: logName, category: logCat, amount: myShare, totalAmount: amt, 
                             memo: logMemo, paymentMethod: isExpense ? paymentMethod : null, cardName: paymentMethod === '신용카드' ? selectedCard : null,
-                            isNbbang: isExpense ? isNbbang : false, nbbangCount: isNbbang ? nbbangCount : 1, nbbangNames: isNbbang ? nbbangNames : '',
-                            date: new Date().toISOString().substring(0, 10), timestamp: Date.now()
-                          });
-                          
-                          setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo('');
+                            isPaid: isPaidNow, isNbbang: isExpense ? isNbbang : false, nbbangCount: finalNbbangCount, nbbangNames: finalNbbangNames, perPersonShare: perPersonShare,
+                            date: finalDate, timestamp: Date.now()
+                          };
+
+                          if (isExpense && isNbbang && finalNbbangCount > 1) {
+                             baseLog.name = `${logName} (본인 몫)`;
+                             logsToAdd.push({ ...baseLog, id: Date.now().toString() + '_0' });
+                             
+                             const validPeople = nbbangList.filter(n => n.name.trim() !== '');
+                             validPeople.forEach((p, idx) => {
+                               logsToAdd.push({
+                                 ...baseLog, id: Date.now().toString() + '_' + (idx + 1), name: `${logName} (${p.name.trim()} 몫)`,
+                                 category: 'N빵', amount: perPersonShare, timestamp: Date.now() + idx + 1
+                               });
+                             });
+                             
+                             const updatedLogs = [...logsToAdd.reverse(), ...tradeLogs];
+                             setTradeLogs(updatedLogs);
+                             localStorage.setItem('kj_final_v87_tradeLogs', JSON.stringify(updatedLogs));
+                          } else {
+                             logTrade(baseLog);
+                          }
+
+                          setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput('');
                           showToast(`🎉 ${logCat} 처리 완료!`);
-                          saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newGlobalCash);
+                          saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, updatedGlobalCash);
                         }} className={`${t.main} px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm`}>확인</button>
                       </div>
                     </div>
