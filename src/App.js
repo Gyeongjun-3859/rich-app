@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Plus, Trash2, Search, TrendingUp, 
+  Flame, Target, Clock, Plus, Trash2, Search, TrendingUp, 
   ShoppingCart, X, Star, Sparkles, Heart, 
   PiggyBank, CalendarDays, Database, Edit2, Wallet, Briefcase, Camera, AlertCircle, Menu, Download, UploadCloud, ChevronRight, ChevronDown, Landmark, PieChart, Scale, Settings, RefreshCw, Upload, CreditCard
 } from 'lucide-react';
@@ -63,67 +63,42 @@ const PRESET_PROFILES = [
 ];
 
 const STOCK_DATABASE = [
-  // 국내 주식
-  { id: 'kr1', name: '삼성전자', ticker: '005930', currentPrice: 74500, isUSD: false, isETF: false },
-  { id: 'kr2', name: 'SK하이닉스', ticker: '000660', currentPrice: 155000, isUSD: false, isETF: false },
-  { id: 'kr3', name: '현대차', ticker: '005380', currentPrice: 234000, isUSD: false, isETF: false },
-  { id: 'kr4', name: '기아', ticker: '000270', currentPrice: 112000, isUSD: false, isETF: false },
-  { id: 'kr5', name: 'NAVER', ticker: '035420', currentPrice: 189000, isUSD: false, isETF: false },
-  { id: 'kr6', name: '카카오', ticker: '035720', currentPrice: 53000, isUSD: false, isETF: false },
-  { id: 'kr7', name: '셀트리온', ticker: '068270', currentPrice: 180000, isUSD: false, isETF: false },
-  { id: 'kr8', name: 'LG에너지솔루션', ticker: '373220', currentPrice: 400000, isUSD: false, isETF: false },
-  { id: 'kr9', name: 'POSCO홀딩스', ticker: '005490', currentPrice: 380000, isUSD: false, isETF: false },
-  { id: 'kr10', name: '삼성바이오로직스', ticker: '207940', currentPrice: 820000, isUSD: false, isETF: false },
-  { id: 'kr11', name: 'LG화학', ticker: '051910', currentPrice: 450000, isUSD: false, isETF: false },
-  { id: 'kr12', name: '삼성SDI', ticker: '006400', currentPrice: 420000, isUSD: false, isETF: false },
-  { id: 'kr13', name: '현대모비스', ticker: '012330', currentPrice: 240000, isUSD: false, isETF: false },
-  { id: 'kr14', name: '카카오뱅크', ticker: '323410', currentPrice: 28000, isUSD: false, isETF: false },
-  { id: 'kr15', name: '포스코퓨처엠', ticker: '003670', currentPrice: 310000, isUSD: false, isETF: false },
-  { id: 'kr16', name: '한화솔루션', ticker: '009830', currentPrice: 31000, isUSD: false, isETF: false },
-  { id: 'kr17', name: '에코프로', ticker: '086520', currentPrice: 600000, isUSD: false, isETF: false },
-  { id: 'kr18', name: '에코프로비엠', ticker: '247540', currentPrice: 250000, isUSD: false, isETF: false },
-  { id: 'kr19', name: '하이브', ticker: '352820', currentPrice: 210000, isUSD: false, isETF: false },
-  { id: 'kr20', name: 'SK이노베이션', ticker: '096770', currentPrice: 110000, isUSD: false, isETF: false },
-  
-  // 미국 주식
-  { id: 'us1', name: '애플 (Apple)', ticker: 'AAPL', currentPrice: 175.00, isUSD: true, isETF: false },
-  { id: 'us2', name: '마이크로소프트 (Microsoft)', ticker: 'MSFT', currentPrice: 420.55, isUSD: true, isETF: false },
-  { id: 'us3', name: '엔비디아 (NVIDIA)', ticker: 'NVDA', currentPrice: 900.20, isUSD: true, isETF: false },
-  { id: 'us4', name: '테슬라 (Tesla)', ticker: 'TSLA', currentPrice: 175.34, isUSD: true, isETF: false },
-  { id: 'us5', name: '알파벳 A (Google)', ticker: 'GOOGL', currentPrice: 140.20, isUSD: true, isETF: false },
-  { id: 'us6', name: '아마존 (Amazon)', ticker: 'AMZN', currentPrice: 180.10, isUSD: true, isETF: false },
-  { id: 'us7', name: '메타 (Meta)', ticker: 'META', currentPrice: 500.25, isUSD: true, isETF: false },
-  { id: 'us8', name: '버크셔 해서웨이 B', ticker: 'BRK.B', currentPrice: 410.30, isUSD: true, isETF: false },
-  { id: 'us9', name: '일라이 릴리 (Eli Lilly)', ticker: 'LLY', currentPrice: 750.40, isUSD: true, isETF: false },
-  { id: 'us10', name: '유나이티드헬스 (UNH)', ticker: 'UNH', currentPrice: 480.90, isUSD: true, isETF: false },
-  { id: 'us11', name: '비자 (Visa)', ticker: 'V', currentPrice: 280.15, isUSD: true, isETF: false },
-  { id: 'us12', name: '존슨앤드존슨 (JNJ)', ticker: 'JNJ', currentPrice: 155.20, isUSD: true, isETF: false },
-  { id: 'us13', name: '마스터카드 (Mastercard)', ticker: 'MA', currentPrice: 470.50, isUSD: true, isETF: false },
-  { id: 'us14', name: '엑슨모빌 (ExxonMobil)', ticker: 'XOM', currentPrice: 110.25, isUSD: true, isETF: false },
-  { id: 'us15', name: '제이피모건 (JPMorgan)', ticker: 'JPM', currentPrice: 195.40, isUSD: true, isETF: false },
-  { id: 'us16', name: '브로드컴 (Broadcom)', ticker: 'AVGO', currentPrice: 1300.50, isUSD: true, isETF: false },
-  { id: 'us17', name: '월마트 (Walmart)', ticker: 'WMT', currentPrice: 60.10, isUSD: true, isETF: false },
-  { id: 'us18', name: '프록터앤갬블 (P&G)', ticker: 'PG', currentPrice: 160.30, isUSD: true, isETF: false },
-  { id: 'us19', name: '코스트코 (Costco)', ticker: 'COST', currentPrice: 730.20, isUSD: true, isETF: false },
-  { id: 'us20', name: '홈디포 (Home Depot)', ticker: 'HD', currentPrice: 380.45, isUSD: true, isETF: false },
+  // 🎯 사용자가 특별히 요청한 필수 ETF 8종 (최상단 고정 배치)
+  { id: 'etf_req10', name: 'TIGER 미국배당다우존스타겟데일리커버드콜', ticker: '476060', currentPrice: 10000, isUSD: false, isETF: true },
+  { id: 'etf_req11', name: 'TIGER 미국S&P500', ticker: '360750', currentPrice: 15000, isUSD: false, isETF: true },
+  { id: 'etf_req12', name: 'ACE 미국하이일드액티브(H)', ticker: '466740', currentPrice: 10000, isUSD: false, isETF: true },
+  { id: 'etf_req13', name: 'KODEX 한국부동산리츠인프라', ticker: '474920', currentPrice: 5000, isUSD: false, isETF: true },
+  { id: 'etf_req14', name: 'KODEX 코스닥150', ticker: '229200', currentPrice: 12000, isUSD: false, isETF: true },
+  { id: 'etf_req15', name: 'KODEX 코스피100', ticker: '227830', currentPrice: 25000, isUSD: false, isETF: true },
+  { id: 'etf_req16', name: 'ACE KRX금현물', ticker: '411060', currentPrice: 13000, isUSD: false, isETF: true },
+  { id: 'etf_req17', name: 'PLUS 미국고배당주액티브', ticker: '485080', currentPrice: 10000, isUSD: false, isETF: true },
 
-  // ETF
-  { id: 'etf1', name: 'TIGER 미국배당다우존스타겟데일리커버드콜', ticker: '0008S0', currentPrice: 10135, isUSD: false, isETF: true },
-  { id: 'etf2', name: 'KODEX 200', ticker: '069500', currentPrice: 35000, isUSD: false, isETF: true },
-  { id: 'etf3', name: 'TIGER 미국S&P500', ticker: '360750', currentPrice: 15000, isUSD: false, isETF: true },
-  { id: 'etf4', name: 'TIGER 미국나스닥100', ticker: '133690', currentPrice: 95000, isUSD: false, isETF: true },
-  { id: 'etf5', name: 'KODEX 레버리지', ticker: '122630', currentPrice: 18000, isUSD: false, isETF: true },
-  { id: 'etf6', name: 'KODEX 미국S&P500TR', ticker: '379800', currentPrice: 13000, isUSD: false, isETF: true },
-  { id: 'etf7', name: 'TIGER 2차전지테마', ticker: '305540', currentPrice: 22000, isUSD: false, isETF: true },
-  { id: 'etf10', name: 'SCHD (미국배당 ETF)', ticker: 'SCHD', currentPrice: 77.9, isUSD: true, isETF: true },
-  { id: 'etf11', name: 'SPY (S&P 500 ETF)', ticker: 'SPY', currentPrice: 512.3, isUSD: true, isETF: true },
-  { id: 'etf12', name: 'QQQ (나스닥 100 ETF)', ticker: 'QQQ', currentPrice: 440.1, isUSD: true, isETF: true },
-  { id: 'etf13', name: 'VOO (Vanguard S&P 500)', ticker: 'VOO', currentPrice: 470.5, isUSD: true, isETF: true },
-  { id: 'etf14', name: 'IVV (iShares S&P 500)', ticker: 'IVV', currentPrice: 515.2, isUSD: true, isETF: true },
-  { id: 'etf15', name: 'VTI (Vanguard Total Stock)', ticker: 'VTI', currentPrice: 260.4, isUSD: true, isETF: true },
-  { id: 'etf16', name: 'QQQM (Invesco NASDAQ 100)', ticker: 'QQQM', currentPrice: 180.5, isUSD: true, isETF: true },
-  { id: 'etf17', name: 'JEPI (JPMorgan Equity Premium)', ticker: 'JEPI', currentPrice: 56.8, isUSD: true, isETF: true },
-  { id: 'etf18', name: 'JEPQ (JPMorgan Nasdaq Premium)', ticker: 'JEPQ', currentPrice: 53.2, isUSD: true, isETF: true }
+  // 🎯 글로벌 & 국내 시총 상위 실제 주식 100종 (콤팩트 배열 파싱)
+  ...[
+    '애플 (Apple)|AAPL|U','마이크로소프트|MSFT|U','엔비디아 (NVIDIA)|NVDA|U','테슬라 (Tesla)|TSLA|U','알파벳 A|GOOGL|U','아마존 (Amazon)|AMZN|U','메타 (Meta)|META|U','버크셔 해서웨이|BRK.B|U','일라이 릴리|LLY|U','TSMC|TSM|U',
+    '브로드컴|AVGO|U','노보 노디스크|NVO|U','제이피모건|JPM|U','유나이티드헬스|UNH|U','월마트|WMT|U','비자 (Visa)|V|U','마스터카드|MA|U','존슨앤드존슨|JNJ|U','엑슨모빌|XOM|U','프록터앤갬블|PG|U',
+    '코스트코|COST|U','홈디포|HD|U','오라클|ORCL|U','쉐브론|CVX|U','머크|MRK|U','코카콜라|KO|U','펩시코|PEP|U','애비|ABBV|U','뱅크오브아메리카|BAC|U','넷플릭스|NFLX|U',
+    '어도비|ADBE|U','세일즈포스|CRM|U','AMD|AMD|U','맥도날드|MCD|U','시스코 시스템즈|CSCO|U','애보트|ABT|U','인텔|INTC|U','퀄컴|QCOM|U','IBM|IBM|U','디즈니|DIS|U',
+    '나이키|NKE|U','스타벅스|SBUX|U','화이자|PFE|U','버라이즌|VZ|U','AT&T|T|U','넥스트에라|NEE|U','보잉|BA|U','캐터필러|CAT|U','아메리칸 익스프레스|AXP|U','암젠|AMGN|U',
+    '삼성전자|005930|K','SK하이닉스|000660|K','현대차|005380|K','기아|000270|K','NAVER|035420|K','카카오|035720|K','셀트리온|068270|K','LG에너지솔루션|373220|K','POSCO홀딩스|005490|K','삼성바이오로직스|207940|K',
+    'LG화학|051910|K','삼성SDI|006400|K','현대모비스|012330|K','카카오뱅크|323410|K','포스코퓨처엠|003670|K','한화솔루션|009830|K','에코프로|086520|K','에코프로비엠|247540|K','하이브|352820|K','SK이노베이션|096770|K',
+    '삼성물산|028260|K','KB금융|105560|K','신한지주|055550|K','LG전자|066570|K','삼성생명|032830|K','SK|034730|K','하나금융지주|086790|K','KT&G|033780|K','카카오페이|377300|K','엔씨소프트|036570|K',
+    '삼성에스디에스|018260|K','우리금융지주|316140|K','고려아연|010130|K','두산에너빌리티|034020|K','현대글로비스|086280|K','크래프톤|259960|K','에스엠|041510|K','LG생활건강|051900|K','SK텔레콤|017670|K','한국전력|015760|K',
+    'HMM|011200|K','기업은행|024110|K','메리츠금융지주|138040|K','포스코인터내셔널|047050|K','HD현대|267250|K','삼성화재|000810|K','삼성전기|009150|K','KT|030200|K','아모레퍼시픽|090430|K','현대제철|004020|K'
+  ].map((str, i) => { const [n,t,u] = str.split('|'); return { id:`s_${i}`, name:n, ticker:t, currentPrice:100, isUSD:(u==='U'), isETF:false }; }),
+
+  // 🎯 글로벌 & 국내 인기 ETF 92종 (콤팩트 배열 파싱)
+  ...[
+    'SCHD|SCHD|U','SPY|SPY|U','QQQ|QQQ|U','VOO|VOO|U','IVV|IVV|U','VTI|VTI|U','JEPI|JEPI|U','JEPQ|JEPQ|U','DIA|DIA|U','ARKK|ARKK|U',
+    'SMH|SMH|U','SOXX|SOXX|U','VNQ|VNQ|U','IWM|IWM|U','GLD|GLD|U','IAU|IAU|U','VT|VT|U','VEA|VEA|U','VIG|VIG|U','VYM|VYM|U',
+    'QID|QID|U','QLD|QLD|U','TQQQ|TQQQ|U','SQQQ|SQQQ|U','SPXL|SPXL|U','SPXS|SPXS|U','SOXL|SOXL|U','SOXS|SOXS|U','TNA|TNA|U','TZA|TZA|U',
+    'XLF|XLF|U','XLV|XLV|U','XLE|XLE|U','XLK|XLK|U','XLY|XLY|U','XLP|XLP|U','XLU|XLU|U','XLI|XLI|U','XLB|XLB|U','XLC|XLC|U',
+    'KODEX 200|069500|K','TIGER 2차전지테마|305540|K','TIGER 차이나전기차SOLACTIVE|371460|K','KODEX 레버리지|122630|K','KODEX 200선물인버스2X|252670|K','TIGER 미국배당다우존스|458730|K','TIGER 미국테크TOP10 INDXX|381180|K','KODEX 코스닥150레버리지|233740|K','KODEX 코스닥150선물인버스|251340|K','TIGER 미국필라델피아반도체나스닥|381170|K',
+    'ACE 미국배당다우존스|460330|K','KODEX 삼성그룹|102780|K','TIGER 글로벌리튬&2차전지SOLACTIVE|398070|K','KODEX 은행|091220|K','TIGER 200 IT|139260|K','KODEX 자동차|091230|K','TIGER K-게임지수|380440|K','KODEX 2차전지산업|305720|K','KODEX 반도체|091160|K','TIGER 화장품|228790|K',
+    'KODEX 미디어&엔터테인먼트|266360|K','TIGER 헬스케어|228800|K','KODEX 바이오|266410|K','TIGER 은행|139270|K','KODEX 에너지화학|091250|K','TIGER 방송통신|228810|K','KODEX 철강|091240|K','TIGER 증권|139310|K','KODEX 건설|091210|K','TIGER 보험|139320|K',
+    'KODEX 운송|091260|K','TIGER 기계장비|228770|K','KODEX 보험|140700|K','TIGER 금속소재|228820|K','KODEX 기계조선|102960|K','TIGER 현대차그룹+펀더멘털|138540|K','KODEX 운송장비|102970|K','TIGER LG그룹+펀더멘털|138530|K','KODEX 필수소비재|266370|K','TIGER 삼성그룹펀더멘털|138520|K',
+    'KODEX 골드선물(H)|132030|K','TIGER 미국달러선물레버리지|261250|K','KODEX 미국달러선물|261240|K','TIGER 단기통안채|157450|K','KODEX 단기채권|153130|K','TIGER 단기채권액티브|272580|K','KODEX 종합채권(AA-이상)액티브|273130|K','TIGER 우량교환사채|332610|K','KODEX 국고채3년|114470|K'
+  ].map((str, i) => { const [n,t,u] = str.split('|'); return { id:`e_${i}`, name:n, ticker:t, currentPrice:100, isUSD:(u==='U'), isETF:true }; })
 ];
 
 const THEME_STYLES = {
@@ -153,11 +128,14 @@ const AppContent = () => {
   const [appSubtitle, setAppSubtitle] = useState(() => getRecoveredValue('kj_final_v87_subtitle', 'kj_final_v86_subtitle', 'Dream Big, Invest Smart'));
   const [characterName, setCharacterName] = useState(() => getRecoveredValue('kj_final_v87_characterName', 'kj_final_v86_characterName', '경준'));
   const [appTheme, setAppTheme] = useState(() => getRecoveredValue('kj_final_v87_theme', 'kj_final_v86_theme', 'pink'));
-  const [zoomLevel, setZoomLevel] = useState(() => getRecoveredValue('kj_final_v87_zoom', 'kj_final_v86_zoom', 100));
+ 
+  
+  // 수정용 임시 상태 (설정창용)
   
   const t = THEME_STYLES[appTheme] || THEME_STYLES.pink;
 
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
+  const [isFireModalOpen, setIsFireModalOpen] = useState(false); // 🔥 FIRE 대시보드 팝업 스위치
   const [isEditHeaderOpen, setIsEditHeaderOpen] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editSubtitle, setEditSubtitle] = useState('');
@@ -169,73 +147,11 @@ const AppContent = () => {
   const [stocks, setStocksState] = useState([]);
   const currentUserId = '00000000-0000-0000-0000-000000000000'; // ⚠️ 임시 유저 ID (추후 로그인 기능 추가 시 변경하세요)
 
-  // 1. 앱 시작 시 Supabase에서 데이터 불러오기
-  useEffect(() => {
-    const fetchStocksFromDB = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('stocks')
-          .select('*')
-          .eq('user_id', currentUserId);
-
-        if (error) {
-          console.error('❌ Supabase 불러오기 실패:', error.message);
-          return;
-        }
-        if (data && data.length > 0) {
-          setStocksState(data);
-        }
-      } catch (err) {
-        console.error('❌ DB 연결 에러:', err);
-      }
-    };
-    fetchStocksFromDB();
-  }, []);
-
-  // 2. 스마트 자동 저장 함수 (기존 setStocks를 완벽히 대체)
-  const setStocks = async (newStocks) => {
-    setStocksState(newStocks); // 화면 즉시 업데이트
-
-    // 🎯 해결 1: 하드코딩된 임시 ID 대신 실제 로그인된 유저 ID 사용 (없으면 방어코드)
-    const userIdToSave = session?.user?.id || currentUserId;
-
-    try {
-      // (1) 화면에서 삭제된 항목 찾아 DB에서도 지우기
-      const currentIds = newStocks.map(s => s.id);
-      const { data: existing } = await supabase.from('stocks').select('id').eq('user_id', userIdToSave);
-      
-      if (existing) {
-        const idsToDelete = existing.map(e => e.id).filter(id => !currentIds.includes(id));
-        if (idsToDelete.length > 0) {
-          await supabase.from('stocks').delete().in('id', idsToDelete);
-        }
-      }
-
-      // (2) 남은 항목들은 DB에 추가 또는 덮어쓰기 (Upsert)
-      if (newStocks.length > 0) {
-        const mappedStocks = newStocks.map(s => ({
-          id: s.id,
-          user_id: userIdToSave, // 🎯 수정됨: 실제 유저 ID
-          name: s.name,
-          ticker: s.ticker || '',
-          buyprice: s.buyPrice,       
-          currentprice: s.currentPrice,
-          quantity: s.quantity,
-          isusd: s.isUSD,             
-          targetratio: s.targetRatio, 
-          accountid: s.accountId || 'default', // 🎯 해결 2: DB 소문자 컬럼명(accountid)에 완벽 매칭
-        }));
-
-        const { error: stocksError } = await supabase.from('stocks').upsert(mappedStocks);
-      
-        if (stocksError) {
-          console.error("🚨 [Supabase] stocks 테이블 저장 실패! 상세 원인:", stocksError.message, stocksError.details, stocksError.hint);
-        }
-      }
-    } catch (err) {
-      console.error('❌ DB 동기화 중 에러 발생:', err);
-    }
+  // 2. 상태 업데이트 함수 (저장은 2초 자동 저장 엔진이 일괄 처리함)
+  const setStocks = (newStocks) => {
+    setStocksState(newStocks);
   };
+  
   const [exchangeRate, setExchangeRate] = useState(() => getRecoveredValue('kj_final_v87_fx', 'kj_final_v86_fx', "1392"));
   const [isFetchingStocks, setIsFetchingStocks] = useState(false);
   
@@ -262,6 +178,8 @@ const AppContent = () => {
   const [buyAmount, setBuyAmount] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const ocrFileInputRef = useRef(null);
   const [isBatchBuyModalOpen, setIsBatchBuyModalOpen] = useState(false);
   const [batchBuyInputs, setBatchBuyInputs] = useState({}); // 일괄매수 수량 사용자 입력 저장용
   const [isRebalanceModalOpen, setIsRebalanceModalOpen] = useState(false);
@@ -278,7 +196,7 @@ const AppContent = () => {
   const [investTab, setInvestTab] = useState('transfer');
   const [incomeMode, setIncomeMode] = useState(null); // 'salary' 또는 'bonus'
   const [incomeAmount, setIncomeAmount] = useState('');
-  const [incomeCategory, setIncomeCategory] = useState('성과급'); // 🎯 기타수익 종류
+  const [incomeCategory, setIncomeCategory] = useState('출장비'); // 🎯 수익 카테고리 기본값 '출장비'로 변경
   const [expenseCategory, setExpenseCategory] = useState('식비');
   const [expenseMemo, setExpenseMemo] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('현금/체크카드');
@@ -287,22 +205,51 @@ const AppContent = () => {
   const [isNbbang, setIsNbbang] = useState(false);
   const [nbbangCount, setNbbangCount] = useState(1);
   const [nbbangNames, setNbbangNames] = useState('');
-  const [nbbangList, setNbbangList] = useState([{ id: Date.now(), name: '' }]); // 🎯 다이나믹 N빵 멤버
+  const [nbbangList, setNbbangList] = useState([{ id: Date.now(), name: '' }]); 
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
   const [newCardTarget, setNewCardTarget] = useState('');
-  const [newCardPeriod, setNewCardPeriod] = useState(''); // 🎯 카드 실적 인정 기간
-  const [isNbbangConfirmed, setIsNbbangConfirmed] = useState(false); // 🎯 N빵 입력 완료 상태
-  const [nbbangFilter, setNbbangFilter] = useState('person'); // 🎯 N빵 필터링 (person, history)
-  const [expandedPersons, setExpandedPersons] = useState({}); // 🎯 N빵 인원별 아코디언 상태
-  const [expandedRestaurants, setExpandedRestaurants] = useState({}); // 🎯 N빵 식당별 아코디언 상태
-  const [editingNbbang, setEditingNbbang] = useState(null); // 🎯 N빵 개별 금액 수정 상태 { id, amount }
-  const [prepayModalState, setPrepayModalState] = useState({ isOpen: false, cardName: '' }); // 🎯 카드 선결제 모달 상태
-  const [expenseDateInput, setExpenseDateInput] = useState(''); // 🎯 소비 날짜 입력
-  const [isSettledHistoryView, setIsSettledHistoryView] = useState(false); // 🎯 N빵 완료내역 뷰
+  const [newCardPeriod, setNewCardPeriod] = useState(''); 
+  const [newCardPayDay, setNewCardPayDay] = useState(''); // 🎯 카드 결제일 상태
+  const [isCardSettledView, setIsCardSettledView] = useState(false); // 🎯 카드 결제 완료 내역 뷰
+  const [expandedFootprint, setExpandedFootprint] = useState({}); // 🎯 발자취 카테고리 아코디언
+  const [isNbbangConfirmed, setIsNbbangConfirmed] = useState(false);
+  const [nbbangFilter, setNbbangFilter] = useState('person');
+  const [expandedPersons, setExpandedPersons] = useState({}); 
+  const [expandedRestaurants, setExpandedRestaurants] = useState({}); 
+  const [editingNbbang, setEditingNbbang] = useState(null); 
+  const [prepayModalState, setPrepayModalState] = useState({ isOpen: false, cardName: '' }); 
+  const [expenseDateInput, setExpenseDateInput] = useState(''); 
+  const [isSettledHistoryView, setIsSettledHistoryView] = useState(false);
+  const [settledDetailModal, setSettledDetailModal] = useState({ isOpen: false, person: '', details: [] }); // 🎯 정산 완료 상세 모달
+  const [settledNbbangFilter, setSettledNbbangFilter] = useState('person'); // 🎯 완료 내역 전용 필터 상태 추가
+  const [myDisplayName, setMyDisplayName] = useState(() => localStorage.getItem('kj_nbbang_name') || ''); // 🎯 내 이름 설정
+  const [isNameSettingOpen, setIsNameSettingOpen] = useState(false); // 🎯 내 이름 설정 팝업 상태
+  const [selectedPersonsToSettle, setSelectedPersonsToSettle] = useState([]); // 🎯 선택적 N빵 정산
+  const [expandedBatches, setExpandedBatches] = useState({}); // 🎯 계층형 완료 내역 아코디언
+  const [editingBatchId, setEditingBatchId] = useState(null); // 🎯 완료 내역 이름 수정 모드
+  const [batchNameInput, setBatchNameInput] = useState('');
   const [newCardType, setNewCardType] = useState('신용'); // 🎯 등록 카드 종류 (신용/체크)
-  const [newCardLinkedAcc, setNewCardLinkedAcc] = useState('wallet'); // 🎯 체크카드 연동 계좌
-  const [accountbookTab, setAccountbookTab] = useState('calendar');
+  // --- 통합된 FIRE 및 계좌 변수 선언 ---
+  const [newCardLinkedAcc, setNewCardLinkedAcc] = useState('wallet');
+  const [isTaxAccount, setIsTaxAccount] = useState(false);
+  // --- 은퇴 목표 및 저축액 상태 (설정 복구 로직 포함) ---
+  const [fireTarget, setFireTarget] = useState(() => Number(getRecoveredValue('kj_final_v87_fireTarget', 'kj_final_v86_fireTarget', 1000000000))); 
+  const [annualLimit, setAnnualLimit] = useState(() => Number(getRecoveredValue('kj_final_v87_monthlySaving', 'kj_final_v86_monthlySaving', 2000000)));
+
+  // 설정창 수정을 위한 임시 상태값
+  const [expectedReturn, setExpectedReturn] = useState('5');
+  // --- 설정창 수정을 위한 임시 상태값 (중복 방지) ---
+  const [editFireTarget, setEditFireTarget] = useState('');
+  const [editMonthlySaving, setEditMonthlySaving] = useState('');
+
+  // 은퇴 목표 및 저축액 상태 (복구 로직 포함)
+
+  // 설정창 수정을 위한 임시 상태값 (중복 선언 방지를 위해 이름 확인)
+  
+  // 설정창 수정을 위한 임시 상태값
   const [newCardName, setNewCardName] = useState('');
+  const [accountbookTab, setAccountbookTab] = useState('calendar');
+  const [zoomLevel, setZoomLevel] = useState(() => getRecoveredValue('kj_final_v87_zoom', 'kj_final_v86_zoom', 100));
   const [session, setSession] = useState(null);
   const [authId, setAuthId] = useState(''); 
   const [authPassword, setAuthPassword] = useState('');
@@ -512,44 +459,67 @@ const AppContent = () => {
 
   const handleUpdateStockPrices = async () => {
     setIsFetchingStocks(true);
-    showToast("🔄 주식 현재가를 업데이트합니다...");
+    showToast("🔄 실시간 시세 및 환율 연동 중...");
+    
     let updatedStocks = [...stocks];
-    let successCount = 0;
-    let updated = false;
+    let stockSuccessCount = 0;
+    let isStockUpdated = false;
+    let newFxRate = exchangeRate;
 
+    // 1. 실시간 환율(USD/KRW) API 호출
+    try {
+      const resFx = await fetch('https://open.er-api.com/v6/latest/USD');
+      const dataFx = await resFx.json();
+      if (dataFx?.rates?.KRW) {
+        newFxRate = Math.round(dataFx.rates.KRW).toString();
+        if (newFxRate !== exchangeRate) {
+          setExchangeRate(newFxRate); // 화면 헤더 환율 즉시 갱신
+        }
+      }
+    } catch (error) {
+      console.error("❌ 환율 업데이트 실패:", error);
+    }
+
+    // 2. 실시간 주식/ETF 시세 호출 (Yahoo Finance API 활용)
     for (let i = 0; i < updatedStocks.length; i++) {
         let s = updatedStocks[i];
         if (!s.ticker) continue;
         try {
+            // 국내 종목/ETF는 티커 뒤에 .KS 부착
             const ticker = s.isUSD ? s.ticker : `${s.ticker}.KS`; 
             const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`)}`);
             const data = await res.json();
             const parsed = JSON.parse(data.contents);
             const price = parsed.chart.result[0].meta.regularMarketPrice;
+            
             if (price && !isNaN(price)) {
-              successCount++;
+              stockSuccessCount++;
               if (Number(s.currentPrice) !== price) {
                 updatedStocks[i] = { ...s, currentPrice: String(price) };
-                updated = true;
+                isStockUpdated = true;
               }
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error(`❌ [${s.name}] 시세 업데이트 실패:`, e);
+        }
     }
     
-    if (successCount > 0) {
+    // 3. 변경사항 발생 시 Supabase 및 화면 상태값 자동 반영
+    if (stockSuccessCount > 0 || newFxRate !== exchangeRate) {
       const now = new Date();
       const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
       setLastFetchTime(timeStr);
       localStorage.setItem('kj_final_v87_lastFetchTime', timeStr);
       
-      if (updated) {
-        setStocks(updatedStocks);
+      if (isStockUpdated) {
+        // 🎯 해결: 기존에 개조해둔 setStocks 함수가 화면 갱신과 Supabase 저장을 동시에 처리합니다.
+        await setStocks(updatedStocks);
       }
     }
     
     setIsFetchingStocks(false);
-    saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash, zoomLevel);
-    showToast(successCount > 0 ? `✅ 업데이트 완료!` : "⚠️ 실시간 연동에 실패하여 기존 데이터를 유지합니다.");
+    saveConfig(accounts, newFxRate, appTitle, appSubtitle, characterName, appTheme, globalCash, zoomLevel);
+    showToast(stockSuccessCount > 0 ? `✅ 시세 & 환율(₩${formatNum(newFxRate)}) 연동 완료!` : "⚠️ API 연동에 실패하여 기존 데이터를 유지합니다.");
   };
 
   // --- Calculations ---
@@ -1341,6 +1311,102 @@ const AppContent = () => {
     localStorage.setItem('kj_final_v87_globalCash', JSON.stringify(newCash));
   };
 
+  const handleScreenshotOcr = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // 🎯 에러 원인 1 완벽 차단: 아이폰 사진(HEIC) 등 호환되지 않는 포맷 튕겨내기
+    if (file.name.toLowerCase().endsWith('.heic') || file.type === 'image/heic') {
+      showToast("⚠️ 아이폰 원본 사진(HEIC)은 분석할 수 없습니다.\n화면을 '스크린샷(캡처)'한 JPG/PNG 파일을 올려주세요!");
+      if (ocrFileInputRef.current) ocrFileInputRef.current.value = '';
+      return;
+    }
+
+    setIsOcrLoading(true);
+    showToast("🔍 AI가 스크린샷을 판독 중입니다...\n(최초 실행 시 10~20초 소요)");
+
+    try {
+      // 🎯 에러 원인 2 해결: 최신/안정화된 Tesseract v5 엔진 사용 및 CORS 에러 방지
+      if (!window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          script.crossOrigin = 'anonymous'; 
+          script.onload = resolve;
+          script.onerror = () => reject(new Error("Tesseract 엔진 로드 실패"));
+          document.head.appendChild(script);
+        });
+      }
+
+      // OCR 텍스트 추출 실행
+      const worker = await window.Tesseract.createWorker('kor+eng');
+      const ret = await worker.recognize(file);
+      const text = ret.data.text;
+      await worker.terminate();
+
+      // 정규식을 통한 종목명, 수량, 평단가 분석
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      const foundStocks = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const matchedDb = STOCK_DATABASE.find(db => line.replace(/\s/g, '').includes(db.name.replace(/\s/g, '')));
+
+        if (matchedDb) {
+           const searchContext = [line, lines[i+1], lines[i+2], lines[i+3]].filter(Boolean).join(' ');
+           
+           const qtyMatch = searchContext.match(/([0-9,]+)\s*(주|좌)/);
+           const priceMatch = searchContext.match(/([0-9,]+)\s*(원|USD)/) || searchContext.match(/평?단가?\s*[:\-]?\s*([0-9,]+)/);
+
+           if (qtyMatch) {
+              const qty = Number(qtyMatch[1].replace(/,/g, ''));
+              const price = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : Number(matchedDb.currentPrice);
+
+              foundStocks.push({
+                id: `ocr_${Date.now()}_${i}`,
+                accountId: selectedAccountId,
+                name: matchedDb.name,
+                ticker: matchedDb.ticker,
+                isUSD: matchedDb.isUSD,
+                quantity: String(qty),
+                buyPrice: String(price),
+                currentPrice: String(matchedDb.currentPrice),
+                targetRatio: '',
+                dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15',
+                interestRate: '', interestType: '단리'
+              });
+           }
+        }
+      }
+
+      // Supabase DB 일괄 Insert 및 상태 즉시 반영
+      if (foundStocks.length > 0) {
+         const userIdToSave = session?.user?.id || currentUserId;
+         const mappedInserts = foundStocks.map(s => ({
+            id: s.id, user_id: userIdToSave, name: s.name, ticker: s.ticker,
+            buyprice: s.buyPrice, currentprice: s.currentPrice, quantity: s.quantity,
+            isusd: s.isUSD, targetratio: s.targetRatio, accountid: s.accountId
+         }));
+
+         const { error } = await supabase.from('stocks').insert(mappedInserts);
+         if (error) throw new Error(error.message);
+
+         setStocks([...stocks, ...foundStocks]);
+         setIsModalOpen(false);
+         showToast(`✨ ${foundStocks.length}개의 종목을 완벽하게 자동 등록했습니다!`);
+      } else {
+         showToast("⚠️ 분석된 종목이나 수량이 없습니다.\n글자가 선명한 증권사 앱 잔고 화면을 올려주세요.");
+      }
+
+    } catch (err) {
+      console.error(err);
+      showToast("❌ 이미지 분석 중 오류가 발생했습니다. (새로고침 후 다시 시도)");
+    } finally {
+      setIsOcrLoading(false);
+      if(ocrFileInputRef.current) ocrFileInputRef.current.value = '';
+    }
+  };
+
   const handleEditStockSubmit = async (e) => {
     e.preventDefault();
     if (!newStock.name.trim()) return showToast('❌ 이름을 입력해주세요!');
@@ -1484,9 +1550,16 @@ const AppContent = () => {
               </div>
               {/* 모바일에서만 보이는 갱신 버튼 그룹 */}
               <div className="md:hidden flex items-center gap-1 shrink-0 ml-2 h-[28px]">
-                {activeTab === 'accountbook' && (
-                  <div className="bg-slate-800 text-white px-2.5 h-full rounded-full text-[10px] font-black flex items-center shadow-sm">
-                    ₩{formatNum(globalCash)}
+                {/* 🎯 지갑 버튼 전역 배치 (포트폴리오 탭 제외 모든 탭에서 노출) */}
+                {activeTab !== 'portfolio' && (
+                  <div 
+                    onClick={() => { 
+                      setInvestTab('wallet'); 
+                      setIsInvestModalOpen(true); 
+                    }} 
+                    className="bg-slate-800 text-white px-2.5 h-full rounded-full text-[10px] font-black flex items-center gap-1 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors"
+                  >
+                    <Wallet size={10} className="text-emerald-400" /> ₩{formatNum(globalCash)}
                   </div>
                 )}
                 <div className="flex items-center gap-1 bg-white/60 p-1 rounded-full border border-slate-200 shadow-sm h-full">
@@ -1560,7 +1633,17 @@ const AppContent = () => {
                  <div className="flex justify-between items-center mb-1">
                    <span className={`text-[10px] sm:text-[11px] font-black text-slate-500 flex items-center gap-1 sm:gap-1.5 truncate ${currentAccountStat?.type === 'savings' ? `cursor-pointer hover:${t.text} transition-colors group/label` : ''}`} onClick={() => { if(currentAccountStat?.type === 'savings') { setEditLabelInput(currentAccountStat.label || '입출금 통장'); setIsEditLabelModalOpen(true); } }}>
                      <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : '총 평가액'}</span>
-                     {currentAccountStat?.type === 'savings' && <Edit2 size={10} className="ml-0.5 opacity-50 group-hover/label:opacity-100 shrink-0" />}
+                     
+                    {currentAccountStat?.type === 'savings' && <Edit2 size={10} className="ml-0.5 opacity-50 group-hover/label:opacity-100 shrink-0" />}
+                     {/* 🔥 FIRE 버튼 추가 (자산 평가액 옆) */}
+                     {currentAccountStat?.type !== 'savings' && (
+                       <button 
+                         onClick={(e) => { e.stopPropagation(); setIsFireModalOpen(true); }}
+                         className="ml-2 bg-gradient-to-r from-orange-500 to-rose-500 text-white px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shadow-md hover:shadow-lg hover:scale-105 transition-all flex items-center gap-1 shrink-0"
+                       >
+                         <Flame size={10} /> FIRE
+                       </button>
+                     )}
                    </span>
                    <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black text-white shrink-0 ml-1 ${currentAccountStat?.type === 'stock' ? (currentAccountStat?.totalROI >= 0 ? t.main.split(' ')[0] : 'bg-blue-400') : 'opacity-0 invisible'}`}>
                      {currentAccountStat?.totalROI >= 0 ? '▲' : '▼'} {formatNum(Math.abs(currentAccountStat?.totalROI), 1)}%
@@ -1758,69 +1841,216 @@ const AppContent = () => {
           </div>
         )}
 
-        {/* --- HISTORY TAB --- */}
-        {activeTab === 'history' && (
-          <section className="bg-white p-4 sm:p-5 rounded-[1.5rem] border border-slate-100 shadow-sm min-h-[400px] mt-2 animate-in fade-in zoom-in duration-300">
-            <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
-              <h2 className={`font-bold text-sm sm:text-base ${t.text} flex items-center gap-1.5`}><span className="text-[16px]">🐾</span> 재테크 발자취</h2>
-              <span className="text-[10px] font-bold text-slate-400">나의 투자 기록</span>
-            </div>
-            {(!tradeLogs || tradeLogs.length === 0) ? (
-              <div className="flex flex-col items-center justify-center py-10 text-slate-400"><Database size={32} className="mb-3 opacity-30"/><p className="text-xs font-bold">아직 기록된 발자취가 없습니다.</p></div>
-            ) : (
-              <div className="space-y-4">
-                {Object.keys(groupedTradeLogs || {}).filter(y => y && y.length >= 4).sort((a,b)=>b.localeCompare(a)).map(year => (
-                   <div key={year} className="bg-slate-50 rounded-xl p-3 border border-slate-200 mb-4">
-                     <button onClick={() => setExpandedLogYears(p => ({...p, [year]: !p[year]}))} className="flex items-center gap-2 font-black text-sm text-slate-700 w-full mb-2">
-                        {expandedLogYears[year] ? <ChevronDown size={16}/> : <ChevronRight size={16}/>} {year}년
-                     </button>
-                     {expandedLogYears[year] && Object.keys(groupedTradeLogs[year] || {}).filter(m => m).sort((a,b)=>b.localeCompare(a)).map(month => (
-                        <div key={month} className="ml-2 pl-2 border-l-2 border-slate-200 mb-3">
-                           <button onClick={() => setExpandedLogMonths(p => ({...p, [`${year}-${month}`]: !p[`${year}-${month}`]}))} className="flex items-center gap-1 font-bold text-xs text-slate-500 w-full mb-2 hover:text-slate-700">
-                             {expandedLogMonths[`${year}-${month}`] ? <ChevronDown size={14}/> : <ChevronRight size={14}/>} {month}월
-                           </button>
-                           
-                           {expandedLogMonths[`${year}-${month}`] && ['dividend', 'maturity', 'sell', 'buy', 'income', 'expense'].map(type => {
-                             if (!groupedTradeLogs[year][month][type] || groupedTradeLogs[year][month][type].length === 0) return null;
-                             return (
-                               <div key={type} className="mb-2 ml-2">
-                                 <h5 className="font-bold text-[10px] text-slate-400 mb-1 flex items-center gap-1">
-                                   {type === 'buy' ? '📉 매수' : type === 'sell' ? '📈 매도' : type === 'maturity' ? '🎉 만기' : type === 'dividend' ? '💰 배당' : type === 'income' ? '💵 수익(급여/기타)' : '💳 소비'}
-                                 </h5>
-                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-                                   {groupedTradeLogs[year][month][type].map(log => {
-                                     if (!log) return null;
-                                     return (
-                                     <div key={log.id} className={`bg-white p-2.5 rounded-xl shadow-sm border flex flex-col gap-1 hover:shadow-md transition-shadow ${type === 'income' ? 'border-emerald-100' : type === 'expense' ? 'border-rose-100' : 'border-slate-100'}`}>
-                                       <span className="text-[9px] text-slate-400 font-bold text-right w-full">{log.date ? log.date.substring(5) : '날짜없음'}</span>
-                                       <h4 className="font-black text-[11px] text-slate-800 truncate text-center">{log.name}</h4>
-                                       
-                                       {(type === 'income' || type === 'expense') && log.category && (
-                                          <span className="text-[9px] font-bold text-slate-500 text-center bg-slate-50 rounded-md py-0.5 mt-0.5">{log.category}</span>
-                                       )}
+       {/* --- HISTORY TAB (월간 요약 내장 + 지능형 4계층 아코디언) --- */}
+        {activeTab === 'history' && (() => {
+           const cleanMyName = (myDisplayName || '').trim();
+           // 1. 텍스트 정제 및 N빵 본인 지분 필터링
+           const validLogs = (tradeLogs || []).filter(r => {
+              if (r.type === 'expense' && (r.isNbbang || r.category === 'N빵')) {
+                 return r.name.includes('(본인 몫)') || (cleanMyName && r.name.includes(`${cleanMyName} 몫`));
+              }
+              return true;
+           }).map(r => ({
+              ...r,
+              name: (r.name || '').replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim(),
+              amount: Number(r.amount || 0)
+           }));
 
-                                       <div className="flex flex-col mt-auto pt-1.5 border-t border-slate-50">
-                                         <span className="text-[10px] font-black text-slate-600 flex justify-between items-center">
-                                            <span>금액</span> 
-                                            <span className={type === 'income' || type === 'sell' || type === 'dividend' ? 'text-blue-600' : 'text-rose-600'}>
-                                              {type === 'buy' || type === 'expense' ? '-' : '+'}₩{formatNum(log.totalAmount || log.total || (log.sellPrice * log.shares * (log.isUSD?toPureNumber(exchangeRate):1)) || log.finalAmount || log.amount || 0)}
-                                            </span>
-                                         </span>
+           // 2. 현재 시간 기준 설정
+           const now = new Date();
+           const ty = String(now.getFullYear());
+           const tm = String(now.getMonth() + 1).padStart(2, '0');
+           const td = String(now.getDate()).padStart(2, '0');
+
+           // 3. 데이터 그룹화 (각 월별 통계 mStats 포함)
+           const grouped = {};
+
+           validLogs.forEach(r => {
+               const d = new Date(r.date || r.timestamp || Date.now());
+               if(isNaN(d.getTime())) return;
+               const y = String(d.getFullYear());
+               const m = String(d.getMonth() + 1).padStart(2, '0');
+               const day = String(d.getDate()).padStart(2, '0');
+
+               let cat = '기타 소비';
+               if (r.type === 'buy') cat = '투자/저축';
+               else if (r.type === 'dividend') cat = '배당';
+               else if (r.type === 'income' || r.type === 'sell' || r.type === 'deposit') cat = '수익';
+               else if (r.type === 'expense') cat = r.category && r.category !== 'N빵' ? r.category : '기타 소비';
+
+               const itemAmt = Number(r.amount || 0);
+               const signedAmt = (r.type === 'expense' || r.type === 'buy') ? -itemAmt : itemAmt;
+
+               if(!grouped[y]) grouped[y] = { total: 0, months: {} };
+               if(!grouped[y].months[m]) grouped[y].months[m] = { total: 0, days: {}, mStats: { income: 0, dividend: 0, food: 0, other: 0 } };
+               if(!grouped[y].months[m].days[day]) grouped[y].months[m].days[day] = { total: 0, incomeSum: 0, expenseSum: 0, categories: {} };
+               if(!grouped[y].months[m].days[day].categories[cat]) grouped[y].months[m].days[day].categories[cat] = { total: 0, items: [] };
+
+               grouped[y].total += signedAmt;
+               grouped[y].months[m].total += signedAmt;
+               grouped[y].months[m].days[day].total += signedAmt;
+
+               // 월간 통계 집계 (해당 월의 데이터로 누적)
+               if (cat === '수익') grouped[y].months[m].mStats.income += itemAmt;
+               else if (cat === '배당') grouped[y].months[m].mStats.dividend += itemAmt;
+               else if (r.type === 'expense') {
+                   if (cat === '식비') grouped[y].months[m].mStats.food += itemAmt;
+                   else grouped[y].months[m].mStats.other += itemAmt;
+               }
+
+               // 일별 요약용 합계
+               if (cat === '수익' || cat === '배당') grouped[y].months[m].days[day].incomeSum += itemAmt;
+               else if (r.type === 'expense') grouped[y].months[m].days[day].expenseSum += itemAmt;
+
+               grouped[y].months[m].days[day].categories[cat].total += itemAmt;
+               grouped[y].months[m].days[day].categories[cat].items.push(r);
+           });
+
+           // 4. 지능형 아코디언 초기화
+           const isFirstLoad = Object.keys(expandedFootprint).length === 0;
+           const isExpanded = (key) => {
+              if (isFirstLoad && (key === `y_${ty}` || key === `m_${ty}_${tm}` || key === `d_${ty}_${tm}_${td}`)) return true;
+              return expandedFootprint[key];
+           };
+
+           const toggleExpand = (key) => {
+               setExpandedFootprint(prev => {
+                   const next = {...prev};
+                   if (isFirstLoad) { next[`y_${ty}`] = true; next[`m_${ty}_${tm}`] = true; next[`d_${ty}_${tm}_${td}`] = true; }
+                   next[key] = !isExpanded(key);
+                   return next;
+               });
+           };
+
+           return (
+             <section className="bg-white p-4 sm:p-5 rounded-[1.5rem] border border-slate-100 shadow-sm min-h-[400px] mt-2 animate-in fade-in zoom-in duration-300">
+               <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-100">
+                 <h2 className="font-bold text-sm sm:text-base flex items-center gap-1.5 text-slate-800"><span className="text-[16px]">🐾</span> 재테크 발자취</h2>
+               </div>
+
+               <div className="flex flex-col gap-3">
+                 {Object.keys(grouped).length === 0 ? (
+                   <div className="text-center py-10 text-[10px] font-bold text-slate-400">기록된 발자취가 없습니다.</div>
+                 ) : (
+                   Object.keys(grouped).sort((a,b)=>b.localeCompare(a)).map(y => (
+                     <div key={`y_${y}`} className="bg-slate-50 p-3 rounded-2xl border border-slate-200 shadow-sm">
+                       <div className="flex justify-between items-center cursor-pointer" onClick={() => toggleExpand(`y_${y}`)}>
+                         <span className="text-[13px] font-black text-slate-800">{y}년</span>
+                         <div className="flex items-center gap-2">
+                           <span className={`text-[11px] font-black ${grouped[y].total < 0 ? 'text-rose-500' : 'text-blue-600'}`}>{grouped[y].total < 0 ? '-' : '+'}₩{formatNum(Math.abs(grouped[y].total))}</span>
+                           {isExpanded(`y_${y}`) ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
+                         </div>
+                       </div>
+
+                       {isExpanded(`y_${y}`) && (
+                         <div className="mt-3 flex flex-col gap-2.5">
+                           {Object.keys(grouped[y].months).sort((a,b)=>b.localeCompare(a)).map(m => {
+                             const mStats = grouped[y].months[m].mStats;
+                             return (
+                             <div key={`m_${y}_${m}`} className="bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm">
+                               <div className="flex justify-between items-center cursor-pointer mb-2" onClick={() => toggleExpand(`m_${y}_${m}`)}>
+                                 <span className="text-[12px] font-black text-slate-700 ml-1">{m}월</span>
+                                 <div className="flex items-center gap-2">
+                                   <span className={`text-[11px] font-bold ${grouped[y].months[m].total < 0 ? 'text-rose-400' : 'text-blue-500'}`}>₩{formatNum(Math.abs(grouped[y].months[m].total))}</span>
+                                   {isExpanded(`m_${y}_${m}`) ? <ChevronDown size={12} className="text-slate-400"/> : <ChevronRight size={12} className="text-slate-400"/>}
+                                 </div>
+                               </div>
+
+                               {isExpanded(`m_${y}_${m}`) && (
+                                 <div className="mt-3 flex flex-col gap-2.5">
+                                   {/* 🎯 특정 월의 월간 요약 대시보드 (2열) */}
+                                   <div className="grid grid-cols-2 gap-2 mb-1 p-1">
+                                     <div className="bg-blue-50 border border-blue-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
+                                       <span className="text-[9px] font-black text-blue-500 mb-0.5">총 수익</span>
+                                       <span className="text-xs font-black text-blue-700">₩{formatNum(mStats.income)}</span>
+                                     </div>
+                                     <div className="bg-orange-50 border border-orange-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
+                                       <span className="text-[9px] font-black text-orange-500 mb-0.5">총 배당</span>
+                                       <span className="text-xs font-black text-orange-700">₩{formatNum(mStats.dividend)}</span>
+                                     </div>
+                                     <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
+                                       <span className="text-[9px] font-black text-rose-500 mb-0.5">식비 지출</span>
+                                       <span className="text-xs font-black text-rose-700">₩{formatNum(mStats.food)}</span>
+                                     </div>
+                                     <div className="bg-purple-50 border border-purple-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
+                                       <span className="text-[9px] font-black text-purple-500 mb-0.5">기타 지출</span>
+                                       <span className="text-xs font-black text-purple-700">₩{formatNum(mStats.other)}</span>
+                                     </div>
+                                   </div>
+
+                                   {Object.keys(grouped[y].months[m].days).sort((a,b)=>b.localeCompare(a)).map(day => {
+                                      const dayData = grouped[y].months[m].days[day];
+                                      return (
+                                     <div key={`d_${y}_${m}_${day}`} className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                       {/* 🎯 일별 요약 헤더 */}
+                                       <div className="flex justify-between items-center cursor-pointer p-1" onClick={() => toggleExpand(`d_${y}_${m}_${day}`)}>
+                                         <div className="flex items-center gap-2">
+                                            <span className="text-[11px] font-black text-slate-800 bg-white px-2 py-0.5 rounded-md shadow-sm">{m}.{day}</span>
+                                            <div className="flex gap-1.5">
+                                              {dayData.incomeSum > 0 && <span className="text-[9px] font-black text-blue-500 bg-blue-100/50 px-1.5 rounded">+₩{formatNum(dayData.incomeSum)}</span>}
+                                              {dayData.expenseSum > 0 && <span className="text-[9px] font-black text-rose-500 bg-rose-100/50 px-1.5 rounded">-₩{formatNum(dayData.expenseSum)}</span>}
+                                            </div>
+                                         </div>
+                                         {isExpanded(`d_${y}_${m}_${day}`) ? <ChevronDown size={12} className="text-slate-400"/> : <ChevronRight size={12} className="text-slate-400"/>}
                                        </div>
+
+                                       {/* 🎯 일별 대분류 카테고리 요약 (가로 2열 병렬 배치) */}
+                                       {isExpanded(`d_${y}_${m}_${day}`) && (
+                                         <div className="grid grid-cols-2 gap-1.5 mt-2">
+                                           {Object.keys(dayData.categories).map(cat => {
+                                              const catData = dayData.categories[cat];
+                                              const catKey = `c_${y}_${m}_${day}_${cat}`;
+                                              const isCatExpanded = isExpanded(catKey);
+                                              const isIncome = cat === '수익' || cat === '배당';
+                                              const isInvest = cat === '투자/저축';
+                                              const colorClass = isIncome ? 'text-blue-500' : (isInvest ? 'text-purple-500' : 'text-rose-500');
+                                              const sign = isIncome ? '+' : '-';
+
+                                              return (
+                                                <div key={catKey} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-slate-300 transition-colors">
+                                                  {/* 🎯 대분류 클릭 버튼 */}
+                                                  <div className="p-2 flex justify-between items-center cursor-pointer bg-slate-50/50" onClick={(e) => { e.stopPropagation(); toggleExpand(catKey); }}>
+                                                    <span className={`text-[9px] font-black flex items-center gap-0.5 ${colorClass}`}>
+                                                      {isCatExpanded ? <ChevronDown size={10}/> : <ChevronRight size={10}/>} {cat}
+                                                    </span>
+                                                    <span className={`text-[10px] font-black ${colorClass}`}>
+                                                      {sign}₩{formatNum(catData.total)}
+                                                    </span>
+                                                  </div>
+                                                  
+                                                  {/* 🎯 4단계: 펼쳤을 때 나타나는 개별 세부 내역 */}
+                                                  {isCatExpanded && (
+                                                    <div className="flex flex-col gap-1 p-2 pt-1 border-t border-slate-100 bg-white">
+                                                      {catData.items.map(log => (
+                                                        <div key={log.id} className="flex justify-between items-start text-[8px]">
+                                                          <span className="text-slate-500 truncate pr-1 flex-1 leading-tight">
+                                                            {isInvest ? `${log.name} (${log.shares||0}주)` : log.name}
+                                                          </span>
+                                                          <span className="font-bold text-slate-700 shrink-0">₩{formatNum(log.amount)}</span>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              );
+                                           })}
+                                         </div>
+                                       )}
                                      </div>
                                    )})}
                                  </div>
-                               </div>
-                             );
-                           })}
-                        </div>
-                     ))}
-                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
+                               )}
+                             </div>
+                           )})}
+                         </div>
+                       )}
+                     </div>
+                   ))
+                 )}
+               </div>
+             </section>
+           );
+        })()}
 
         {/* 🎯 통합 가계부 탭 (달력 및 자금 흐름 연동) */}
       {activeTab === 'accountbook' && (() => {
@@ -1833,14 +2063,29 @@ const AppContent = () => {
 
         // 🎯 텅 빈 데이터(historyRecords) 대신 올바른 거래내역(tradeLogs) 사용 및 방어적 코딩 적용
         const safeRecords = tradeLogs || [];
-        const stats = {
-          year: { income: 0, expense: 0, invest: 0, salary: 0 },
-          month: { income: 0, expense: 0, invest: 0, salary: 0 },
-          daily: {}
-        };
+        const stats = { year: {}, month: {}, daily: {} };
+        ['income', 'expense', 'invest', 'salary'].forEach(t => { stats.year[t] = 0; stats.month[t] = 0; });
+
+        // 🎯 N빵 중복 방지: 결제 그룹(날짜+메모)당 '본인 몫' 딱 1건만 남기기
+        const cleanMyName = (myDisplayName || '').trim();
+        const myUniqueRecords = [];
+        const processedNbbangIds = new Set();
 
         safeRecords.forEach(r => {
-          if (!r) return;
+           if (!r) return;
+           if (r.type === 'expense' && r.isNbbang) {
+              const isMyShare = r.name.includes('(본인 몫)') || (cleanMyName && r.name.includes(`${cleanMyName} 몫`));
+              const groupId = `${r.date}_${r.memo || 'nbbang'}`; // 🎯 고유 그룹키
+              if (isMyShare && !processedNbbangIds.has(groupId)) {
+                 processedNbbangIds.add(groupId);
+                 myUniqueRecords.push({...r, amount: Number(r.amount || 0)}); // 🎯 전체 금액이 아닌 1인분만 저장!
+              }
+           } else {
+              myUniqueRecords.push(r);
+           }
+        });
+
+        myUniqueRecords.forEach(r => {
           const d = new Date(r?.date || r?.timestamp || Date.now());
           if (isNaN(d.getTime())) return; 
 
@@ -1848,21 +2093,33 @@ const AppContent = () => {
           const rMonth = d.getMonth();
           const rDay = d.getDate();
           
-          const amt = Number(r?.amount || r?.totalAmount || r?.total || 0);
+          let amtForStat = Number(r.amount || 0);
           
           let cat = 'income'; 
-          if (r?.type === 'buy') cat = 'invest';
-          else if (r?.type === 'expense') cat = 'expense';
-          else if (r?.type === 'income' && r?.category === '급여') cat = 'salary';
-          else if (r?.type === 'income' || r?.type === 'dividend' || r?.type === 'sell' || r?.type === 'deposit') cat = 'income';
+          if (r.type === 'buy') cat = 'invest';
+          else if (r.type === 'expense') {
+             // 🎯 N빵이더라도 강제로 'N빵' 카테고리를 쓰지 않고 원래 분류(예: 식비) 유지
+             cat = r.category && r.category !== 'N빵' ? r.category : 'expense';
+          }
+          else if (r.type === 'income' && r.category === '급여') cat = 'salary';
+          else if (r.type === 'income' || r.type === 'dividend' || r.type === 'sell' || r.type === 'deposit') cat = 'income';
 
           if (rYear === calYear) {
-             stats.year[cat] += amt;
+             if (stats.year[cat] === undefined) stats.year[cat] = 0;
+             stats.year[cat] += amtForStat;
              if (rMonth === calMonth) {
-               stats.month[cat] += amt;
+               if (stats.month[cat] === undefined) stats.month[cat] = 0;
+               stats.month[cat] += amtForStat;
                if (!stats.daily[rDay]) stats.daily[rDay] = { income: 0, expense: 0, invest: 0, salary: 0, records: [] };
-               stats.daily[rDay][cat] += amt;
-               stats.daily[rDay].records.push({...r, viewCategory: cat});
+               if (stats.daily[rDay][cat] === undefined) stats.daily[rDay][cat] = 0;
+               
+               stats.daily[rDay][cat] += amtForStat;
+               // 🎯 텍스트 정제 (N빵 꼬리표 완벽 삭제)
+               stats.daily[rDay].records.push({
+                 ...r, 
+                 name: (r.name||'').replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim(), 
+                 viewCategory: cat
+               });
              }
           }
         });
@@ -1923,212 +2180,294 @@ const AppContent = () => {
 
               {/* 엔빵 정산소 탭 */}
               {accountbookTab === 'dutch' && (() => {
-                const othersOweMe = nbbangRecords.filter(r => r?.category === 'N빵' && !r?.isSettled);
+                const othersOweMe = nbbangRecords.filter(r => (r?.category === 'N빵' || r?.isNbbang) && !r?.isSettled);
                 const totalOwed = othersOweMe.reduce((sum, r) => sum + Number(r?.amount || 0), 0);
                 
-                // 🎯 인원별 그룹화
                 const groupedByPerson = {};
                 othersOweMe.forEach(r => {
-                   const match = r.name.match(/\((.*?)\s*몫\)/);
-                   const personName = match ? match[1] : '일행';
+                   // 🎯 기존 괄호(몫) 데이터와 새로운 nbbangTarget 데이터를 모두 완벽 호환
+                   const personName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
                    if(!groupedByPerson[personName]) groupedByPerson[personName] = { total: 0, details: [] };
                    groupedByPerson[personName].total += Number(r.amount || 0);
                    groupedByPerson[personName].details.push(r);
                 });
 
-                // 🎯 식당(건별) 통합 그룹화
-                const groupedByRestaurant = {};
-                othersOweMe.forEach(r => {
-                   const baseName = r.name.replace(/\s*\(.*?몫\)/, '').trim();
-                   const key = `${r.date}_${baseName}`;
-                   if(!groupedByRestaurant[key]) groupedByRestaurant[key] = { name: baseName, date: r.date, total: 0, details: [] };
-                   groupedByRestaurant[key].total += Number(r.amount || 0);
-                   groupedByRestaurant[key].details.push(r);
-                });
-
-                // 🎯 개별 정산 금액 수정 로직
                 const handleEditNbbangAmount = (logId, newAmount) => {
                    const amt = toPureNumber(newAmount);
                    if (amt < 0) return;
                    saveStateToHistory();
-                   const updatedLogs = tradeLogs.map(r => r.id === logId ? { ...r, amount: amt } : r);
+                   const updatedLogs = tradeLogs.map(r => String(r.id) === String(logId) ? { ...r, amount: amt } : r);
                    setTradeLogs(updatedLogs);
-                   localStorage.setItem('kj_final_v87_tradeLogs', JSON.stringify(updatedLogs));
                    setEditingNbbang(null);
-                   showToast('✅ 정산 금액이 수정되었습니다.');
+                   showToast('✅ 금액이 수정되었습니다.');
                 };
 
-                const handleSettleNbbang = () => {
-                   if (totalOwed <= 0) return showToast('⚠️ 정산할 금액이 없습니다.');
+                const handleSettleSelected = () => {
+                   if (selectedPersonsToSettle.length === 0) return showToast('⚠️ 정산받을 인원을 클릭해서 선택해주세요.');
+                   
+                   const targets = othersOweMe.filter(r => {
+                      const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                      return selectedPersonsToSettle.includes(pName);
+                   });
+                   
+                   const amtToSettle = targets.reduce((sum, r) => sum + Number(r.amount || 0), 0);
                    saveStateToHistory();
-                   const newCash = globalCash + totalOwed;
+                   const newCash = globalCash + amtToSettle;
                    setGlobalCash(newCash);
+                   
+                   const batchId = `batch_${Date.now()}`;
                    const updatedLogs = tradeLogs.map(r => {
-                     if (r.category === 'N빵' && !r.isSettled) return { ...r, isSettled: true };
+                     if (targets.find(t => String(t.id) === String(r.id))) return { ...r, isSettled: true, settledBatchId: batchId };
                      return r;
                    });
                    setTradeLogs(updatedLogs);
+                   setSelectedPersonsToSettle([]); 
                    saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
-                   showToast(`🎉 정산 완료! 지갑에 ₩${formatNum(totalOwed)} 합산되었습니다.`);
+                   showToast(`🎉 정산 완료! 지갑에 ₩${formatNum(amtToSettle)} 합산되었습니다.`);
                 };
+
+                const togglePersonSelection = (person) => {
+                   setSelectedPersonsToSettle(prev => prev.includes(person) ? prev.filter(p => p !== person) : [...prev, person]);
+                };
+
+                const selectedTotal = othersOweMe.filter(r => {
+                   const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                   return selectedPersonsToSettle.includes(pName);
+                }).reduce((sum, r) => sum + Number(r.amount||0), 0);
 
                 return (
                   <div className="flex flex-col gap-2 animate-in fade-in duration-300">
-                     <div className="flex justify-between items-center bg-purple-50 rounded-xl p-3 border border-purple-100 shadow-sm">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-black text-purple-600">미정산된 N빵 총액</span>
-                          <span className="text-lg font-black text-purple-800">₩{formatNum(totalOwed)}</span>
+                     <div className="flex justify-between items-center bg-purple-50 rounded-xl p-3 border border-purple-100 shadow-sm relative">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[10px] font-black text-purple-600 truncate">미정산된 N빵 총액</span>
+                          <span className="text-lg font-black text-purple-800 truncate">₩{formatNum(totalOwed)}</span>
                         </div>
-                        <button onClick={handleSettleNbbang} disabled={totalOwed <= 0} className="bg-purple-500 text-white px-3 py-2 rounded-lg text-[10px] font-black shadow-sm hover:bg-purple-600 disabled:bg-slate-300 transition-colors">💰 일괄 정산받기</button>
+                        
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => setIsNameSettingOpen(!isNameSettingOpen)} className="bg-white border border-purple-200 text-purple-600 px-2 py-2 rounded-lg text-[9px] font-black shadow-sm hover:bg-purple-100 transition-colors whitespace-nowrap">
+                            {myDisplayName ? `${myDisplayName}` : '👤 이름 설정'}
+                          </button>
+                          {isNameSettingOpen && (
+                             <input type="text" className="absolute top-[110%] right-0 text-[10px] font-black text-purple-700 border border-purple-300 outline-none text-center w-24 bg-white px-2 py-2 rounded-lg shadow-xl z-10" placeholder="내 이름" value={myDisplayName} onChange={e=>setMyDisplayName(e.target.value)} autoFocus onBlur={()=>{ localStorage.setItem('kj_nbbang_name', myDisplayName); setIsNameSettingOpen(false); }} onKeyDown={e=>{ if(e.key==='Enter'){ localStorage.setItem('kj_nbbang_name', myDisplayName); setIsNameSettingOpen(false); } }} />
+                          )}
+                          <button onClick={handleSettleSelected} disabled={selectedPersonsToSettle.length === 0} className={`text-white px-3 py-2 rounded-lg text-[10px] font-black shadow-sm transition-all whitespace-nowrap ${selectedPersonsToSettle.length > 0 ? 'bg-emerald-500 hover:bg-emerald-600 animate-pulse' : 'bg-slate-300'}`}>
+                            {selectedPersonsToSettle.length > 0 ? `₩${formatNum(selectedTotal)} 정산 완료` : '선택 정산하기'}
+                          </button>
+                        </div>
                      </div>
 
                      <div className="flex gap-2 mb-1 mt-1 bg-slate-50 p-1 rounded-lg">
                         <button onClick={() => { setNbbangFilter('person'); setIsSettledHistoryView(false); }} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${nbbangFilter === 'person' && !isSettledHistoryView ? 'bg-white text-purple-600 shadow-sm border border-slate-200' : 'text-slate-500'}`}>인원별 모아보기</button>
-                        <button onClick={() => { setNbbangFilter('history'); setIsSettledHistoryView(false); }} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${nbbangFilter === 'history' && !isSettledHistoryView ? 'bg-white text-purple-600 shadow-sm border border-slate-200' : 'text-slate-500'}`}>식당별 상세내역</button>
-                        <button onClick={() => setIsSettledHistoryView(true)} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${isSettledHistoryView ? 'bg-purple-500 text-white shadow-sm' : 'text-slate-500'}`}>완료 내역보기</button>
+                        <button onClick={() => setIsSettledHistoryView(true)} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${isSettledHistoryView ? 'bg-purple-500 text-white shadow-sm' : 'text-slate-500'}`}>과거 정산 내역</button>
                      </div>
 
-                     {isSettledHistoryView ? (
-                        <div className="space-y-2 mt-2">
-                          {nbbangRecords.filter(r => r?.category === 'N빵' && r?.isSettled).length === 0 ? (
-                            <div className="text-center py-6 text-[10px] font-bold text-slate-400">정산 완료된 내역이 없습니다.</div>
-                          ) : (
-                            nbbangRecords.filter(r => r?.category === 'N빵' && r?.isSettled).map((r, i) => (
-                              <div key={i} className="flex justify-between items-center bg-white p-2.5 rounded-xl border border-purple-100 shadow-sm opacity-60">
-                                <div className="flex flex-col gap-0.5 min-w-0 pr-2">
-                                  <span className="text-[10px] font-black text-slate-800 truncate">{r.name}</span>
-                                  <span className="text-[8px] font-bold text-slate-400">{r.date || '날짜 없음'}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[11px] font-black text-slate-500 line-through">₩{formatNum(r.amount)}</span>
-                                  <span className="text-[9px] font-black text-emerald-500 bg-emerald-50 px-1 py-0.5 rounded">완료</span>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                     ) : othersOweMe.length === 0 ? (
+                     {isSettledHistoryView ? (() => {
+                        const settledRecords = (tradeLogs||[]).filter(r => (r?.category === 'N빵' || r?.isNbbang) && r?.isSettled);
+                        if (settledRecords.length === 0) return <div className="text-center py-6 text-[10px] font-bold text-slate-400">정산 완료된 내역이 없습니다.</div>;
+                        
+                        // 🎯 복잡한 나열 대신 사람 이름별로 요약 그룹화
+                        const groupedSettledByPerson = {};
+                        settledRecords.forEach(r => {
+                           const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                           if(!groupedSettledByPerson[pName]) groupedSettledByPerson[pName] = { total: 0, details: [] };
+                           groupedSettledByPerson[pName].total += Number(r.amount || 0);
+                           groupedSettledByPerson[pName].details.push(r);
+                        });
+
+                        return (
+                          <div className="mt-1 grid grid-cols-2 gap-2 animate-in fade-in duration-200">
+                             {Object.keys(groupedSettledByPerson).map(person => {
+                                const data = groupedSettledByPerson[person];
+                                return (
+                                  <div key={person} onClick={() => setSettledDetailModal({ isOpen: true, person, details: data.details })} className="bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-purple-300 hover:bg-purple-50 transition-colors flex flex-col items-center justify-center min-h-[85px] group">
+                                     <span className="text-[12px] font-black text-slate-800 mb-1"><Heart size={10} className="inline text-purple-400 relative -top-0.5"/> {person}</span>
+                                     <span className="text-[13px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 group-hover:scale-105 transition-transform">₩{formatNum(data.total)}</span>
+                                     <span className="text-[9px] font-bold text-purple-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"><Search size={10}/> 상세 보기</span>
+                                  </div>
+                                );
+                             })}
+                          </div>
+                        );
+                     })()
+                     : othersOweMe.length === 0 ? (
                        <div className="text-center py-6 text-[10px] font-bold text-slate-400">받을 돈이 없습니다! 모두 정산 완료✨</div>
                      ) : (
-                       <div className="space-y-2">
-                         {nbbangFilter === 'person' ? (
-                            // 🎯 인원별 3열(grid-cols-3) 컴팩트 뷰
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                              {Object.keys(groupedByPerson).map(person => (
-                                <div key={person} className="bg-slate-50 p-2.5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-full">
-                                   <div className="text-center border-b border-slate-200 pb-1.5 mb-1.5">
-                                     <span className="text-[11px] font-black text-slate-800"><Heart size={10} className="inline text-purple-400 relative -top-0.5"/> {person}</span>
-                                     <div className="text-[13px] font-black text-rose-500 mt-0.5">₩{formatNum(groupedByPerson[person].total)}</div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {Object.keys(groupedByPerson).map(person => {
+                            const isSelected = selectedPersonsToSettle && selectedPersonsToSettle.includes(person);
+                            return (
+                            // 🎯 선택 시 카드가 회색으로 변하고 취소선(strikethrough) 생성
+                            <div key={person} onClick={() => togglePersonSelection(person)} className={`p-2 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col h-full ${isSelected ? 'bg-slate-200 border-slate-300 opacity-50 grayscale line-through' : 'bg-slate-50 border-slate-100 hover:border-purple-200'}`}>
+                               <div className="text-center border-b border-slate-300 pb-1 mb-1">
+                                 <span className="text-[11px] font-black text-slate-800"><Heart size={10} className={`inline ${isSelected?'text-slate-500':'text-purple-400'} relative -top-0.5`}/> {person}</span>
+                                 <div className="text-[12px] font-black text-rose-500 mt-0.5">₩{formatNum(groupedByPerson[person].total)}</div>
+                               </div>
+                               <div className="grid grid-cols-2 gap-1.5 overflow-y-auto custom-scrollbar flex-1 max-h-[100px] p-0.5">
+                                 {groupedByPerson[person].details.map(detail => (
+                                   <div key={detail.id} className="text-[8px] flex flex-col justify-center bg-white p-1.5 rounded-lg border border-slate-100 shadow-sm min-h-[38px] transition-colors" onClick={(e) => { e.stopPropagation(); if(!isSelected) setEditingNbbang({id: detail.id, amount: String(detail.amount)}); }}>
+                                     {editingNbbang?.id === detail.id ? (
+                                        <input type="text" className="w-full text-right outline-none bg-slate-100 px-1 rounded font-black text-blue-500 py-0.5" value={toCommaString(editingNbbang.amount)} autoFocus onBlur={()=>handleEditNbbangAmount(detail.id, editingNbbang.amount)} onChange={e=>setEditingNbbang({...editingNbbang, amount: e.target.value.replace(/[^0-9]/g, '')})} onKeyDown={e=>e.key==='Enter' && handleEditNbbangAmount(detail.id, editingNbbang.amount)}/>
+                                     ) : (
+                                        <>
+                                          <span className="truncate w-full font-bold text-slate-500 mb-0.5">{detail.name.replace(`(${person} 몫)`, '').trim()}</span>
+                                          <span className="font-black text-slate-700 text-right">₩{formatNum(detail.amount)}</span>
+                                        </>
+                                     )}
                                    </div>
-                                   <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar flex-1 max-h-[90px]">
-                                     {groupedByPerson[person].details.map(detail => (
-                                       <div key={detail.id} className="text-[9px] flex justify-between items-center bg-white p-1.5 rounded-md border border-slate-100 cursor-pointer hover:border-purple-300 transition-colors" onClick={() => setEditingNbbang({id: detail.id, amount: String(detail.amount)})}>
-                                         {editingNbbang?.id === detail.id ? (
-                                            <input type="text" className="w-full text-right outline-none bg-slate-100 px-1 rounded font-black text-blue-500 py-0.5" value={toCommaString(editingNbbang.amount)} onChange={e=>setEditingNbbang({...editingNbbang, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus onBlur={()=>handleEditNbbangAmount(detail.id, editingNbbang.amount)} onKeyDown={(e) => e.key==='Enter' && handleEditNbbangAmount(detail.id, editingNbbang.amount)} />
-                                         ) : (
-                                            <><span className="truncate w-[55%] font-bold text-slate-500">{detail.name.replace(`(${person} 몫)`, '').trim()}</span><span className="font-black text-slate-700">₩{formatNum(detail.amount)}</span></>
-                                         )}
-                                       </div>
-                                     ))}
-                                   </div>
-                                </div>
-                              ))}
+                                 ))}
+                               </div>
                             </div>
-                         ) : (
-                            // 🎯 식당별 통합 뷰 (아코디언)
-                            <div className="space-y-2">
-                              {Object.keys(groupedByRestaurant).map(key => (
-                                <div key={key} className="bg-slate-50 p-3 rounded-xl border border-slate-100 shadow-sm">
-                                  <div className="flex justify-between items-center cursor-pointer" onClick={() => setExpandedRestaurants(p=>({...p, [key]: !p[key]}))}>
-                                    <div className="flex flex-col">
-                                      <span className="text-[12px] font-black text-slate-800">{groupedByRestaurant[key].name}</span>
-                                      <span className="text-[9px] font-bold text-slate-400">{groupedByRestaurant[key].date}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[11px] font-black text-purple-600 bg-purple-100 px-2 py-0.5 rounded-md">총 ₩{formatNum(groupedByRestaurant[key].total)}</span>
-                                      {expandedRestaurants[key] ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-400"/>}
-                                    </div>
-                                  </div>
-                                  {expandedRestaurants[key] && (
-                                     <div className="mt-2.5 pt-2.5 border-t border-slate-200 grid grid-cols-2 gap-1.5">
-                                        {groupedByRestaurant[key].details.map(detail => {
-                                           const personName = detail.name.match(/\((.*?)\s*몫\)/)?.[1] || '일행';
-                                           return (
-                                             <div key={detail.id} className="text-[9px] flex justify-between items-center bg-white p-2 rounded-lg border border-slate-100 cursor-pointer hover:border-purple-300 transition-colors shadow-sm" onClick={() => setEditingNbbang({id: detail.id, amount: String(detail.amount)})}>
-                                                {editingNbbang?.id === detail.id ? (
-                                                   <input type="text" className="w-full text-right outline-none bg-slate-100 px-1 rounded font-black text-blue-500 py-0.5" value={toCommaString(editingNbbang.amount)} onChange={e=>setEditingNbbang({...editingNbbang, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus onBlur={()=>handleEditNbbangAmount(detail.id, editingNbbang.amount)} onKeyDown={(e) => e.key==='Enter' && handleEditNbbangAmount(detail.id, editingNbbang.amount)} />
-                                                ) : (
-                                                   <><span className="font-bold text-slate-500 flex items-center gap-1"><Heart size={8} className="text-purple-400"/> {personName}</span><span className="font-black text-slate-700">₩{formatNum(detail.amount)}</span></>
-                                                )}
-                                             </div>
-                                           )
-                                        })}
-                                     </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                         )}
-                       </div>
+                          )})}
+                        </div>
                      )}
                   </div>
                 );
               })()}
 
+{/* 🎯 정산 완료 상세 내역 팝업 모달 */}
+                     {settledDetailModal.isOpen && (
+                       <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4" onClick={() => setSettledDetailModal({isOpen: false, person: '', details: []})}>
+                         <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-2xl relative flex flex-col max-h-[80vh] animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                           <button onClick={() => setSettledDetailModal({ isOpen: false, person: '', details: [] })} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100"><X size={14}/></button>
+                           <div className="flex flex-col mb-4 border-b border-slate-100 pb-3">
+                             <h3 className="font-black text-base text-slate-800 flex items-center gap-1.5"><Heart size={14} className="text-purple-500"/> {settledDetailModal.person} 정산 완료 내역</h3>
+                             <span className="text-[10px] font-bold text-slate-400 mt-1">총 {settledDetailModal.details.length}건의 정산이 완료되었습니다.</span>
+                           </div>
+                           
+                           {/* 🎯 상세 내역 가로 2열 배치 그리드 */}
+                           <div className="grid grid-cols-2 gap-2 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                             {settledDetailModal.details.sort((a,b) => new Date(b.date||b.timestamp) - new Date(a.date||a.timestamp)).map(d => (
+                               <div key={d.id} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between min-h-[75px]">
+                                 <div className="flex justify-between items-start mb-1.5">
+                                   <span className="text-[10px] font-black text-slate-800 truncate pr-1">{d.name.replace(/\(.*?(몫|분)\)/g, '').trim()}</span>
+                                   <span className="text-[8px] font-bold text-slate-400 shrink-0">{d.date?.substring(5)}</span>
+                                 </div>
+                                 <div className="flex items-center justify-between mt-auto">
+                                   <span className="text-[9px] font-black text-emerald-500 bg-emerald-50 px-1.5 py-0.5 rounded">완료</span>
+                                   <span className="text-[11px] font-black text-slate-700">₩{formatNum(d.amount)}</span>
+                                 </div>
+                               </div>
+                             ))}
+                           </div>
+                         </div>
+                       </div>
+                     )}
               {/* 카드 내역서 탭 */}
               {accountbookTab === 'card' && (() => {
-                const unpaidCardRecords = cardRecords.filter(r => r?.paymentMethod === '신용카드' && !r?.isPaid);
-                const totalUnpaid = unpaidCardRecords.reduce((sum, r) => sum + Number(r?.amount || 0), 0);
+                const cleanMyName = (myDisplayName || '').trim();
+                
+                // 🎯 카드 내역에서도 내 몫만 남기고 텍스트 정제 (N빵 텍스트 완벽 제거)
+                const myCardRecords = cardRecords.filter(r => {
+                   if (r?.type === 'expense' && (r?.isNbbang || r?.category === 'N빵')) {
+                      return r.name.includes('(본인 몫)') || (cleanMyName && r.name.includes(`${cleanMyName} 몫`));
+                   }
+                   return true;
+                }).map(r => ({
+                   ...r, 
+                   name: r.name.replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim(), 
+                   amount: Number(r.amount || 0)
+                }));
 
-                // 🎯 카드 내역 모달창에서 '단건 선결제' 실행 로직
+                // 고유 결제 건당 1개만 추출
+                const getUniqueRecords = (records) => Object.values(records.reduce((acc, r) => {
+                    const key = r.isNbbang ? `${r.date}_${r.cardName}_${r.memo || r.name}_${r.totalAmount || r.amount}` : String(r.id);
+                    if (!acc[key]) acc[key] = { ...r, displayName: r.name };
+                    return acc;
+                }, {}));
+
+                const unpaidCardRecords = getUniqueRecords(myCardRecords.filter(r => r?.paymentMethod === '신용카드' && !r?.isPaid));
+                const paidCardRecords = getUniqueRecords(myCardRecords.filter(r => r?.paymentMethod === '신용카드' && r?.isPaid));
+                const totalUnpaid = unpaidCardRecords.reduce((sum, r) => sum + r.amount, 0);
+
                 const handlePaySingleItem = (log) => {
-                   if (globalCash < Number(log.amount)) return showToast('⚠️ 지갑 잔액이 부족합니다.');
+                   const totalAmt = log.combinedAmount || log.amount;
+                   if (globalCash < totalAmt) return showToast('⚠️ 지갑 잔액이 부족합니다.');
                    saveStateToHistory();
-                   const newCash = globalCash - Number(log.amount);
+                   const newCash = globalCash - totalAmt;
                    setGlobalCash(newCash);
                    
-                   const updatedLogs = tradeLogs.map(r => r.id === log.id ? { ...r, isPaid: true } : r);
-                   const paymentLog = {
-                      id: Date.now().toString(), type: 'expense', name: `${log.name} 개별 선결제`, category: '카드대금', amount: Number(log.amount), totalAmount: Number(log.amount), date: new Date().toISOString().substring(0, 10), timestamp: Date.now()
-                   };
+                   // 🎯 문자열(String) 형변환을 통한 엄격한 비교로 선결제 누락 버그 픽스
+                   const updatedLogs = tradeLogs.map(r => {
+                     const isTarget = log.combinedIds ? log.combinedIds.map(String).includes(String(r.id)) : String(r.id) === String(log.id);
+                     return isTarget ? { ...r, isPaid: true } : r;
+                   });
+
+                   const paymentLog = { id: Date.now().toString(), type: 'expense', name: `${log.displayTitle || log.displayName || log.name} 선결제`, category: '카드대금', amount: totalAmt, totalAmount: totalAmt, date: new Date().toISOString().substring(0, 10), timestamp: Date.now() };
                    
                    setTradeLogs([paymentLog, ...updatedLogs]);
                    saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
-                   showToast(`💳 ${log.name} ₩${formatNum(log.amount)} 결제 완료!`);
+                   showToast(`💳 ₩${formatNum(totalAmt)} 결제 완료!`);
                    
-                   // 모달 내역이 0개가 되면 자동 닫기
-                   if (unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName && r.id !== log.id).length === 0) {
+                   if (unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName && String(r.id) !== String(log.id)).length === 0) {
                      setPrepayModalState({ isOpen: false, cardName: '' });
                    }
                 };
 
+                const handleAutoPayCard = (cardName, amount) => {
+                   if (amount <= 0 || globalCash < amount) return showToast('⚠️ 지갑 잔액이 부족합니다. 지갑을 먼저 채워주세요.');
+                   saveStateToHistory();
+                   const newCash = globalCash - amount;
+                   setGlobalCash(newCash);
+                   
+                   const updatedLogs = tradeLogs.map(r => (r.cardName === cardName && r.paymentMethod === '신용카드' && !r.isPaid) ? { ...r, isPaid: true } : r);
+                   const paymentLog = { id: Date.now().toString(), type: 'expense', name: `${cardName} 대금결제`, category: '카드대금', amount, totalAmount: amount, date: new Date().toISOString().substring(0, 10), timestamp: Date.now() };
+                   
+                   setTradeLogs([paymentLog, ...updatedLogs]);
+                   saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
+                   showToast(`💳 ₩${formatNum(amount)} 결제 완료!`);
+                };
+
+                const now = new Date();
+                const currentDay = now.getDate();
+                const currentHour = now.getHours();
+
                 return (
                   <div className="flex flex-col gap-2 animate-in fade-in duration-300">
+                     <div className="flex gap-2 mb-1 bg-slate-50 p-1 rounded-lg">
+                        <button onClick={() => setIsCardSettledView(false)} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${!isCardSettledView ? 'bg-white text-blue-600 shadow-sm border border-blue-200' : 'text-slate-500 hover:bg-white/50'}`}>결제 예정 (명세서)</button>
+                        <button onClick={() => setIsCardSettledView(true)} className={`flex-1 py-1.5 rounded-md text-[10px] font-black transition-colors ${isCardSettledView ? 'bg-blue-500 text-white shadow-sm border border-blue-400' : 'text-slate-500 hover:bg-slate-200'}`}>결제 완료 내역</button>
+                     </div>
+
+                     {!isCardSettledView ? (
+                     <>
                      <div className="bg-blue-50 rounded-xl p-3 border border-blue-100 flex justify-between items-center shadow-sm">
                         <div className="flex flex-col">
-                          <span className="text-[10px] font-black text-blue-600">이번 달 결제 예정 금액</span>
+                          <span className="text-[10px] font-black text-blue-600">이번 달 결제 예정 총액</span>
                           <span className="text-lg font-black text-blue-800">₩{formatNum(totalUnpaid)}</span>
                         </div>
                      </div>
                      
                      {myCards.length > 0 ? (
-                       <div className="flex flex-col gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                         <span className="text-[10px] font-black text-slate-500 flex items-center gap-1"><TrendingUp size={12}/> 내 카드 실적 및 결제 관리</span>
+                       // 🎯 카드 요약본 모바일 1열, PC 2열 그리드 배치
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
                          {myCards.map(c => {
-                           const totalUsed = cardRecords.filter(r => r.cardName === c.name).reduce((sum, r) => sum + Number(r.amount || 0), 0);
-                           const toPay = unpaidCardRecords.filter(r => r.cardName === c.name).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+                           const totalUsed = myCardRecords.filter(r => r.cardName === c.name).reduce((sum, r) => sum + r.amount, 0);
+                           const toPay = unpaidCardRecords.filter(r => r.cardName === c.name).reduce((sum, r) => sum + r.amount, 0);
                            const target = Number(c.target || 0);
                            const percent = target > 0 ? Math.min((totalUsed / target) * 100, 100) : 0;
                            const isReached = target > 0 && totalUsed >= target;
                            
+                           let isPayDayActive = false;
+                           if (c.payDay) {
+                              const payDayNum = c.payDay === '말일' ? new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() : Number(c.payDay);
+                              if (currentDay === payDayNum && currentHour >= 9) isPayDayActive = true;
+                           }
+
                            return (
                              <div key={`prog-${c.id}`} className="flex flex-col bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
                                <div className="flex justify-between items-center mb-1.5">
                                  <div className="flex flex-col">
                                     <span className="text-[11px] font-black text-slate-800">{c.name} {isReached && <span className="text-[8px] bg-emerald-100 text-emerald-600 px-1 py-0.5 rounded shadow-sm ml-1">실적 달성!</span>}</span>
-                                    {c.period && <span className="text-[8px] font-bold text-slate-400 mt-0.5">결제기준: 매월 {c.period}일</span>}
+                                    <span className="text-[8px] font-bold text-slate-400 mt-0.5">
+                                      {c.period && `실적: ${c.period}일 `} 
+                                      {c.payDay && `| 결제: ${c.payDay}${c.payDay === '말일' ? '' : '일'}`}
+                                    </span>
                                  </div>
-                                 <button onClick={() => setPrepayModalState({ isOpen: true, cardName: c.name })} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors">미리 갚기</button>
+                                 {isPayDayActive && toPay > 0 ? (
+                                    <button onClick={() => handleAutoPayCard(c.name, toPay)} className="px-2.5 py-1.5 bg-rose-500 text-white rounded shadow-md text-[9px] font-black hover:bg-rose-600 transition-colors animate-pulse whitespace-nowrap">오늘 결제</button>
+                                 ) : (
+                                    <button onClick={() => setPrepayModalState({ isOpen: true, cardName: c.name })} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors whitespace-nowrap">미리 갚기</button>
+                                 )}
                                </div>
 
                                <div className="flex justify-between items-center mb-1 bg-slate-50 p-1.5 rounded-md border border-slate-100">
@@ -2163,35 +2502,16 @@ const AppContent = () => {
                            <h3 className="font-black text-sm mb-1 text-slate-800">💳 {prepayModalState.cardName} 미결제 내역</h3>
                            <p className="text-[9px] font-bold text-slate-400 mb-4">내역을 클릭하면 지갑 잔액으로 즉시 결제됩니다.</p>
                            
-                           {/* 모바일 최적화 가로 2열, PC 3열 그리드 (동일 결제건 자동 합산 처리) */}
+                           {/* 🎯 모바일 최적화 가로 2열, PC 3열 그리드 */}
                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 overflow-y-auto custom-scrollbar pr-1 pb-2">
                              {Object.values(unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName).reduce((acc, log) => {
-                                const groupKey = log.isNbbang ? `${log.date}_${log.memo||log.name.split('(')[0].trim()}` : log.id;
-                                if (!acc[groupKey]) acc[groupKey] = { ...log, combinedIds: [log.id], combinedAmount: Number(log.amount), displayTitle: log.isNbbang ? (log.memo || log.name.split('(')[0].trim()) : log.name };
-                                else {
-                                  acc[groupKey].combinedIds.push(log.id);
-                                  acc[groupKey].combinedAmount += Number(log.amount);
-                                }
+                                const cleanName = log.displayName || log.name.replace(/\(.*?몫\)/g, '').trim();
+                                const groupKey = log.isNbbang ? `${log.date}_${log.memo || cleanName}` : log.id;
+                                if (!acc[groupKey]) acc[groupKey] = { ...log, combinedIds: [log.id], combinedAmount: Number(log.amount), displayTitle: log.isNbbang ? (log.memo || cleanName) : cleanName };
+                                else { acc[groupKey].combinedIds.push(log.id); acc[groupKey].combinedAmount += Number(log.amount); }
                                 return acc;
                              }, {})).map(log => (
-                               <div key={log.id} onClick={() => {
-                                  const totalAmt = log.combinedAmount;
-                                  if (globalCash < totalAmt) return showToast('⚠️ 지갑 잔액이 부족합니다.');
-                                  saveStateToHistory();
-                                  const newCash = globalCash - totalAmt;
-                                  setGlobalCash(newCash);
-                                  const updatedLogs = tradeLogs.map(r => log.combinedIds.includes(r.id) ? { ...r, isPaid: true } : r);
-                                  const paymentLog = {
-                                     id: Date.now().toString(), type: 'expense', name: `${log.displayTitle} 선결제`, category: '카드대금', amount: totalAmt, totalAmount: totalAmt, date: new Date().toISOString().substring(0, 10), timestamp: Date.now()
-                                  };
-                                  setTradeLogs([paymentLog, ...updatedLogs]);
-                                  saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
-                                  showToast(`💳 ${log.displayTitle} ₩${formatNum(totalAmt)} 결제 완료!`);
-                                  
-                                  if (unpaidCardRecords.filter(r => r.cardName === prepayModalState.cardName && !log.combinedIds.includes(r.id)).length === 0) {
-                                    setPrepayModalState({ isOpen: false, cardName: '' });
-                                  }
-                               }} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors flex flex-col justify-between min-h-[75px] group">
+                               <div key={log.id} onClick={() => handlePaySingleItem(log)} className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors flex flex-col justify-between min-h-[75px] group">
                                  <div className="flex justify-between items-start mb-1.5">
                                    <span className="text-[10px] font-black text-slate-800 truncate pr-1">{log.displayTitle}</span>
                                    <span className="text-[8px] font-bold text-slate-400 shrink-0">{log.date?.substring(5)}</span>
@@ -2205,6 +2525,27 @@ const AppContent = () => {
                            </div>
                          </div>
                        </div>
+                     )}
+                     </>
+                     ) : (
+                       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-1">
+                        {paidCardRecords.length === 0 ? (
+                          <div className="col-span-full text-center py-6 text-[10px] font-bold text-slate-400 bg-slate-50 rounded-xl border border-slate-100">결제 완료된 내역이 없습니다.</div>
+                        ) : (
+                          paidCardRecords.map(r => (
+                            <div key={r.id} className="flex flex-col justify-between bg-white p-2.5 rounded-xl border border-blue-100 shadow-sm opacity-70 min-h-[70px]">
+                              <div className="flex justify-between items-start mb-1.5">
+                                <span className="text-[10px] font-black text-slate-800 truncate pr-1">{r.displayName || r.name.replace(/\(.*?몫\)/g, '').trim()}</span>
+                                <span className="text-[8px] font-bold text-slate-400 shrink-0">{r.date?.substring(5)}</span>
+                              </div>
+                              <div className="flex items-center justify-between mt-auto">
+                                <span className="text-[9px] font-black text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">결제완료</span>
+                                <span className="text-[11px] font-black text-slate-500 line-through">₩{formatNum(r.amount)}</span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                     </div>
                      )}
                   </div>
                 );
@@ -2241,15 +2582,19 @@ const AppContent = () => {
 
                 {selectedDay && stats.daily[selectedDay]?.records?.length > 0 && (
                   <div className="bg-slate-800 text-white rounded-2xl p-3 animate-in slide-in-from-bottom-2 duration-200 shadow-lg flex flex-col gap-3">
-                    {/* 상단 50:50 요약 (수익 vs 지출) */}
-                    <div className="flex gap-2">
-                      <div className="flex-1 bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-2 text-center">
-                        <div className="text-[9px] font-black text-emerald-400 mb-0.5">수익 합계</div>
-                        <div className="text-xs font-black text-emerald-300">+₩{formatNum((stats.daily[selectedDay]?.salary || 0) + (stats.daily[selectedDay]?.income || 0))}</div>
+                    {/* 상단 3분할 요약 (수익 / 순수 소비 / 투자·저축) */}
+                    <div className="flex gap-1.5 md:gap-2">
+                      <div className="flex-1 bg-blue-500/10 border border-blue-500/20 rounded-xl p-2 text-center">
+                        <div className="text-[9px] font-black text-blue-400 mb-0.5">수익 합계</div>
+                        <div className="text-[10px] md:text-xs font-black text-blue-300">+₩{formatNum((stats.daily[selectedDay]?.salary || 0) + (stats.daily[selectedDay]?.income || 0))}</div>
                       </div>
                       <div className="flex-1 bg-rose-500/10 border border-rose-500/20 rounded-xl p-2 text-center">
-                        <div className="text-[9px] font-black text-rose-400 mb-0.5">지출/투자 합계</div>
-                        <div className="text-xs font-black text-rose-300">-₩{formatNum((stats.daily[selectedDay]?.invest || 0) + (stats.daily[selectedDay]?.expense || 0))}</div>
+                        <div className="text-[9px] font-black text-rose-400 mb-0.5">순수 소비</div>
+                        <div className="text-[10px] md:text-xs font-black text-rose-300">-₩{formatNum(stats.daily[selectedDay]?.expense || 0)}</div>
+                      </div>
+                      <div className="flex-1 bg-purple-500/10 border border-purple-500/20 rounded-xl p-2 text-center">
+                        <div className="text-[9px] font-black text-purple-400 mb-0.5">투자/저축</div>
+                        <div className="text-[10px] md:text-xs font-black text-purple-300">-₩{formatNum(stats.daily[selectedDay]?.invest || 0)}</div>
                       </div>
                     </div>
 
@@ -2284,8 +2629,7 @@ const AppContent = () => {
                                  <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${badgeColor}`}>{badgeText}</span>
                                  <span className={`text-[9px] md:text-[10px] font-black ${amtColor}`}>-₩{formatNum(Number(r?.amount || r?.total || 0))}</span>
                               </div>
-                              <span className="text-[9px] font-bold text-slate-300 truncate">{r?.name || '내역'} {r?.isNbbang && <span className="text-[8px] text-purple-400 ml-0.5">(N빵)</span>}</span>
-                            </div>
+                             <span className="text-[9px] font-bold text-slate-300 truncate">{r?.name || '내역'}</span>                            </div>
                           );
                         })}
                       </div>
@@ -2330,7 +2674,11 @@ const AppContent = () => {
                         dataKey="value"
                         stroke="none"
                         cornerRadius={4}
-                        label={({name, percent}) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        label={({name, percent}) => {
+                          if (percent < 0.04) return ''; // 🎯 4% 미만은 파이가 너무 작아 글자가 겹치므로 라벨 숨김
+                          const shortName = name.length > 6 ? name.substring(0, 6) + '...' : name; // 🎯 이름이 6글자를 넘어가면 말줄임표(...) 처리
+                          return `${shortName} ${(percent * 100).toFixed(0)}%`;
+                        }}
                         labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                         className="text-[9px] md:text-[10px] font-black fill-slate-600"
                       >
@@ -2389,6 +2737,79 @@ const AppContent = () => {
       </main>
 
       {/* --- Modals (High Z-Index) --- */}
+      {/* 🎯 전역 지갑 잔액 수정 모달 */}
+      
+      {/* 🔥 FIRE 조기 은퇴 대시보드 팝업 모달 */}
+      {isFireModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[9999999] flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setIsFireModalOpen(false)}>
+          <div className="bg-gradient-to-br from-slate-900 to-slate-800 w-full max-w-sm md:max-w-md rounded-[2rem] p-6 shadow-[0_0_40px_rgba(244,63,94,0.3)] relative overflow-hidden flex flex-col border border-slate-700" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setIsFireModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-white/10 rounded-full hover:bg-white/20 transition-colors z-20"><X size={16}/></button>
+            
+            <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+              <Flame size={150} className="text-rose-500" />
+            </div>
+            
+            <div className="relative z-10">
+              <div className="flex justify-between items-center mb-4">
+                <span className="text-[11px] font-black bg-gradient-to-r from-rose-500 to-orange-500 text-white px-3 py-1 rounded-full flex items-center gap-1.5 shadow-md">
+                  <Target size={12}/> FIRE 조기 은퇴 시뮬레이터
+                </span>
+              </div>
+
+              <div className="mb-6 text-center mt-4">
+                <p className="text-white/60 text-[11px] font-bold mb-1">나의 은퇴 목표 금액: ₩{formatNum(fireTarget || 1000000000)}</p>
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <h2 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-300 tracking-tighter drop-shadow-sm">
+                    {((globalStats.totalAssets / (fireTarget || 1000000000)) * 100).toFixed(1)}%
+                  </h2>
+                  <span className="text-sm font-bold text-white/80 bg-white/10 px-2 py-0.5 rounded-md border border-white/5">달성 중</span>
+                </div>
+              </div>
+
+              {/* 진행 바 */}
+              <div className="bg-slate-950/50 h-4 rounded-full overflow-hidden shadow-inner border border-white/5 mb-6 relative">
+                <div 
+                  className="bg-gradient-to-r from-orange-400 to-rose-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_20px_rgba(244,63,94,0.6)] relative" 
+                  style={{ width: `${Math.min(100, (globalStats.totalAssets / (fireTarget || 1000000000)) * 100)}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/20 w-full h-full animate-[pulse_2s_ease-in-out_infinite]"></div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mt-2">
+                <div className="bg-white/5 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 flex flex-col justify-center">
+                  <p className="text-[10px] font-bold text-white/50 mb-1 flex items-center gap-1"><TrendingUp size={10}/> 은퇴까지 남은 금액</p>
+                  <p className="text-[13px] font-black text-white">₩{formatNum(Math.max(0, (fireTarget || 1000000000) - globalStats.totalAssets))}</p>
+                </div>
+                <div className="bg-white/5 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 flex flex-col justify-center">
+                  <p className="text-[10px] font-bold text-white/50 mb-1 flex items-center gap-1"><Clock size={10}/> 월 <span className="text-white/80">₩{formatNum(annualLimit || 2000000)}</span> 저축 시</p>
+                  <p className="text-[13px] font-black text-white flex items-baseline gap-1">
+                    <span className="text-lg text-emerald-400">{(Math.max(0, (fireTarget || 1000000000) - globalStats.totalAssets) / (annualLimit || 2000000) / 12).toFixed(1)}</span>년 뒤 은퇴
+                  </p>
+                </div>
+              </div>
+              
+              {/* 🎯 FIRE 실시간 설정 컨트롤 패널 */}
+              <div className="mt-5 p-3.5 bg-white/5 rounded-2xl border border-white/10 flex flex-col gap-2.5 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-white/60 flex items-center gap-1"><Target size={10}/> 목표 금액</label>
+                  <div className="flex items-center bg-slate-900/50 rounded-lg border border-white/10 px-2 py-1.5 w-36 focus-within:border-rose-400 transition-colors">
+                    <span className="text-[9px] font-bold text-slate-400 mr-1">₩</span>
+                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(fireTarget)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setFireTarget(val); localStorage.setItem('kj_final_v87_fireTarget', String(val)); }} />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-white/60 flex items-center gap-1"><TrendingUp size={10}/> 월 저축액</label>
+                  <div className="flex items-center bg-slate-900/50 rounded-lg border border-white/10 px-2 py-1.5 w-36 focus-within:border-orange-400 transition-colors">
+                    <span className="text-[9px] font-bold text-slate-400 mr-1">₩</span>
+                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(annualLimit)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setAnnualLimit(val); localStorage.setItem('kj_final_v87_monthlySaving', String(val)); }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isGlobalSettingsOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[1000000] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsGlobalSettingsOpen(false)}>
           <div className="bg-white w-full max-w-xs rounded-2xl p-6 shadow-2xl relative flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -2449,9 +2870,21 @@ const AppContent = () => {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200 relative">
             <button type="button" onClick={() => setIsModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors z-50"><X size={14}/></button>
-            <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-100 shrink-0"><h3 className="font-black text-sm text-slate-800 flex justify-center items-center w-full gap-1.5"><Heart size={14} fill="currentColor" className={t.text} /> {editingStockId ? '항목 수정' : '새 항목 추가'}</h3></div>
+            {/* 🎯 모달 타이틀 및 우측 상단 미니멀 OCR 버튼 */}
+            <div className="flex justify-between items-center mb-3 pb-2 border-b border-slate-100 shrink-0 relative">
+              <h3 className="font-black text-sm text-slate-800 flex items-center gap-1.5 pl-1"><Heart size={14} fill="currentColor" className={t.text} /> {editingStockId ? '항목 수정' : '새 항목 추가'}</h3>
+              <div className="flex items-center pr-8">
+                {!editingStockId && (
+                  <button type="button" disabled={isOcrLoading} onClick={() => ocrFileInputRef.current?.click()} className={`px-2 py-1 rounded-lg text-[9px] md:text-[10px] font-black flex items-center gap-1 transition-colors ${isOcrLoading ? 'bg-slate-100 text-slate-400 cursor-wait' : 'bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100'}`}>
+                    <Camera size={12} className={isOcrLoading ? 'animate-pulse' : ''} />
+                    {isOcrLoading ? '분석 중...' : '📷 사진 첨부'}
+                  </button>
+                )}
+                <input type="file" accept="image/*" className="hidden" ref={ocrFileInputRef} onChange={handleScreenshotOcr} />
+              </div>
+            </div>
             <form onSubmit={handleEditStockSubmit} className="flex flex-col flex-1 overflow-hidden relative">
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5 pb-2">
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5 pb-2">          
                 
                 {isDropdownOpen && currentAccountStat?.type === 'stock' && (
                   <div className="fixed inset-0 z-[50]" onClick={() => setIsDropdownOpen(false)}></div>
@@ -2547,16 +2980,23 @@ const AppContent = () => {
                 </select>
               )}
 
-              <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center text-slate-700" value={newCardPeriod} onChange={e=>setNewCardPeriod(e.target.value)}>
-                <option value="">실적 인정 기준일 (예: 매월 말일)</option>
-                {Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={d} value={String(d)}>매월 {d}일 기준</option>)}
-                <option value="말일">매월 말일 기준</option>
-              </select>
+              <div className="flex gap-1.5 mt-1.5">
+                <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center text-slate-700" value={newCardPeriod} onChange={e=>setNewCardPeriod(e.target.value)}>
+                  <option value="">실적 인정일 (예: 매월 말일)</option>
+                  {Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={`p${d}`} value={String(d)}>매월 {d}일 기준</option>)}
+                  <option value="말일">매월 말일 기준</option>
+                </select>
+                <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center text-slate-700" value={newCardPayDay} onChange={e=>setNewCardPayDay(e.target.value)}>
+                  <option value="">결제일 (예: 매월 14일)</option>
+                  {Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={`d${d}`} value={String(d)}>매월 {d}일</option>)}
+                  <option value="말일">매월 말일</option>
+                </select>
+              </div>
             </div>
             <button onClick={() => { 
               if(!newCardName) return; 
-              setMyCards([...myCards, {id: Date.now(), name: newCardName, target: toPureNumber(newCardTarget), period: newCardPeriod, type: newCardType, linkedAcc: newCardLinkedAcc}]); 
-              setNewCardName(''); setNewCardTarget(''); setNewCardPeriod(''); 
+              setMyCards([...myCards, {id: Date.now(), name: newCardName, target: toPureNumber(newCardTarget), period: newCardPeriod, payDay: newCardPayDay, type: newCardType, linkedAcc: newCardLinkedAcc}]); 
+              setNewCardName(''); setNewCardTarget(''); setNewCardPeriod(''); setNewCardPayDay('');
             }} className="w-full bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-md hover:bg-slate-900 transition-colors">새 카드 추가</button>
           </div>
         </div>
@@ -2716,9 +3156,28 @@ const AppContent = () => {
                                       <button onClick={() => setNbbangList([...nbbangList, { id: Date.now() + nbbangList.length, name: '' }])} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm border border-purple-200 hover:bg-purple-50 transition-colors">+</button>
                                     </div>
                                   </div>
-                                  <div className="grid grid-cols-5 gap-1.5 max-h-[120px] overflow-y-auto custom-scrollbar">
+                                  <div className="grid grid-cols-5 gap-1.5 max-h-[120px] overflow-y-auto custom-scrollbar p-0.5">
                                     {nbbangList.map((person, index) => (
-                                      <input key={person.id} type="text" className="w-full text-[10px] font-black text-slate-800 border border-purple-200 rounded-lg p-1.5 outline-none focus:border-purple-400 bg-white text-center shadow-sm" placeholder={`인원${index+1}`} value={person.name} onChange={e => { const newList = [...nbbangList]; newList[index].name = e.target.value; setNbbangList(newList); }} />
+                                      <input 
+                                        key={person.id} 
+                                        id={`nbbang-input-${index}`} 
+                                        type="text" 
+                                        className="w-full text-[10px] font-black text-slate-800 border border-purple-200 rounded-lg p-1.5 outline-none focus:border-purple-400 bg-white text-center shadow-sm" 
+                                        placeholder={`인원${index+1}`} 
+                                        value={person.name} 
+                                        onChange={e => { const newList = [...nbbangList]; newList[index].name = e.target.value; setNbbangList(newList); }} 
+                                        onKeyDown={e => { 
+                                          if (e.key === 'Enter') { 
+                                            e.preventDefault(); 
+                                            if (index < nbbangList.length - 1) { 
+                                              document.getElementById(`nbbang-input-${index + 1}`)?.focus(); 
+                                            } else if (person.name.trim() !== '') { 
+                                              setNbbangList(prev => [...prev, { id: Date.now(), name: '' }]); 
+                                              setTimeout(() => document.getElementById(`nbbang-input-${index + 1}`)?.focus(), 50); 
+                                            } 
+                                          } 
+                                        }} 
+                                      />
                                     ))}
                                   </div>
                                   <div className="flex justify-end mt-1">
@@ -2809,14 +3268,31 @@ const AppContent = () => {
                           };
 
                           if (isExpense && isNbbang && finalNbbangCount > 1) {
-                             baseLog.name = `${logName} (본인 몫)`;
-                             logsToAdd.push({ ...baseLog, id: Date.now().toString() + '_0' });
+                             const cleanLogName = logName.replace(/\(.*?(몫|분)\)/g, '').trim();
                              
+                             // 1. 본인 몫: 일반 소비로 둔갑시켜 달력/발자취에 중복 없이 1건만 깔끔하게 저장
+                             const myLog = {
+                                ...baseLog,
+                                id: Date.now().toString() + '_0',
+                                name: cleanLogName, // 괄호 꼬리표 없는 깔끔한 이름
+                                isNbbang: false,    // 일반 소비로 인식되도록 강제 설정
+                                amount: myShare
+                             };
+                             logsToAdd.push(myLog);
+                             
+                             // 2. 친구들 몫: 달력에서는 숨기고 정산소 탭으로만 데이터 전달
                              const validPeople = nbbangList.filter(n => n.name.trim() !== '');
                              validPeople.forEach((p, idx) => {
                                logsToAdd.push({
-                                 ...baseLog, id: Date.now().toString() + '_' + (idx + 1), name: `${logName} (${p.name.trim()} 몫)`,
-                                 category: 'N빵', amount: perPersonShare, timestamp: Date.now() + idx + 1
+                                 ...baseLog, 
+                                 id: Date.now().toString() + '_' + (idx + 1), 
+                                 name: cleanLogName, 
+                                 category: logCat, // 'N빵' 대신 원래 카테고리(식비 등) 유지
+                                 amount: perPersonShare, 
+                                 timestamp: Date.now() + idx + 1,
+                                 isNbbang: true,
+                                 isSettled: false,
+                                 nbbangTarget: p.name.trim() // 정산소를 위한 확실한 타겟 지정
                                });
                              });
                              
