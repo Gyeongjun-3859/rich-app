@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  Flame, Target, Clock, Plus, Trash2, Search, TrendingUp, 
+  Flame, LogOut, Target, Clock, Plus, Trash2, Search, TrendingUp, 
   ShoppingCart, X, Star, Sparkles, Heart, 
   PiggyBank, CalendarDays, Database, Edit2, Wallet, Briefcase, Camera, AlertCircle, Menu, Download, UploadCloud, ChevronRight, ChevronDown, Landmark, PieChart, Scale, Settings, RefreshCw, Upload, CreditCard
 } from 'lucide-react';
@@ -112,6 +112,35 @@ const THEME_STYLES = {
 
 // --- [Main Component] ---
 const AppContent = () => {
+  // --- 🎯 신규 추가 상태값 및 자동로그인 로직 ---
+  const [showIndices, setShowIndices] = useState(false); // 지수 보드 토글
+  const [flowingTextId, setFlowingTextId] = useState(null); // 물흐름 애니메이션 ID
+
+  // 화면 빈 곳(외부) 클릭 시 카드 수정 버튼 닫기 및 물흐름 초기화
+  useEffect(() => {
+    const handleOutsideClick = () => {
+      setActiveCardId(null);
+      setFlowingTextId(null);
+    };
+    document.addEventListener('click', handleOutsideClick);
+    return () => document.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  // 🎯 자동 로그인 (컴포넌트 마운트 시 localStorage 확인)
+  useEffect(() => {
+    const savedSession = localStorage.getItem('kj_auto_login_session');
+    if (savedSession && !session) {
+      setSession(JSON.parse(savedSession));
+      // 로그인 처리 후 기존 데이터를 불러오는 fetch 로직 등 연동 가능
+    }
+  }, []);
+
+  // 🎯 로그아웃 함수
+  const handleLogoutAction = () => {
+    localStorage.removeItem('kj_auto_login_session');
+    setSession(null);
+    showToast("👋 안전하게 로그아웃 되었습니다.");
+  };
   const [activeTab, setActiveTab] = useState('portfolio'); 
   const [toastMsg, setToastMsg] = useState(''); 
   const toastTimerRef = useRef(null); 
@@ -151,7 +180,7 @@ const AppContent = () => {
   const setStocks = (newStocks) => {
     setStocksState(newStocks);
   };
-  
+
   const [exchangeRate, setExchangeRate] = useState(() => getRecoveredValue('kj_final_v87_fx', 'kj_final_v86_fx', "1392"));
   const [isFetchingStocks, setIsFetchingStocks] = useState(false);
   
@@ -1537,7 +1566,10 @@ const AppContent = () => {
           <div className="flex flex-col justify-center flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-0.5 min-h-[18px]">
               <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0">{dateString}</span>
-              <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md shrink-0">🇺🇸 $1 = ₩{formatNum(exchangeRate)}</span>
+              {/* 🎯 기존 환율 대신 지수확인 버튼 신설 */}
+              <button onClick={() => setShowIndices(!showIndices)} className="bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-md text-[9px] font-bold border border-indigo-100 shadow-sm hover:bg-indigo-100 transition-colors flex items-center gap-1 shrink-0">
+                📈 {showIndices ? '닫기' : '지수확인'}
+              </button>
             </div>
             {/* 타이틀과 모바일 갱신버튼을 나란히 배치 */}
             <div className="flex items-center justify-between w-full">
@@ -1548,21 +1580,13 @@ const AppContent = () => {
                 </h1>
                 <p className={`text-[9px] ${t.text} opacity-80 font-bold uppercase tracking-wider mt-0.5 text-left w-full break-all sm:break-normal whitespace-normal leading-tight`}>{appSubtitle}</p>
               </div>
-              {/* 모바일에서만 보이는 갱신 버튼 그룹 */}
-              <div className="md:hidden flex items-center gap-1 shrink-0 ml-2 h-[28px]">
-                {/* 🎯 지갑 버튼 전역 배치 (포트폴리오 탭 제외 모든 탭에서 노출) */}
-                {activeTab !== 'portfolio' && (
-                  <div 
-                    onClick={() => { 
-                      setInvestTab('wallet'); 
-                      setIsInvestModalOpen(true); 
-                    }} 
-                    className="bg-slate-800 text-white px-2.5 h-full rounded-full text-[10px] font-black flex items-center gap-1 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors"
-                  >
-                    <Wallet size={10} className="text-emerald-400" /> ₩{formatNum(globalCash)}
-                  </div>
-                )}
-                <div className="flex items-center gap-1 bg-white/60 p-1 rounded-full border border-slate-200 shadow-sm h-full">
+              {/* 모바일 액션 그룹 */}
+              <div className="md:hidden flex flex-col items-end gap-1 shrink-0 ml-2">
+                {/* 🎯 지갑 버튼을 갱신 버튼 위로 이동 (모든 탭 노출) */}
+                <div onClick={() => { setInvestTab('wallet'); setIsInvestModalOpen(true); }} className="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[9px] font-black flex items-center gap-1 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors">
+                  <Wallet size={10} /> ₩{formatNum(globalCash)}
+                </div>
+                <div className="flex items-center gap-1 bg-white/60 p-1 rounded-full border border-slate-200 shadow-sm h-[28px]">
                   <button onClick={handleUpdateStockPrices} disabled={isFetchingStocks} className={`px-2 h-full rounded-full text-[9px] font-black transition-all flex items-center gap-1 text-slate-500 hover:bg-slate-200 ${isFetchingStocks ? 'opacity-50' : ''}`}><RefreshCw size={10} className={isFetchingStocks ? 'animate-spin' : ''}/>갱신</button>
                   <div className="w-px h-3 bg-slate-200 mx-0.5"></div>
                   <button onClick={handleUndo} disabled={pastStates.length === 0} className={`px-2 h-full rounded-full text-[9px] font-black transition-all ${pastStates.length > 0 ? `${t.light}` : 'text-slate-300'}`}>슝</button>
@@ -1582,44 +1606,87 @@ const AppContent = () => {
             <button onClick={() => setActiveTab('yield')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'yield' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>🌱 성장일기</button>
             <button onClick={() => setActiveTab('accountbook')} className={`flex-1 py-2 px-1 sm:px-3 rounded-xl sm:rounded-full text-[10px] sm:text-xs font-black transition-all whitespace-nowrap tracking-tighter ${activeTab === 'accountbook' ? t.main : 'text-slate-500 hover:bg-slate-50'}`}>📔 가계부</button>
           </div>
-          {/* 웹에서만 보이는 갱신 버튼 그룹 */}
-          <div className="hidden md:flex items-center justify-end gap-1.5 w-full relative z-20 h-[32px]">
-            <div className="flex items-center gap-1 shrink-0 bg-white/60 p-1.5 rounded-full border border-slate-200 shadow-sm h-full">
-              <button onClick={handleUpdateStockPrices} disabled={isFetchingStocks} className={`px-2.5 h-full rounded-full text-[10px] font-black transition-all whitespace-nowrap flex items-center gap-1 text-slate-500 hover:bg-slate-200 ${isFetchingStocks ? 'opacity-50 cursor-wait' : ''}`}><RefreshCw size={10} className={isFetchingStocks ? 'animate-spin' : ''}/> 현재가 갱신</button>
-              <div className="w-px h-3 bg-slate-200 mx-0.5"></div>
-              <button onClick={handleUndo} disabled={pastStates.length === 0} className={`px-2.5 h-full rounded-full text-[10px] font-black transition-all whitespace-nowrap ${pastStates.length > 0 ? `${t.light}` : 'text-slate-300 cursor-not-allowed'}`}>슝💨</button>
-              <button onClick={handleRedo} disabled={futureStates.length === 0} className={`px-2.5 h-full rounded-full text-[10px] font-black transition-all whitespace-nowrap ${futureStates.length > 0 ? `${t.light}` : 'text-slate-300 cursor-not-allowed'}`}>뿅✨</button>
+          {/* PC 액션 그룹 */}
+          <div className="hidden md:flex flex-col items-end gap-1 w-full relative z-20">
+            {/* 🎯 지갑 버튼 상단 노출 */}
+            <div onClick={() => { setInvestTab('wallet'); setIsInvestModalOpen(true); }} className="bg-slate-800 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black flex items-center gap-1.5 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors">
+              <Wallet size={12} /> 지갑: ₩{formatNum(globalCash)}
+            </div>
+            <div className="flex items-center justify-end gap-1.5 h-[32px]">
+              <div className="flex items-center gap-1 shrink-0 bg-white/60 p-1.5 rounded-full border border-slate-200 shadow-sm h-full">
+                <button onClick={handleUpdateStockPrices} disabled={isFetchingStocks} className={`px-2.5 h-full rounded-full text-[10px] font-black transition-all whitespace-nowrap flex items-center gap-1 text-slate-500 hover:bg-slate-200 ${isFetchingStocks ? 'opacity-50 cursor-wait' : ''}`}><RefreshCw size={10} className={isFetchingStocks ? 'animate-spin' : ''}/> 현재가 갱신</button>
+                <div className="w-px h-3 bg-slate-200 mx-0.5"></div>
+                <button onClick={handleUndo} disabled={pastStates.length === 0} className={`px-2.5 h-full rounded-full text-[10px] font-black transition-all whitespace-nowrap ${pastStates.length > 0 ? `${t.light}` : 'text-slate-300 cursor-not-allowed'}`}>슝💨</button>
+                <button onClick={handleRedo} disabled={futureStates.length === 0} className={`px-2.5 h-full rounded-full text-[10px] font-black transition-all whitespace-nowrap ${futureStates.length > 0 ? `${t.light}` : 'text-slate-300 cursor-not-allowed'}`}>뿅✨</button>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* 🎯 지수 확인 스크롤 보드 (버튼 클릭 시 노출) */}
+        {showIndices && (
+          <div className="absolute top-full left-0 w-full mt-2 px-4 z-50">
+            <div className="bg-slate-800 text-white rounded-2xl p-3 shadow-xl overflow-hidden animate-in slide-in-from-top-2 duration-200 border border-slate-700">
+              <div className="overflow-x-auto custom-scrollbar pb-1">
+                <div className="flex flex-col gap-2 min-w-max">
+                  <div className="flex gap-4 items-center">
+                    <span className="text-[11px] font-black"><span className="text-emerald-400">USD/KRW</span> ₩{formatNum(exchangeRate)}</span>
+                    <span className="w-px h-3 bg-slate-600"></span>
+                    <span className="text-[11px] font-black"><span className="text-rose-400">KOSPI</span> 2,750.12 ▲</span>
+                    <span className="w-px h-3 bg-slate-600"></span>
+                    <span className="text-[11px] font-black"><span className="text-blue-400">KOSDAQ</span> 890.45 ▼</span>
+                  </div>
+                  <div className="flex gap-4 items-center border-t border-slate-700 pt-2">
+                    <span className="text-[11px] font-black"><span className="text-amber-400">S&P 500</span> 5,200.50 ▲</span>
+                    <span className="w-px h-3 bg-slate-600"></span>
+                    <span className="text-[11px] font-black"><span className="text-indigo-400">DOW</span> 39,000.00 ▲</span>
+                    <span className="w-px h-3 bg-slate-600"></span>
+                    <span className="text-[11px] font-black"><span className="text-purple-400">NASDAQ</span> 16,300.20 ▼</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* Account Tabs & Wallet (분리형) */}
       {activeTab === 'portfolio' && (
         <div className="max-w-5xl mx-auto px-4 mb-4 mt-2 animate-in fade-in zoom-in duration-300 relative z-20">
           <div className="flex flex-row items-stretch gap-2 w-full">
-            {/* Left: Accounts Container */}
-            <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0 bg-white p-2 md:p-1.5 rounded-[1.25rem] md:rounded-[1rem] shadow-sm border border-slate-200">
+            {/* Left: Accounts Container (더블클릭 인터랙션 + 물흐름 적용) */}
+            <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0 bg-white p-2 md:p-1.5 rounded-[1.25rem] md:rounded-[1rem] shadow-sm border border-slate-200" onClick={(e) => e.stopPropagation()}>
               {accounts.map((acc, index) => (
-                <button 
-                  key={acc.id} draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)} onDragEnd={handleDragEnd} onClick={() => setSelectedAccountId(acc.id)} 
-                  className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black whitespace-nowrap transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'}`}
-                >
-                  {acc.type === 'savings' ? '🏦 ' : '📈 '}{acc.name}
-                </button>
+                <div key={acc.id} className="relative group flex items-center">
+                  <button 
+                    draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)} onDragEnd={handleDragEnd} 
+                    onClick={() => setSelectedAccountId(acc.id)}
+                    onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
+                    className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
+                  >
+                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : '📈'}</span>
+                    <span 
+                      onClick={(e) => { if(selectedAccountId === acc.id) { e.stopPropagation(); setFlowingTextId(acc.id); } }}
+                      className={`whitespace-nowrap ${flowingTextId === acc.id ? 'animate-flow' : 'truncate'}`}
+                    >
+                      {acc.name}
+                    </span>
+                  </button>
+                  
+                  {/* 🎯 더블클릭 시 탭 위에 말풍선처럼 뜨는 수정/삭제 액션 버튼 */}
+                  {activeCardId === acc.id && (
+                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-lg p-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-200 after:content-[''] after:absolute after:-bottom-1 after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
+                      <button onClick={(e) => { e.stopPropagation(); setEditAccountName(acc.name); setIsEditAccountOpen(true); setActiveCardId(null); }} className="p-1.5 hover:bg-indigo-500 rounded transition-colors"><Edit2 size={12}/></button>
+                      {acc.id !== 'default' && <button onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.id); setActiveCardId(null); }} className="p-1.5 hover:bg-rose-500 rounded transition-colors"><Trash2 size={12}/></button>}
+                    </div>
+                  )}
+                </div>
               ))}
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={(e) => { e.stopPropagation(); setEditAccountName(currentAccountStat?.name); setIsEditAccountOpen(true); }} className="bg-slate-50 text-slate-500 px-2 py-1.5 rounded-lg font-bold text-[10px] hover:bg-slate-200"><Edit2 size={12}/></button>
-                <button type="button" onClick={(e) => { e.stopPropagation(); handleDeleteAccount(selectedAccountId); }} className={`bg-slate-50 text-slate-400 px-2 py-1.5 rounded-lg font-bold text-[10px] hover:${t.light.split(' ')[0]} transition-colors`}><Trash2 size={12}/></button>
-                <button type="button" onClick={() => setIsAddAccountOpen(true)} className={`${t.light} px-2 py-1.5 rounded-lg font-black text-[10px] flex items-center gap-1`}><Plus size={12}/> 추가</button>
+              <div className="flex items-center gap-1 ml-auto shrink-0">
+                {/* 🎯 기존의 지저분한 버튼들을 지우고 [+] 버튼 하나로 심플하게 압축 */}
+                <button type="button" onClick={() => setIsAddAccountOpen(true)} className={`${t.light} w-7 h-7 flex items-center justify-center rounded-full font-black shadow-sm transition-transform hover:scale-110`}><Plus size={14} strokeWidth={3}/></button>
               </div>
             </div>
-
-            {/* Right: Wallet Button (독립형) */}
-            <button onClick={() => { setInvestTab('wallet'); setIsInvestModalOpen(true); }} className="shrink-0 bg-slate-800 text-white px-3 md:px-4 py-2 md:py-1.5 rounded-[1.25rem] md:rounded-[1rem] text-[11px] md:text-xs font-black flex flex-col md:flex-row justify-center items-center md:gap-1.5 hover:bg-slate-700 transition-colors shadow-sm whitespace-nowrap border border-slate-700">
-              <span className="flex items-center gap-1"><Wallet size={12} className="md:hidden" />👛 지갑</span>
-              <span className="text-emerald-400 mt-0.5 md:mt-0">₩{formatNum(globalCash)}</span>
-            </button>
           </div>
         </div>
       )}
@@ -1632,18 +1699,7 @@ const AppContent = () => {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden relative">
                  <div className="flex justify-between items-center mb-1">
                    <span className={`text-[10px] sm:text-[11px] font-black text-slate-500 flex items-center gap-1 sm:gap-1.5 truncate ${currentAccountStat?.type === 'savings' ? `cursor-pointer hover:${t.text} transition-colors group/label` : ''}`} onClick={() => { if(currentAccountStat?.type === 'savings') { setEditLabelInput(currentAccountStat.label || '입출금 통장'); setIsEditLabelModalOpen(true); } }}>
-                     <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : '총 평가액'}</span>
-                     
-                    {currentAccountStat?.type === 'savings' && <Edit2 size={10} className="ml-0.5 opacity-50 group-hover/label:opacity-100 shrink-0" />}
-                     {/* 🔥 FIRE 버튼 추가 (자산 평가액 옆) */}
-                     {currentAccountStat?.type !== 'savings' && (
-                       <button 
-                         onClick={(e) => { e.stopPropagation(); setIsFireModalOpen(true); }}
-                         className="ml-2 bg-gradient-to-r from-orange-500 to-rose-500 text-white px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black shadow-md hover:shadow-lg hover:scale-105 transition-all flex items-center gap-1 shrink-0"
-                       >
-                         <Flame size={10} /> FIRE
-                       </button>
-                     )}
+                     <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : '총 평가액'}</span>                
                    </span>
                    <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black text-white shrink-0 ml-1 ${currentAccountStat?.type === 'stock' ? (currentAccountStat?.totalROI >= 0 ? t.main.split(' ')[0] : 'bg-blue-400') : 'opacity-0 invisible'}`}>
                      {currentAccountStat?.totalROI >= 0 ? '▲' : '▼'} {formatNum(Math.abs(currentAccountStat?.totalROI), 1)}%
@@ -1752,13 +1808,33 @@ const AppContent = () => {
                     const canDeposit = availableSources.length > 0;
 
                     return (
-                      <div key={s.id} onClick={() => setActiveCardId(activeCardId === s.id ? null : s.id)} className={`picture-card p-2 md:p-3 relative cursor-pointer transition-all group flex flex-col justify-between gap-1 md:gap-1.5 overflow-hidden min-h-[95px] md:min-h-[110px] ${activeCardId === s.id ? 'border-slate-400 ring-2 ring-slate-100 shadow-md' : 'hover:border-slate-300 border-transparent'}`}>
-                        <div className="flex justify-between items-start"><div className="flex flex-col min-w-0 pr-1"><h4 className="font-bold text-slate-800 text-[11px] md:text-[12px] truncate leading-tight flex items-center gap-0.5 md:gap-1">{s.name}{isSavings && <button onClick={(e)=>{ e.stopPropagation(); setSavingsMaturityModal({ isOpen: true, targetId: s.id, finalAmount: String(Math.floor(toPureNumber(s.quantity) * (s.interestType==='복리'?Math.pow(1+toPureNumber(s.interestRate)/100,1):(1+toPureNumber(s.interestRate)/100)))) }); }} className="bg-amber-100 text-amber-600 px-1 md:px-1.5 py-0.5 rounded text-[7px] md:text-[8px] font-black shrink-0 ml-0.5 hover:bg-amber-200 transition-colors shadow-sm">🎉 만기</button>}</h4><span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-0.5 truncate">{isSavings ? `${s.interestType} ${s.interestRate}%` : <>{s.targetRatio !== '' && s.targetRatio !== undefined ? `목표 ${s.targetRatio}% ` : ''}<span className="text-slate-500 font-black">({formatNum(s.currentRatio, 1)}%)</span></>}</span></div>
-                        {!isSavings && toPureNumber(s.divPerShare) > 0 && <span className={`text-[7px] md:text-[8px] font-black ${t.text} ${t.light.split(' ')[0]} px-1 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap`}>배당 ₩{formatNum(s.divPerShare)}</span>}{isSavings && <span className={`text-[8px] md:text-[9px] font-black ${t.altText} ${t.altBgOnly} px-1 md:px-1.5 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap`}>저축</span>}</div>
+                      <div key={s.id} 
+                           onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(s.id); }} 
+                           onClick={(e) => e.stopPropagation()} 
+                           className={`picture-card p-2 md:p-3 relative cursor-pointer transition-all group flex flex-col justify-between gap-1 md:gap-1.5 overflow-hidden min-h-[95px] md:min-h-[110px] ${activeCardId === s.id ? 'border-indigo-400 ring-2 ring-indigo-100 shadow-md scale-[1.02] z-10' : 'hover:border-slate-300 border-transparent'}`}>
+                        
+                        <div className="flex justify-between items-start">
+                          <div className="flex flex-col min-w-0 pr-1 w-[80%]">
+                            <h4 className="font-bold text-slate-800 text-[11px] md:text-[12px] leading-tight flex items-center gap-0.5 md:gap-1 overflow-hidden w-full">
+                              {/* 🎯 종목명 물흐름 텍스트 적용 */}
+                              <span onClick={(e) => { e.stopPropagation(); setFlowingTextId(s.id); }} className={`cursor-pointer ${flowingTextId === s.id ? 'animate-flow whitespace-nowrap block' : 'truncate'}`}>
+                                {s.name}
+                              </span>
+                              {isSavings && <button onClick={(e)=>{ e.stopPropagation(); setSavingsMaturityModal({ isOpen: true, targetId: s.id, finalAmount: String(Math.floor(toPureNumber(s.quantity) * (s.interestType==='복리'?Math.pow(1+toPureNumber(s.interestRate)/100,1):(1+toPureNumber(s.interestRate)/100)))) }); }} className="bg-amber-100 text-amber-600 px-1 md:px-1.5 py-0.5 rounded text-[7px] md:text-[8px] font-black shrink-0 ml-0.5 hover:bg-amber-200 transition-colors shadow-sm">🎉 만기</button>}
+                            </h4>
+                            <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-0.5 truncate">
+                              {isSavings ? `${s.interestType} ${s.interestRate}%` : <>{s.targetRatio !== '' && s.targetRatio !== undefined ? `목표 ${s.targetRatio}% ` : ''}<span className="text-slate-500 font-black">({formatNum(s.currentRatio, 1)}%)</span></>}
+                            </span>
+                          </div>
+                          {!isSavings && toPureNumber(s.divPerShare) > 0 && <span className={`text-[7px] md:text-[8px] font-black ${t.text} ${t.light.split(' ')[0]} px-1 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1`}>배당 ₩{formatNum(s.divPerShare)}</span>}
+                          {isSavings && <span className={`text-[8px] md:text-[9px] font-black ${t.altText} ${t.altBgOnly} px-1 md:px-1.5 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1`}>저축</span>}
+                        </div>
+                        
                         <div className="flex justify-between items-end bg-slate-50 rounded-md md:rounded-lg p-1.5 md:p-2 border border-slate-100">
                           <div className="flex flex-col gap-0.5 min-w-0"><span className="text-slate-500 font-bold text-[8px] md:text-[9px] truncate">{isSavings ? `만기: ${s.maturityDate || '-'}` : `${s.isUSD ? '$' : '₩'}${formatNum(s.currentPrice, s.isUSD ? 2 : 0)}`}</span><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate">{isSavings ? `원금 ₩${formatNum(s.investedKRW)}` : `${formatNum(s.quantity)}주 보유`}</span></div>
                           <div className="flex flex-col items-end gap-0.5 ml-1 text-right min-w-0">{!isSavings ? (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(toPureNumber(s.currentPrice) * toPureNumber(s.quantity) * (s.isUSD ? toPureNumber(exchangeRate) : 1))}</span><span className={`text-[8px] md:text-[9px] font-black ${isP?t.text:'text-blue-500'}`}>{isP?'▲':'▼'}{formatNum(Math.abs(s.stockROI), 1)}%</span></>) : (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(s.quantity)}</span>{s.interestRate && <span className={`${t.altText} font-black text-[8px] md:text-[9px] truncate`}>예상 ₩{formatNum(Math.floor(s.interestType==='복리' ? toPureNumber(s.quantity)*Math.pow(1+toPureNumber(s.interestRate)/100,1) : toPureNumber(s.quantity)*(1+toPureNumber(s.interestRate)/100)))}</span>}</>)}</div>
                         </div>
+                        
                         <div className="flex gap-1 mt-1 h-[20px] md:h-[24px]">
                           {!isSavings ? ( <>
                             {pendingBuys[s.id] ? ( <div className="flex gap-1 flex-1"><input type="text" className={`w-8 md:w-10 flex-1 min-w-0 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black ${t.text} py-0.5 md:py-1`} placeholder="수량" value={buyAmount} onChange={e => setBuyAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => handleBuyStock(e, s.id, buyAmount)} className={`flex-[0.8] ${t.main} rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shadow-sm px-1.5 md:px-2`}>확인</button><button onClick={(e)=>{e.stopPropagation();setPendingBuys(p=>({...p,[s.id]:false}));}} className="bg-slate-200 text-slate-600 rounded px-1.5 md:px-2 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : 
@@ -1775,9 +1851,11 @@ const AppContent = () => {
                             )}</div>
                           )}
                         </div>
-                        <div className={`absolute top-1.5 md:top-2 right-1.5 md:right-2 flex gap-0.5 md:gap-1 bg-white/90 backdrop-blur-sm p-0.5 md:p-1 rounded-md md:rounded-lg border border-slate-100 shadow-sm transition-all duration-200 ${activeCardId === s.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto'}`}>
-                          <button className="p-1 md:p-1.5 text-slate-400 hover:text-blue-500 transition-colors rounded" onClick={(e) => { e.stopPropagation(); handleEditClick(s); }}><Edit2 size={12} className="md:w-3.5 md:h-3.5"/></button>
-                          <button className="p-1 md:p-1.5 text-slate-400 hover:text-rose-500 transition-colors rounded" onClick={(e) => { e.stopPropagation(); handleDeleteStock(e, s.id); }}><Trash2 size={12} className="md:w-3.5 md:h-3.5"/></button>
+                        
+                        {/* 🎯 더블클릭 시 노출되도록 hover 속성 제거 및 투명도 전환 */}
+                        <div className={`absolute top-1.5 md:top-2 right-1.5 md:right-2 flex gap-0.5 md:gap-1 bg-white/90 backdrop-blur-sm p-0.5 md:p-1 rounded-md md:rounded-lg border border-slate-100 shadow-sm transition-all duration-200 ${activeCardId === s.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
+                          <button className="p-1 md:p-1.5 text-slate-400 hover:text-blue-500 transition-colors rounded" onClick={(e) => { e.stopPropagation(); handleEditClick(s); setActiveCardId(null); }}><Edit2 size={12} className="md:w-3.5 md:h-3.5"/></button>
+                          <button className="p-1 md:p-1.5 text-slate-400 hover:text-rose-500 transition-colors rounded" onClick={(e) => { e.stopPropagation(); handleDeleteStock(e, s.id); setActiveCardId(null); }}><Trash2 size={12} className="md:w-3.5 md:h-3.5"/></button>
                         </div>
                       </div>
                     );
@@ -1958,86 +2036,104 @@ const AppContent = () => {
 
                                {isExpanded(`m_${y}_${m}`) && (
                                  <div className="mt-3 flex flex-col gap-2.5">
-                                   {/* 🎯 특정 월의 월간 요약 대시보드 (2열) */}
+                                   {/* 🎯 특정 월의 월간 요약 대시보드 (클릭형 지능형 카드) */}
                                    <div className="grid grid-cols-2 gap-2 mb-1 p-1">
-                                     <div className="bg-blue-50 border border-blue-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
-                                       <span className="text-[9px] font-black text-blue-500 mb-0.5">총 수익</span>
+                                     <div className="bg-blue-50 border border-blue-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm cursor-pointer hover:bg-blue-100 transition-colors" onClick={(e) => { e.stopPropagation(); toggleExpand(`income_detail_${y}_${m}`); }}>
+                                       <span className="text-[9px] font-black text-blue-500 mb-0.5 flex justify-between items-center">총 수익 {isExpanded(`income_detail_${y}_${m}`) ? '▲' : '▼'}</span>
                                        <span className="text-xs font-black text-blue-700">₩{formatNum(mStats.income)}</span>
                                      </div>
-                                     <div className="bg-orange-50 border border-orange-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
-                                       <span className="text-[9px] font-black text-orange-500 mb-0.5">총 배당</span>
-                                       <span className="text-xs font-black text-orange-700">₩{formatNum(mStats.dividend)}</span>
-                                     </div>
-                                     <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
-                                       <span className="text-[9px] font-black text-rose-500 mb-0.5">식비 지출</span>
-                                       <span className="text-xs font-black text-rose-700">₩{formatNum(mStats.food)}</span>
-                                     </div>
-                                     <div className="bg-purple-50 border border-purple-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm">
-                                       <span className="text-[9px] font-black text-purple-500 mb-0.5">기타 지출</span>
-                                       <span className="text-xs font-black text-purple-700">₩{formatNum(mStats.other)}</span>
+                                     <div className="bg-rose-50 border border-rose-100 p-2.5 rounded-xl flex flex-col justify-center shadow-sm cursor-pointer hover:bg-rose-100 transition-colors" onClick={(e) => { e.stopPropagation(); toggleExpand(`expense_detail_${y}_${m}`); }}>
+                                       <span className="text-[9px] font-black text-rose-500 mb-0.5 flex justify-between items-center">총 소비 {isExpanded(`expense_detail_${y}_${m}`) ? '▲' : '▼'}</span>
+                                       <span className="text-xs font-black text-rose-700">₩{formatNum(mStats.food + mStats.other)}</span>
                                      </div>
                                    </div>
 
-                                   {Object.keys(grouped[y].months[m].days).sort((a,b)=>b.localeCompare(a)).map(day => {
-                                      const dayData = grouped[y].months[m].days[day];
-                                      return (
-                                     <div key={`d_${y}_${m}_${day}`} className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                       {/* 🎯 일별 요약 헤더 */}
-                                       <div className="flex justify-between items-center cursor-pointer p-1" onClick={() => toggleExpand(`d_${y}_${m}_${day}`)}>
-                                         <div className="flex items-center gap-2">
-                                            <span className="text-[11px] font-black text-slate-800 bg-white px-2 py-0.5 rounded-md shadow-sm">{m}.{day}</span>
-                                            <div className="flex gap-1.5">
-                                              {dayData.incomeSum > 0 && <span className="text-[9px] font-black text-blue-500 bg-blue-100/50 px-1.5 rounded">+₩{formatNum(dayData.incomeSum)}</span>}
-                                              {dayData.expenseSum > 0 && <span className="text-[9px] font-black text-rose-500 bg-rose-100/50 px-1.5 rounded">-₩{formatNum(dayData.expenseSum)}</span>}
-                                            </div>
-                                         </div>
-                                         {isExpanded(`d_${y}_${m}_${day}`) ? <ChevronDown size={12} className="text-slate-400"/> : <ChevronRight size={12} className="text-slate-400"/>}
-                                       </div>
+                                   {/* 🎯 확장 시 대분류 상세 요약 노출 */}
+                                   {isExpanded(`income_detail_${y}_${m}`) && (
+                                      <div className="bg-white p-2 rounded-lg border border-blue-100 text-[10px] flex flex-col gap-1 mb-2 animate-in slide-in-from-top-1 shadow-sm mx-1">
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">월급 및 근로/기타</span><span className="font-black text-blue-600">₩{formatNum(mStats.income - (mStats.dividend || 0))}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">배당 수익</span><span className="font-black text-blue-600">₩{formatNum(mStats.dividend || 0)}</span></div>
+                                      </div>
+                                   )}
+                                   {isExpanded(`expense_detail_${y}_${m}`) && (
+                                      <div className="bg-white p-2 rounded-lg border border-rose-100 text-[10px] flex flex-col gap-1 mb-2 animate-in slide-in-from-top-1 shadow-sm mx-1">
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">식비</span><span className="font-black text-rose-600">₩{formatNum(mStats.food)}</span></div>
+                                        <div className="flex justify-between"><span className="text-slate-500 font-bold">기타 소비</span><span className="font-black text-rose-600">₩{formatNum(mStats.other)}</span></div>
+                                      </div>
+                                   )}
 
-                                       {/* 🎯 일별 대분류 카테고리 요약 (가로 2열 병렬 배치) */}
-                                       {isExpanded(`d_${y}_${m}_${day}`) && (
-                                         <div className="grid grid-cols-2 gap-1.5 mt-2">
-                                           {Object.keys(dayData.categories).map(cat => {
-                                              const catData = dayData.categories[cat];
-                                              const catKey = `c_${y}_${m}_${day}_${cat}`;
-                                              const isCatExpanded = isExpanded(catKey);
-                                              const isIncome = cat === '수익' || cat === '배당';
-                                              const isInvest = cat === '투자/저축';
-                                              const colorClass = isIncome ? 'text-blue-500' : (isInvest ? 'text-purple-500' : 'text-rose-500');
-                                              const sign = isIncome ? '+' : '-';
+                                   {/* 🎯 일자별 상세 보기 토글 버튼 신설 */}
+                                   <div className="flex justify-center mt-2 mb-2">
+                                     <button onClick={(e) => { e.stopPropagation(); toggleExpand(`daily_view_${y}_${m}`); }} className="px-4 py-1.5 bg-slate-100 text-slate-500 text-[10px] font-black rounded-full hover:bg-slate-200 transition-colors shadow-sm">
+                                       {isExpanded(`daily_view_${y}_${m}`) ? '일자별 내역 닫기 ▲' : '📅 일자별 상세 보기 ▼'}
+                                     </button>
+                                   </div>
 
-                                              return (
-                                                <div key={catKey} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-slate-300 transition-colors">
-                                                  {/* 🎯 대분류 클릭 버튼 */}
-                                                  <div className="p-2 flex justify-between items-center cursor-pointer bg-slate-50/50" onClick={(e) => { e.stopPropagation(); toggleExpand(catKey); }}>
-                                                    <span className={`text-[9px] font-black flex items-center gap-0.5 ${colorClass}`}>
-                                                      {isCatExpanded ? <ChevronDown size={10}/> : <ChevronRight size={10}/>} {cat}
-                                                    </span>
-                                                    <span className={`text-[10px] font-black ${colorClass}`}>
-                                                      {sign}₩{formatNum(catData.total)}
-                                                    </span>
-                                                  </div>
-                                                  
-                                                  {/* 🎯 4단계: 펼쳤을 때 나타나는 개별 세부 내역 */}
-                                                  {isCatExpanded && (
-                                                    <div className="flex flex-col gap-1 p-2 pt-1 border-t border-slate-100 bg-white">
-                                                      {catData.items.map(log => (
-                                                        <div key={log.id} className="flex justify-between items-start text-[8px]">
-                                                          <span className="text-slate-500 truncate pr-1 flex-1 leading-tight">
-                                                            {isInvest ? `${log.name} (${log.shares||0}주)` : log.name}
-                                                          </span>
-                                                          <span className="font-bold text-slate-700 shrink-0">₩{formatNum(log.amount)}</span>
-                                                        </div>
-                                                      ))}
-                                                    </div>
-                                                  )}
+                                   {/* 🎯 일자별 렌더링 맵핑 (토글 안에 감싸기) */}
+                                   {isExpanded(`daily_view_${y}_${m}`) && (
+                                     <div className="flex flex-col gap-2">
+                                       {Object.keys(grouped[y].months[m].days).sort((a,b)=>b.localeCompare(a)).map(day => {
+                                          const dayData = grouped[y].months[m].days[day];
+                                          return (
+                                         <div key={`d_${y}_${m}_${day}`} className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                           {/* 일별 요약 헤더 */}
+                                           <div className="flex justify-between items-center cursor-pointer p-1" onClick={() => toggleExpand(`d_${y}_${m}_${day}`)}>
+                                             <div className="flex items-center gap-2">
+                                                <span className="text-[11px] font-black text-slate-800 bg-white px-2 py-0.5 rounded-md shadow-sm">{m}.{day}</span>
+                                                <div className="flex gap-1.5">
+                                                  {dayData.incomeSum > 0 && <span className="text-[9px] font-black text-blue-500 bg-blue-100/50 px-1.5 rounded">+₩{formatNum(dayData.incomeSum)}</span>}
+                                                  {dayData.expenseSum > 0 && <span className="text-[9px] font-black text-rose-500 bg-rose-100/50 px-1.5 rounded">-₩{formatNum(dayData.expenseSum)}</span>}
                                                 </div>
-                                              );
-                                           })}
+                                             </div>
+                                             {isExpanded(`d_${y}_${m}_${day}`) ? <ChevronDown size={12} className="text-slate-400"/> : <ChevronRight size={12} className="text-slate-400"/>}
+                                           </div>
+
+                                           {/* 일별 대분류 카테고리 요약 */}
+                                           {isExpanded(`d_${y}_${m}_${day}`) && (
+                                             <div className="grid grid-cols-2 gap-1.5 mt-2">
+                                               {Object.keys(dayData.categories).map(cat => {
+                                                  const catData = dayData.categories[cat];
+                                                  const catKey = `c_${y}_${m}_${day}_${cat}`;
+                                                  const isCatExpanded = isExpanded(catKey);
+                                                  const isIncome = cat === '수익' || cat === '배당';
+                                                  const isInvest = cat === '투자/저축';
+                                                  const colorClass = isIncome ? 'text-blue-500' : (isInvest ? 'text-purple-500' : 'text-rose-500');
+                                                  const sign = isIncome ? '+' : '-';
+
+                                                  return (
+                                                    <div key={catKey} className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-slate-300 transition-colors">
+                                                      {/* 대분류 클릭 버튼 */}
+                                                      <div className="p-2 flex justify-between items-center cursor-pointer bg-slate-50/50" onClick={(e) => { e.stopPropagation(); toggleExpand(catKey); }}>
+                                                        <span className={`text-[9px] font-black flex items-center gap-0.5 ${colorClass}`}>
+                                                          {isCatExpanded ? <ChevronDown size={10}/> : <ChevronRight size={10}/>} {cat}
+                                                        </span>
+                                                        <span className={`text-[10px] font-black ${colorClass}`}>
+                                                          {sign}₩{formatNum(catData.total)}
+                                                        </span>
+                                                      </div>
+                                                      
+                                                      {/* 펼쳤을 때 나타나는 개별 세부 내역 */}
+                                                      {isCatExpanded && (
+                                                        <div className="flex flex-col gap-1 p-2 pt-1 border-t border-slate-100 bg-white">
+                                                          {catData.items.map(log => (
+                                                            <div key={log.id} className="flex justify-between items-start text-[8px]">
+                                                              <span className="text-slate-500 truncate pr-1 flex-1 leading-tight">
+                                                                {isInvest ? `${log.name} (${log.shares||0}주)` : log.name}
+                                                              </span>
+                                                              <span className="font-bold text-slate-700 shrink-0">₩{formatNum(log.amount)}</span>
+                                                            </div>
+                                                          ))}
+                                                        </div>
+                                                      )}
+                                                    </div>
+                                                  );
+                                               })}
+                                             </div>
+                                           )}
                                          </div>
-                                       )}
+                                       )})}
                                      </div>
-                                   )})}
+                                   )}
                                  </div>
                                )}
                              </div>
@@ -2857,12 +2953,32 @@ const AppContent = () => {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsEditHeaderOpen(false)}>
           <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); setAppTitle(editTitle); setAppSubtitle(editSubtitle); setCharacterName(editCharacterName); setProfileImage(editProfileImage); setIsEditHeaderOpen(false); saveConfig(accounts, exchangeRate, editTitle, editSubtitle, editCharacterName, appTheme, globalCash); }} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl flex flex-col relative animate-in zoom-in duration-200">
             <button type="button" onClick={() => setIsEditHeaderOpen(false)} className="absolute top-4 right-4 p-1 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
-            <h3 className="font-black text-base mb-5 flex items-center justify-center w-full gap-2 text-slate-800"><Heart size={16} className={t.text} fill="currentColor"/> 설정</h3>
-            <div className="mb-3 flex items-center gap-3 overflow-x-auto py-2 px-2 -mx-2 custom-scrollbar">{PRESET_PROFILES.map(p => (<button key={p.id} type="button" onClick={() => setEditProfileImage(p.url)} className={`w-10 h-10 rounded-full shrink-0 transition-all ${editProfileImage === p.url ? `ring-2 ${t.border} ring-offset-2 scale-110` : 'opacity-60 hover:opacity-100'}`}><img src={p.url} className="w-full h-full object-cover rounded-full bg-slate-50"/></button>))}<button type="button" onClick={() => fileInputRef.current.click()} className="w-10 h-10 rounded-full shrink-0 border border-dashed border-slate-300 flex items-center justify-center bg-slate-50 hover:bg-slate-100"><Upload size={14} className="text-slate-400"/></button><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload}/></div>
+            <h3 className="font-black text-base mb-5 flex items-center justify-center w-full gap-2 text-slate-800"><Heart size={16} className={t.text} fill="currentColor"/> 프로필 및 설정</h3>
+            
+            <div className="mb-3 flex items-center gap-3 overflow-x-auto py-2 px-2 -mx-2 custom-scrollbar">
+              {PRESET_PROFILES.map(p => (<button key={p.id} type="button" onClick={() => setEditProfileImage(p.url)} className={`w-10 h-10 rounded-full shrink-0 transition-all ${editProfileImage === p.url ? `ring-2 ${t.border} ring-offset-2 scale-110` : 'opacity-60 hover:opacity-100'}`}><img src={p.url} className="w-full h-full object-cover rounded-full bg-slate-50"/></button>))}
+              <button type="button" onClick={() => fileInputRef.current.click()} className="w-10 h-10 rounded-full shrink-0 border border-dashed border-slate-300 flex items-center justify-center bg-slate-50 hover:bg-slate-100"><Upload size={14} className="text-slate-400"/></button><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload}/>
+            </div>
+            
             <input type="text" placeholder="캐릭터명 (예: 경준)" className={`w-full bg-slate-50 p-2.5 text-sm rounded-xl font-bold mb-2 outline-none border focus:${t.border} text-center`} value={editCharacterName} onChange={e=>setEditCharacterName(e.target.value)} />
-            <input type="text" placeholder="앱 이름" className={`w-full bg-slate-50 p-2.5 text-sm rounded-xl font-bold mb-2 outline-none border focus:${t.border} text-center`} value={editTitle} onChange={e=>setEditTitle(e.target.value)} /><input type="text" placeholder="부제목" className={`w-full bg-slate-50 p-2.5 text-sm rounded-xl font-bold mb-4 outline-none border focus:${t.border} text-center`} value={editSubtitle} onChange={e=>setEditSubtitle(e.target.value)} />
-            <div className="flex gap-2 mb-3"><button type="button" onClick={handleExportData} className="flex-1 bg-slate-100 text-slate-600 py-2.5 rounded-xl font-black text-[10px] flex items-center justify-center gap-1 hover:bg-slate-200"><Download size={12}/> 백업</button><button type="button" onClick={handleImportData} className="flex-1 bg-slate-100 text-slate-600 py-2.5 rounded-xl font-black text-[10px] flex items-center justify-center gap-1 hover:bg-slate-200"><UploadCloud size={12}/> 복원</button></div>
-            <button type="submit" className={`w-full ${t.main} py-2.5 rounded-xl font-black text-xs shadow-md transition-colors`}>설정 저장하기</button></form>
+            <input type="text" placeholder="앱 이름" className={`w-full bg-slate-50 p-2.5 text-sm rounded-xl font-bold mb-2 outline-none border focus:${t.border} text-center`} value={editTitle} onChange={e=>setEditTitle(e.target.value)} />
+            <input type="text" placeholder="부제목" className={`w-full bg-slate-50 p-2.5 text-sm rounded-xl font-bold mb-4 outline-none border focus:${t.border} text-center`} value={editSubtitle} onChange={e=>setEditSubtitle(e.target.value)} />
+            
+            <div className="flex gap-2 mb-3">
+            </div>
+
+            {/* 🎯 FIRE 및 로그아웃 버튼 신규 탑재 영역 */}
+            <div className="flex flex-col gap-2 mb-3 pt-3 border-t border-slate-100">
+              <button type="button" onClick={() => { setIsEditHeaderOpen(false); setIsFireModalOpen(true); }} className="w-full py-2.5 bg-amber-50 text-amber-600 rounded-xl font-black text-xs shadow-sm border border-amber-100 flex items-center justify-center gap-2 hover:bg-amber-100 transition-colors">
+                <Flame size={14} /> FIRE 시뮬레이터
+              </button>
+              <button type="button" onClick={handleLogoutAction} className="w-full py-2.5 bg-slate-50 text-slate-500 rounded-xl font-black text-xs shadow-sm border border-slate-200 flex items-center justify-center gap-2 hover:bg-slate-100 hover:text-rose-500 transition-colors">
+                <LogOut size={14} /> 로그아웃
+              </button>
+            </div>
+            
+            <button type="submit" className={`w-full ${t.main} py-2.5 rounded-xl font-black text-xs shadow-md transition-colors`}>설정 저장하기</button>
+          </form>
         </div>
       )}
 
@@ -3524,6 +3640,10 @@ export default function AppWrapper() {
   // 디자인 로딩이 완료되면 정상적인 진짜 앱을 보여줌
   return (
     <ErrorBoundary>
+      <style>{`
+        @keyframes marqueeFlow { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+        .animate-flow { display: inline-block; white-space: nowrap; animation: marqueeFlow 4s linear infinite; padding-right: 20px; }
+      `}</style>
       <AppContent />
     </ErrorBoundary>
   );
