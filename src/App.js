@@ -114,16 +114,56 @@ const THEME_STYLES = {
 const AppContent = () => {
   // --- 🎯 신규 추가 상태값 및 자동로그인 로직 ---
   const [showIndices, setShowIndices] = useState(false); // 지수 보드 토글
+  
+  // 🎯 실시간 지수 연동을 위한 상태 및 API fetch 함수 추가
+  const [marketIndices, setMarketIndices] = useState({
+    KOSPI: { price: '0', change: 0 }, KOSDAQ: { price: '0', change: 0 },
+    'S&P 500': { price: '0', change: 0 }, DOW: { price: '0', change: 0 }, NASDAQ: { price: '0', change: 0 }
+  });
+
+  const fetchMarketIndices = async () => {
+    const indexMap = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'S&P 500': '^GSPC', 'DOW': '^DJI', 'NASDAQ': '^IXIC' };
+    const newIndices = { ...marketIndices };
+    try {
+      for (const [name, ticker] of Object.entries(indexMap)) {
+        // 🎯 캐시 무효화(&t=...) 및 1일 간격 명시로 확실한 데이터 파싱 보장
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`)}&t=${Date.now()}`);
+        const data = await res.json();
+        if (data && data.contents) {
+           const parsed = JSON.parse(data.contents);
+           if (parsed.chart && parsed.chart.result && parsed.chart.result.length > 0) {
+               const meta = parsed.chart.result[0].meta;
+               const currentPrice = meta.regularMarketPrice;
+               const prevClose = meta.chartPreviousClose || meta.previousClose;
+               if (currentPrice && prevClose) {
+                  const change = ((currentPrice - prevClose) / prevClose) * 100;
+                  newIndices[name] = { price: formatNum(currentPrice, 2), change };
+               }
+           }
+        }
+      }
+      setMarketIndices(newIndices);
+    } catch (e) { 
+      console.error("지수 API 호출 에러 - 이전 데이터를 유지합니다.", e); 
+    }
+  };
   const [flowingTextId, setFlowingTextId] = useState(null); // 물흐름 애니메이션 ID
 
-  // 화면 빈 곳(외부) 클릭 시 카드 수정 버튼 닫기 및 물흐름 초기화
+  // 🎯 화면 빈 곳(외부) 클릭 시 달력 상세내역 해제 및 툴팁 닫기 (전역 마우스 이벤트)
   useEffect(() => {
-    const handleOutsideClick = () => {
-      setActiveCardId(null);
-      setFlowingTextId(null);
+    const handleOutsideClick = (e) => {
+      // 1. 계좌 탭 카드 외부 클릭 시 수정/삭제 툴팁 닫기
+      if (!e.target.closest('.account-card-area')) {
+        setActiveCardId(null);
+        setFlowingTextId(null);
+      }
+      // 2. 달력 상세 내역이 켜져 있을 때, 달력 영역 밖(빈 공간)을 누르면 해제
+      if (!e.target.closest('.calendar-detail-area')) {
+        setSelectedDay(null);
+      }
     };
-    document.addEventListener('click', handleOutsideClick);
-    return () => document.removeEventListener('click', handleOutsideClick);
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, []);
 
   // 🎯 자동 로그인 (컴포넌트 마운트 시 localStorage 확인)
@@ -194,7 +234,8 @@ const AppContent = () => {
   const [pastStates, setPastStates] = useState([]);
   const [futureStates, setFutureStates] = useState([]);
 
-  const [chartViewMode, setChartViewMode] = useState('month'); 
+  const [chartViewMode, setChartViewMode] = useState('month');
+  // 상시 노출로 변경되어 activeChartLabels 상태가 제거되었습니다.
   const [pendingDivs, setPendingDivs] = useState({});
   const [pendingBuys, setPendingBuys] = useState({});
   const [pendingSells, setPendingSells] = useState({});
@@ -308,38 +349,44 @@ const AppContent = () => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. 클라우드에서 내 데이터 불러오기 엔진
+  // 1.5 데이터 덮어쓰기 방지용 상태 추가
+  const [isCloudDataLoaded, setIsCloudDataLoaded] = useState(false);
+
+  // 2. 클라우드에서 내 데이터 불러오기 엔진 (완벽 격리)
   useEffect(() => {
     if (!session?.user?.id) return;
     const loadCloudData = async () => {
+       // 🎯 현재 로그인한 유저의 데이터만 정확히 가져오도록 필터링 (.eq)
        const { data } = await supabase.from('app_data').select('*').eq('user_id', session.user.id).single();
        if (data) {
-          if(data.global_cash) setGlobalCash(data.global_cash);
+          if(data.global_cash !== undefined) setGlobalCash(data.global_cash);
           if(data.accounts) setAccounts(data.accounts);
           if(data.stocks) setStocks(data.stocks);
           if(data.trade_logs) setTradeLogs(data.trade_logs);
           if(data.my_cards) setMyCards(data.my_cards);
        }
+       setIsCloudDataLoaded(true); // 내 데이터를 모두 안전하게 불러왔음을 체크
     };
     loadCloudData();
   }, [session]);
 
-  // 3. 내 데이터를 클라우드에 2초마다 자동 저장하는 엔진
+  // 3. 내 데이터를 클라우드에 2초마다 자동 저장하는 엔진 (완벽 격리)
   useEffect(() => {
-    if (!session?.user?.id) return;
+    // 🎯 불러오기가 끝나지 않았는데 초기값(0원 등)이 클라우드에 덮어씌워지는 대참사 원천 차단
+    if (!session?.user?.id || !isCloudDataLoaded) return; 
     const saveToCloud = async () => {
        await supabase.from('app_data').upsert({
-         user_id: session.user.id,
+         user_id: session.user.id, // 🎯 반드시 내 ID로 꼬리표를 달아서 저장
          global_cash: globalCash,
          accounts: accounts,
          stocks: stocks,
          trade_logs: tradeLogs,
          my_cards: myCards
-       });
+       }, { onConflict: 'user_id' }); // 내 row만 콕 찝어서 안전하게 업데이트
     };
     const timeoutId = setTimeout(saveToCloud, 2000); 
     return () => clearTimeout(timeoutId);
-  }, [globalCash, accounts, stocks, tradeLogs, myCards, session]);
+  }, [globalCash, accounts, stocks, tradeLogs, myCards, session, isCloudDataLoaded]);
 
   // 4. 나만의 아이디(영문/숫자) 로그인 실행 로직
   const handleAuthSubmit = async (e) => {
@@ -488,7 +535,9 @@ const AppContent = () => {
 
   const handleUpdateStockPrices = async () => {
     setIsFetchingStocks(true);
-    showToast("🔄 실시간 시세 및 환율 연동 중...");
+    showToast("🔄 실시간 시세 및 환율, 지수 연동 중...");
+    
+    await fetchMarketIndices(); // 🎯 주식 시세 갱신 시 글로벌 지수도 함께 최신화
     
     let updatedStocks = [...stocks];
     let stockSuccessCount = 0;
@@ -1410,14 +1459,23 @@ const AppContent = () => {
 
       // Supabase DB 일괄 Insert 및 상태 즉시 반영
       if (foundStocks.length > 0) {
-         const userIdToSave = session?.user?.id || currentUserId;
-         const mappedInserts = foundStocks.map(s => ({
-            id: s.id, user_id: userIdToSave, name: s.name, ticker: s.ticker,
-            buyprice: s.buyPrice, currentprice: s.currentPrice, quantity: s.quantity,
-            isusd: s.isUSD, targetratio: s.targetRatio, accountid: s.accountId
-         }));
+         // 🎯 임시 ID 사용 금지, 반드시 현재 로그인한 실제 유저 ID만 격리하여 사용
+             const userIdToSave = session?.user?.id;
+             if (!userIdToSave) {
+                 showToast("⚠️ 로그인 세션이 만료되었습니다. 다시 로그인해주세요.");
+                 setIsOcrLoading(false);
+                 return;
+             }
 
-         const { error } = await supabase.from('stocks').insert(mappedInserts);
+             const mappedInserts = foundStocks.map(s => ({
+                id: s.id, 
+                user_id: userIdToSave, // 🎯 DB 저장 시 내 ID 강제 주입
+                name: s.name, ticker: s.ticker,
+                buyprice: s.buyPrice, currentprice: s.currentPrice, quantity: s.quantity,
+                isusd: s.isUSD, targetratio: s.targetRatio, accountid: s.accountId
+             }));
+
+             const { error } = await supabase.from('stocks').insert(mappedInserts);
          if (error) throw new Error(error.message);
 
          setStocks([...stocks, ...foundStocks]);
@@ -1491,27 +1549,30 @@ const AppContent = () => {
     return <div className="min-h-screen flex items-center justify-center bg-slate-50 font-black text-slate-500">앱 준비 중...</div>;
   }
 
+  // 🎯 로그인을 안 했으면 진짜 앱 화면 대신 브랜딩된 로그인/자동로그인 창을 띄움
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl flex flex-col items-center">
-          <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-md">
-            <span className="text-3xl">💰</span>
+          <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-6 shadow-md hover:scale-110 transition-transform cursor-pointer">
+            <span className="text-4xl">🤑</span> {/* 🎯 돈/부를 상징하는 이모지로 브랜딩 강화 */}
           </div>
-          <h1 className="text-xl font-black text-slate-800 mb-2">{characterName} 부자 포트폴리오</h1>
-          <p className="text-xs font-bold text-slate-400 mb-8 text-center">원하는 아이디를 만들어 시작하세요</p>
+          <h1 className="text-2xl font-black text-slate-800 mb-1 tracking-tighter">경준 부자 포트폴리오</h1> {/* 🎯 지정된 고정 타이틀 적용 */}
+          <p className="text-xs font-bold text-slate-400 mb-8 text-center">나만의 자산을 가장 안전하게 관리하세요</p>
           
           <form onSubmit={handleAuthSubmit} className="w-full flex flex-col gap-3">
             <input type="text" placeholder="아이디 (영문/숫자)" className="w-full bg-slate-50 p-3.5 rounded-xl font-bold text-sm outline-none border focus:border-slate-800 transition-colors" value={authId} onChange={e => setAuthId(e.target.value.replace(/[^A-Za-z0-9]/g, ''))} required />
             <input type="password" placeholder="비밀번호 (6자리 이상)" className="w-full bg-slate-50 p-3.5 rounded-xl font-bold text-sm outline-none border focus:border-slate-800 transition-colors" value={authPassword} onChange={e => setAuthPassword(e.target.value)} required minLength={6} />
             
-            {/* 🎯 해결: ID/PW 저장 체크박스 추가 */}
-            <label className="flex items-center gap-2 mt-1 cursor-pointer w-fit">
+            {/* 🎯 브라우저 localStorage 연동 자동로그인 체크박스 */}
+            <label className="flex items-center gap-2 mt-1 cursor-pointer w-fit group">
               <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} className="w-4 h-4 accent-slate-800 cursor-pointer" />
-              <span className="text-xs font-bold text-slate-500">ID / PW 기억하기</span>
+              <span className="text-xs font-bold text-slate-500 group-hover:text-slate-800 transition-colors">다음 접속 시 자동 로그인 💵</span>
             </label>
 
-            <button type="submit" className="w-full bg-slate-800 text-white py-3.5 rounded-xl font-black text-sm mt-2 shadow-md hover:bg-slate-900 transition-colors">{isSignUpMode ? '가입하고 시작하기' : '안전하게 로그인'}</button>
+            <button type="submit" className="w-full bg-slate-800 text-white py-3.5 rounded-xl font-black text-sm mt-3 shadow-md hover:bg-slate-900 transition-colors">
+              {isSignUpMode ? '가입하고 시작하기' : '안전하게 로그인'}
+            </button>
           </form>
           
           <button onClick={() => setIsSignUpMode(!isSignUpMode)} className="mt-5 text-xs font-bold text-slate-400 hover:text-slate-800 transition-colors">
@@ -1623,32 +1684,37 @@ const AppContent = () => {
           </div>
         </div>
 
-        {/* 🎯 지수 확인 스크롤 보드 (버튼 클릭 시 노출) */}
-        {showIndices && (
-          <div className="absolute top-full left-0 w-full mt-2 px-4 z-50">
-            <div className="bg-slate-800 text-white rounded-2xl p-3 shadow-xl overflow-hidden animate-in slide-in-from-top-2 duration-200 border border-slate-700">
-              <div className="overflow-x-auto custom-scrollbar pb-1">
-                <div className="flex flex-col gap-2 min-w-max">
-                  <div className="flex gap-4 items-center">
-                    <span className="text-[11px] font-black"><span className="text-emerald-400">USD/KRW</span> ₩{formatNum(exchangeRate)}</span>
-                    <span className="w-px h-3 bg-slate-600"></span>
-                    <span className="text-[11px] font-black"><span className="text-rose-400">KOSPI</span> 2,750.12 ▲</span>
-                    <span className="w-px h-3 bg-slate-600"></span>
-                    <span className="text-[11px] font-black"><span className="text-blue-400">KOSDAQ</span> 890.45 ▼</span>
-                  </div>
-                  <div className="flex gap-4 items-center border-t border-slate-700 pt-2">
-                    <span className="text-[11px] font-black"><span className="text-amber-400">S&P 500</span> 5,200.50 ▲</span>
-                    <span className="w-px h-3 bg-slate-600"></span>
-                    <span className="text-[11px] font-black"><span className="text-indigo-400">DOW</span> 39,000.00 ▲</span>
-                    <span className="w-px h-3 bg-slate-600"></span>
-                    <span className="text-[11px] font-black"><span className="text-purple-400">NASDAQ</span> 16,300.20 ▼</span>
-                  </div>
+        </header>
+
+      {/* 🎯 지수 확인 전역 오버레이 (헤더의 간섭을 벗어난 완벽한 시각적 격리 & 최상위 z-[100000]) */}
+      {showIndices && (
+        <div className="fixed inset-0 z-[100000] bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowIndices(false)}>
+          <div className="bg-slate-900/95 text-white rounded-[1.5rem] p-5 shadow-2xl w-full max-w-lg overflow-hidden border border-slate-700 relative" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="font-black text-sm text-slate-200 flex items-center gap-2">📈 글로벌 증시 지표</h3>
+              <button onClick={() => setShowIndices(false)} className="text-slate-400 hover:text-white transition-colors"><X size={18}/></button>
+            </div>
+            <div className="overflow-x-auto custom-scrollbar pb-2">
+              <div className="flex flex-col gap-4 min-w-max">
+                <div className="flex gap-4 items-center bg-slate-800/50 p-3.5 rounded-xl border border-slate-700/50">
+                  <span className="text-xs font-black flex items-center gap-1.5"><span className="text-emerald-400">USD/KRW</span> ₩{formatNum(exchangeRate)}</span>
+                  <span className="w-px h-4 bg-slate-600"></span>
+                  <span className="text-xs font-black flex items-center gap-1.5"><span className="text-rose-400">KOSPI</span> {marketIndices['KOSPI'].price} <span className={`text-[10px] px-1.5 py-0.5 rounded ${marketIndices['KOSPI'].change >= 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>{marketIndices['KOSPI'].change >= 0 ? '▲' : '▼'}{Math.abs(marketIndices['KOSPI'].change).toFixed(2)}%</span></span>
+                  <span className="w-px h-4 bg-slate-600"></span>
+                  <span className="text-xs font-black flex items-center gap-1.5"><span className="text-blue-400">KOSDAQ</span> {marketIndices['KOSDAQ'].price} <span className={`text-[10px] px-1.5 py-0.5 rounded ${marketIndices['KOSDAQ'].change >= 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>{marketIndices['KOSDAQ'].change >= 0 ? '▲' : '▼'}{Math.abs(marketIndices['KOSDAQ'].change).toFixed(2)}%</span></span>
+                </div>
+                <div className="flex gap-4 items-center bg-slate-800/50 p-3.5 rounded-xl border border-slate-700/50">
+                  <span className="text-xs font-black flex items-center gap-1.5"><span className="text-amber-400">S&P 500</span> {marketIndices['S&P 500'].price} <span className={`text-[10px] px-1.5 py-0.5 rounded ${marketIndices['S&P 500'].change >= 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>{marketIndices['S&P 500'].change >= 0 ? '▲' : '▼'}{Math.abs(marketIndices['S&P 500'].change).toFixed(2)}%</span></span>
+                  <span className="w-px h-4 bg-slate-600"></span>
+                  <span className="text-xs font-black flex items-center gap-1.5"><span className="text-indigo-400">DOW</span> {marketIndices['DOW'].price} <span className={`text-[10px] px-1.5 py-0.5 rounded ${marketIndices['DOW'].change >= 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>{marketIndices['DOW'].change >= 0 ? '▲' : '▼'}{Math.abs(marketIndices['DOW'].change).toFixed(2)}%</span></span>
+                  <span className="w-px h-4 bg-slate-600"></span>
+                  <span className="text-xs font-black flex items-center gap-1.5"><span className="text-purple-400">NASDAQ</span> {marketIndices['NASDAQ'].price} <span className={`text-[10px] px-1.5 py-0.5 rounded ${marketIndices['NASDAQ'].change >= 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-blue-500/20 text-blue-300'}`}>{marketIndices['NASDAQ'].change >= 0 ? '▲' : '▼'}{Math.abs(marketIndices['NASDAQ'].change).toFixed(2)}%</span></span>
                 </div>
               </div>
             </div>
           </div>
-        )}
-      </header>
+        </div>
+      )}
 
       {/* Account Tabs & Wallet (분리형) */}
       {activeTab === 'portfolio' && (
@@ -1665,10 +1731,7 @@ const AppContent = () => {
                     className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
                   >
                     <span className="shrink-0">{acc.type === 'savings' ? '🏦' : '📈'}</span>
-                    <span 
-                      onClick={(e) => { if(selectedAccountId === acc.id) { e.stopPropagation(); setFlowingTextId(acc.id); } }}
-                      className={`whitespace-nowrap ${flowingTextId === acc.id ? 'animate-flow' : 'truncate'}`}
-                    >
+                    <span className="truncate block max-w-[80px] sm:max-w-[110px] leading-tight mt-[1px]">
                       {acc.name}
                     </span>
                   </button>
@@ -2071,7 +2134,7 @@ const AppContent = () => {
 
                                    {/* 🎯 일자별 렌더링 맵핑 (토글 안에 감싸기) */}
                                    {isExpanded(`daily_view_${y}_${m}`) && (
-                                     <div className="flex flex-col gap-2">
+                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 items-start calendar-detail-area">
                                        {Object.keys(grouped[y].months[m].days).sort((a,b)=>b.localeCompare(a)).map(day => {
                                           const dayData = grouped[y].months[m].days[day];
                                           return (
@@ -2311,11 +2374,27 @@ const AppContent = () => {
                    const newCash = globalCash + amtToSettle;
                    setGlobalCash(newCash);
                    
+                   // 🎯 1. 정산 기간 자동 생성 및 타이틀 로직
+                   const dates = targets.map(r => new Date(r.date || r.timestamp || Date.now()));
+                   const minDate = new Date(Math.min(...dates));
+                   const maxDate = new Date(Math.max(...dates));
+                   const batchTitle = `(${minDate.getMonth()+1}.${minDate.getDate()} ~ ${maxDate.getMonth()+1}.${maxDate.getDate()}) 정산내역`;
+                   
                    const batchId = `batch_${Date.now()}`;
                    const updatedLogs = tradeLogs.map(r => {
-                     if (targets.find(t => String(t.id) === String(r.id))) return { ...r, isSettled: true, settledBatchId: batchId };
+                     if (targets.find(t => String(t.id) === String(r.id))) {
+                         return { 
+                             ...r, 
+                             isSettled: true, 
+                             settledBatchId: batchId,
+                             settledBatchTitle: batchTitle,
+                             settledStartDate: minDate.toISOString(),
+                             settledEndDate: maxDate.toISOString()
+                         };
+                     }
                      return r;
                    });
+                   
                    setTradeLogs(updatedLogs);
                    setSelectedPersonsToSettle([]); 
                    saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
@@ -2358,30 +2437,67 @@ const AppContent = () => {
                      </div>
 
                      {isSettledHistoryView ? (() => {
-                        const settledRecords = (tradeLogs||[]).filter(r => (r?.category === 'N빵' || r?.isNbbang) && r?.isSettled);
-                        if (settledRecords.length === 0) return <div className="text-center py-6 text-[10px] font-bold text-slate-400">정산 완료된 내역이 없습니다.</div>;
+                        const allSettled = (tradeLogs||[]).filter(r => (r?.category === 'N빵' || r?.isNbbang) && r?.isSettled);
                         
-                        // 🎯 복잡한 나열 대신 사람 이름별로 요약 그룹화
-                        const groupedSettledByPerson = {};
-                        settledRecords.forEach(r => {
+                        // 🎯 정산 묶음(Batch) 단위로 데이터 재조립 및 인원별 합산
+                        const settledBatches = {};
+                        allSettled.forEach(r => {
+                           // 하위 호환성 보장 (과거 데이터는 날짜 기반 강제 ID 부여)
+                           const bId = r.settledBatchId || `legacy_${r.date}`;
+                           if (!settledBatches[bId]) {
+                               settledBatches[bId] = {
+                                   id: bId,
+                                   title: r.settledBatchTitle || `${r.date?.substring(5)} 정산내역`,
+                                   startDate: r.settledStartDate ? new Date(r.settledStartDate) : new Date(r.date || r.timestamp),
+                                   endDate: r.settledEndDate ? new Date(r.settledEndDate) : new Date(r.date || r.timestamp),
+                                   total: 0,
+                                   persons: {}
+                               };
+                           }
+                           const b = settledBatches[bId];
                            const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
-                           if(!groupedSettledByPerson[pName]) groupedSettledByPerson[pName] = { total: 0, details: [] };
-                           groupedSettledByPerson[pName].total += Number(r.amount || 0);
-                           groupedSettledByPerson[pName].details.push(r);
+                           if (!b.persons[pName]) b.persons[pName] = 0;
+                           b.persons[pName] += Number(r.amount || 0);
+                           b.total += Number(r.amount || 0);
                         });
 
+                        // 🎯 2. 교차 월(Cross-Month) 중복 노출 로직
+                        const currentVal = calYear * 12 + calMonth;
+                        const currentMonthBatches = Object.values(settledBatches).filter(b => {
+                           const sVal = b.startDate.getFullYear() * 12 + b.startDate.getMonth();
+                           const eVal = b.endDate.getFullYear() * 12 + b.endDate.getMonth();
+                           // 현재 달력이 시작 달(sVal)과 종료 달(eVal) 사이에 있다면 무조건 노출!
+                           return currentVal >= sVal && currentVal <= eVal;
+                        }).sort((a,b) => b.endDate - a.endDate); // 최근 정산된 순서대로 정렬
+
+                        if (currentMonthBatches.length === 0) return <div className="text-center py-6 text-[10px] font-bold text-slate-400">이번 달에 포함된 정산 내역이 없습니다.</div>;
+
                         return (
-                          <div className="mt-1 grid grid-cols-2 gap-2 animate-in fade-in duration-200">
-                             {Object.keys(groupedSettledByPerson).map(person => {
-                                const data = groupedSettledByPerson[person];
-                                return (
-                                  <div key={person} onClick={() => setSettledDetailModal({ isOpen: true, person, details: data.details })} className="bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-sm cursor-pointer hover:border-purple-300 hover:bg-purple-50 transition-colors flex flex-col items-center justify-center min-h-[85px] group">
-                                     <span className="text-[12px] font-black text-slate-800 mb-1"><Heart size={10} className="inline text-purple-400 relative -top-0.5"/> {person}</span>
-                                     <span className="text-[13px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 group-hover:scale-105 transition-transform">₩{formatNum(data.total)}</span>
-                                     <span className="text-[9px] font-bold text-purple-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5"><Search size={10}/> 상세 보기</span>
-                                  </div>
-                                );
-                             })}
+                         <div className="mt-1 grid grid-cols-2 gap-2 items-start animate-in fade-in duration-200">
+                             {currentMonthBatches.map(batch => (
+                                <div key={batch.id} className="bg-slate-50 p-2 rounded-xl border border-slate-200 shadow-sm transition-all hover:border-purple-300 flex flex-col justify-between">
+                                   {/* 타이틀 및 총액 바 (클릭 시 아코디언 토글) */}
+                                   <div className="flex justify-between items-start cursor-pointer mb-2" onClick={() => setExpandedBatches(p => ({...p, [batch.id]: !p[batch.id]}))}>
+                                      <span className="text-[10px] font-black text-slate-800 flex items-start gap-1 leading-tight"><Heart size={10} className="text-purple-500 mt-0.5 shrink-0"/> {batch.title}</span>
+                                      <div className="flex flex-col items-end gap-1 shrink-0 ml-1">
+                                         <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">₩{formatNum(batch.total)}</span>
+                                         {expandedBatches[batch.id] ? <ChevronDown size={12} className="text-slate-400"/> : <ChevronRight size={12} className="text-slate-400"/>}
+                                      </div>
+                                   </div>
+                                   
+                                   {/* 🎯 스크롤 없는 한눈에 보기 인원별 그리드 (가로 2열) */}
+                                   {expandedBatches[batch.id] && (
+                                      <div className="grid grid-cols-2 gap-1.5 mt-auto pt-2 border-t border-slate-200/60 animate-in slide-in-from-top-1">
+                                         {Object.keys(batch.persons).map(pName => (
+                                            <div key={pName} className="bg-white p-1.5 rounded-lg border border-slate-100 shadow-sm flex flex-col items-center justify-center text-center hover:bg-purple-50 transition-colors">
+                                               <span className="text-[9px] font-bold text-slate-500 mb-0.5">{pName}</span>
+                                               <span className="text-[10px] font-black text-slate-800">₩{formatNum(batch.persons[pName])}</span>
+                                            </div>
+                                         ))}
+                                      </div>
+                                   )}
+                                </div>
+                             ))}
                           </div>
                         );
                      })()
@@ -2651,7 +2767,7 @@ const AppContent = () => {
             {/* 달력 하단 상세 내역 팝업 */}
             {accountbookTab === 'calendar' && (
               <>
-                <div className="bg-white rounded-2xl p-2 md:p-3 shadow-sm border border-slate-200 mb-2">
+                <div className="bg-white rounded-2xl p-2 md:p-3 shadow-sm border border-slate-200 mb-2 cursor-pointer" onClick={() => setSelectedDay(null)}>
                   <div className="grid grid-cols-7 gap-1 text-center text-[9px] md:text-[10px] font-black text-slate-400 mb-1">
                     <div className="text-rose-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
                   </div>
@@ -2661,14 +2777,29 @@ const AppContent = () => {
                       const data = stats.daily[day] || { income: 0, expense: 0, invest: 0, salary: 0 };
                       const isSelected = selectedDay === day;
                       const isToday = new Date().getDate() === day && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
+                      
+                      // 🎯 무지출 로직: 과거~오늘이면서 지출(expense)이 0원이면 인정!
+                      const isPastOrToday = new Date(calYear, calMonth, day) <= new Date();
+                      const isZeroExpense = isPastOrToday && data.expense === 0;
+
                       return (
-                        <div key={day} onClick={() => setSelectedDay(isSelected ? null : day)} className={`h-12 md:h-14 border rounded-lg p-1 flex flex-col cursor-pointer transition-colors overflow-hidden ${isSelected ? 'border-slate-800 bg-slate-800 text-white shadow-md' : 'border-slate-100 bg-white hover:bg-slate-50'} ${isToday && !isSelected ? 'ring-1 ring-blue-300' : ''}`}>
-                          <span className={`text-[9px] font-black leading-none mb-0.5 ${isSelected ? 'text-white' : (firstDay + day - 1) % 7 === 0 ? 'text-rose-500' : (firstDay + day - 1) % 7 === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{day}</span>
-                          <div className="flex flex-col gap-[1px] mt-auto">
-                            {data.salary > 0 && <span className="text-[7px] font-black text-emerald-400 text-right truncate">+{formatNum(data.salary)}</span>}
-                            {data.income > 0 && <span className="text-[7px] font-black text-blue-400 text-right truncate">+{formatNum(data.income)}</span>}
-                            {data.invest > 0 && <span className="text-[7px] font-black text-purple-400 text-right truncate">-{formatNum(data.invest)}</span>}
-                            {data.expense > 0 && <span className="text-[7px] font-black text-rose-400 text-right truncate">-{formatNum(data.expense)}</span>}
+                        <div key={day} onClick={(e) => { e.stopPropagation(); setSelectedDay(isSelected ? null : day); }} className={`h-12 md:h-14 border rounded-lg p-1 flex flex-col cursor-pointer transition-colors overflow-hidden relative ${isSelected ? 'border-slate-800 bg-slate-800 text-white shadow-md' : 'border-slate-100 bg-white hover:bg-slate-50'} ${isToday && !isSelected ? 'ring-1 ring-blue-300' : ''}`}>
+                          <span className={`text-[9px] font-black leading-none mb-0.5 relative z-10 ${isSelected ? 'text-white' : (firstDay + day - 1) % 7 === 0 ? 'text-rose-500' : (firstDay + day - 1) % 7 === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{day}</span>
+                          
+                          {/* 🎯 배경에 깔리는 은은한 무지출 스티커 애니메이션 */}
+                          {isZeroExpense && (
+                            <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none animate-in zoom-in duration-500">
+                               <span className="text-2xl drop-shadow-sm">🌿</span>
+                            </div>
+                          )}
+
+                          <div className="flex flex-col items-end gap-0 mt-auto relative z-10 w-full overflow-visible">
+                            {/* 텍스트 배지 추가 (선택되지 않았을 때만 노출) */}
+                            {isZeroExpense && !isSelected && <span className="text-[6.5px] font-black text-emerald-500 bg-emerald-50 rounded text-center whitespace-nowrap shadow-sm mb-[1px] w-full px-0.5 leading-tight">🌿무지출</span>}
+                            {data.salary > 0 && <span className="text-[6.5px] font-black text-emerald-400 text-right whitespace-nowrap leading-tight">+{formatNum(data.salary)}</span>}
+                            {data.income > 0 && <span className="text-[6.5px] font-black text-blue-400 text-right whitespace-nowrap leading-tight">+{formatNum(data.income)}</span>}
+                            {data.invest > 0 && <span className="text-[6.5px] font-black text-purple-400 text-right whitespace-nowrap leading-tight">-{formatNum(data.invest)}</span>}
+                            {data.expense > 0 && <span className="text-[6.5px] font-black text-rose-400 text-right whitespace-nowrap leading-tight">-{formatNum(data.expense)}</span>}
                           </div>
                         </div>
                       );
@@ -2741,7 +2872,8 @@ const AppContent = () => {
         {activeTab === 'yield' && (() => {
           // 🎯 원형 차트에 들어갈 자산 데이터 계산 (현금, 저축, 주식 각각 분리)
           // 🎯 다양한 색상 팔레트 적용
-          const pieColors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F06292', '#AED581', '#FFD54F', '#4DB6AC', '#7986CB', '#A1887F', '#90A4AE'];
+          // 🎯 세련된 파스텔/네온톤 팔레트로 전면 교체
+          const pieColors = ['#fb7185', '#38bdf8', '#34d399', '#a78bfa', '#fbbf24', '#f472b6', '#2dd4bf', '#818cf8', '#fb923c', '#60a5fa', '#94a3b8', '#ec4899'];
           const pieData = [
             { name: '지갑 (현금)', value: Number(globalCash), color: pieColors[0] },
             ...accounts.filter(a => a.type === 'savings').map((a, i) => ({ name: a.name, value: Number(a.cash), color: pieColors[(i + 1) % pieColors.length] })),
@@ -2757,50 +2889,44 @@ const AppContent = () => {
                 </div>
               </div>
 
-              {/* 🎯 원형 차트 (도넛 모양) UI - 시인성 강화 (라벨 기본 표시) */}
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-5 flex flex-col md:flex-row items-center gap-4 shadow-inner">
-                <div className="w-full md:w-1/2 h-[220px] md:h-[250px]">
+              {/* 🎯 성장일기 차트 UI 간소화 (하단 리스트 제거 및 중앙 정렬) */}
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 mb-5 flex justify-center shadow-inner relative">
+                <div className="w-full max-w-md h-[250px] md:h-[300px] relative">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
+                     <span className="text-[10px] font-bold text-slate-400 mb-0.5">총 자산</span>
+                     <span className="text-[14px] md:text-[18px] font-black text-slate-700">₩{formatNum(globalStats.totalAssets)}</span>
+                  </div>
+                  
+                  {/* 🎯 자산 레이블 상시 노출 (flex-wrap으로 겹침 완벽 방지) */}
+                  <div className="absolute top-1.5 left-0 w-full pointer-events-none z-20 flex flex-wrap items-start justify-center gap-1.5 px-3">
+                     {pieData.map(item => (
+                         <div key={item.name} className="bg-white/95 backdrop-blur-sm border border-slate-200 px-2 py-1 rounded-lg shadow-sm text-[10px] font-black text-slate-800 flex items-center gap-1">
+                            <span style={{color: item.color}}>●</span>
+                            <span className="truncate max-w-[100px]">{item.name}</span>
+                            <span>{((item.value / globalStats.totalAssets)*100).toFixed(1)}%</span>
+                         </div>
+                     ))}
+                  </div>
+
                   <ResponsiveContainer width="100%" height="100%">
                     <RePieChart>
                       <Pie
                         data={pieData}
                         cx="50%" cy="50%"
-                        innerRadius={50} outerRadius={85}
-                        paddingAngle={3}
+                        innerRadius="55%" outerRadius="85%"
+                        paddingAngle={4}
                         dataKey="value"
                         stroke="none"
-                        cornerRadius={4}
-                        label={({name, percent}) => {
-                          if (percent < 0.04) return ''; // 🎯 4% 미만은 파이가 너무 작아 글자가 겹치므로 라벨 숨김
-                          const shortName = name.length > 6 ? name.substring(0, 6) + '...' : name; // 🎯 이름이 6글자를 넘어가면 말줄임표(...) 처리
-                          return `${shortName} ${(percent * 100).toFixed(0)}%`;
-                        }}
-                        labelLine={{ stroke: '#cbd5e1', strokeWidth: 1 }}
-                        className="text-[9px] md:text-[10px] font-black fill-slate-600"
+                        cornerRadius={6}
+                        className="outline-none"
                       >
                         {pieData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(value) => `₩${formatNum(value)}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: '900', fontSize: '12px' }} />
+                      <Tooltip formatter={(value) => `₩${formatNum(value)}`} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 15px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: '900', fontSize: '12px' }} />
                     </RePieChart>
                   </ResponsiveContainer>
-                </div>
-                
-                {/* 🎯 차트 우측 (자산 비중 퍼센트 리스트) */}
-                <div className="w-full md:w-1/2 flex flex-col gap-1.5 max-h-[180px] overflow-y-auto custom-scrollbar pr-2">
-                  {pieData.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.color }}></div>
-                        <span className="text-[10px] md:text-xs font-black text-slate-700 truncate max-w-[100px] md:max-w-[120px]">{item.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[9px] md:text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-md">{((item.value / (globalStats.totalAssets || 1)) * 100).toFixed(1)}%</span>
-                        <span className="text-[11px] md:text-xs font-black text-slate-800">₩{formatNum(item.value)}</span>
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
 
@@ -3231,9 +3357,18 @@ const AppContent = () => {
                       {incomeMode === 'expense' && (
                         <div className="flex flex-col gap-2">
                           <div className="flex gap-1.5">
-                            <select className="flex-1 text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)}>
-                              <option value="식비">식비</option><option value="생필품">생필품</option><option value="의류비">의류비</option><option value="공과금">공과금</option><option value="기타">기타</option>
-                            </select>
+                            {/* 🎯 '기타' 선택 시 셀렉트 박스가 입력창으로 마법처럼 변신! */}
+                           <div className="flex-1 flex items-center">
+                            {['식비', '생필품', '의류비', '공과금'].includes(expenseCategory) ? (
+                             <select className="w-full text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)}>
+                             <option value="식비">식비</option><option value="생필품">생필품</option><option value="의류비">의류비</option><option value="공과금">공과금</option><option value="기타">기타</option>
+                             </select>
+                             ) : (
+                            <div className="flex w-full animate-in zoom-in duration-200">
+                                  <input type="text" className="w-full text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-rose-400 bg-white" placeholder="'기타' (상세 내역 입력)" value={expenseCategory === '기타' ? '' : expenseCategory} onChange={e => setExpenseCategory(e.target.value)} autoFocus />
+                                </div>
+                              )}
+                           </div>
                             <select className="flex-1 text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
                               <option value="현금/체크카드">현금/체크</option><option value="신용카드">신용카드</option>
                             </select>
@@ -3287,10 +3422,8 @@ const AppContent = () => {
                                             e.preventDefault(); 
                                             if (index < nbbangList.length - 1) { 
                                               document.getElementById(`nbbang-input-${index + 1}`)?.focus(); 
-                                            } else if (person.name.trim() !== '') { 
-                                              setNbbangList(prev => [...prev, { id: Date.now(), name: '' }]); 
-                                              setTimeout(() => document.getElementById(`nbbang-input-${index + 1}`)?.focus(), 50); 
-                                            } 
+                                            // 삭제된 공간에는 아무것도 넣지 않거나, 아래와 같이 깔끔하게 닫아줍니다.
+                                            }
                                           } 
                                         }} 
                                       />
@@ -3366,7 +3499,7 @@ const AppContent = () => {
                           let logType = 'income'; let logCat = '기타'; let logName = ''; let logMemo = expenseMemo;
                           if (incomeMode === 'salary') { logCat = '급여'; logName = '월급 입금'; }
                           else if (incomeMode === 'bonus') { logCat = incomeCategory; logName = `${incomeCategory} 입금`; }
-                          else if (incomeMode === 'expense') { logType = 'expense'; logCat = expenseCategory; logName = expenseMemo || '소비'; }
+                          else if (incomeMode === 'expense') { logType = 'expense'; logCat = expenseCategory.trim() || '기타'; logName = expenseMemo || '소비'; }
                           
                           let finalDate = new Date().toISOString().substring(0, 10);
                           if (expenseDateInput && expenseDateInput.length === 5) {
