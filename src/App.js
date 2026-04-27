@@ -124,27 +124,41 @@ const AppContent = () => {
   const fetchMarketIndices = async () => {
     const indexMap = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'S&P 500': '^GSPC', 'DOW': '^DJI', 'NASDAQ': '^IXIC' };
     const newIndices = { ...marketIndices };
+
     try {
+      // 1. 글로벌 증시 지수 패칭 (Yahoo Quote API + AllOrigins 프록시 우회)
       for (const [name, ticker] of Object.entries(indexMap)) {
-        // 🎯 캐시 무효화(&t=...) 및 1일 간격 명시로 확실한 데이터 파싱 보장
-        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d`)}&t=${Date.now()}`);
+        const targetUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`;
+        // 🎯 CORS 우회 및 항상 최신 데이터를 가져오기 위한 타임스탬프(&t=) 적용
+        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
         const data = await res.json();
+
         if (data && data.contents) {
-           const parsed = JSON.parse(data.contents);
-           if (parsed.chart && parsed.chart.result && parsed.chart.result.length > 0) {
-               const meta = parsed.chart.result[0].meta;
-               const currentPrice = meta.regularMarketPrice;
-               const prevClose = meta.chartPreviousClose || meta.previousClose;
-               if (currentPrice && prevClose) {
-                  const change = ((currentPrice - prevClose) / prevClose) * 100;
-                  newIndices[name] = { price: formatNum(currentPrice, 2), change };
-               }
-           }
+          const parsed = JSON.parse(data.contents);
+          if (parsed.quoteResponse && parsed.quoteResponse.result && parsed.quoteResponse.result.length > 0) {
+            const result = parsed.quoteResponse.result[0];
+            const currentPrice = result.regularMarketPrice;
+            const changePercent = result.regularMarketChangePercent;
+
+            // 🎯 0이 아닌 유효한 데이터가 들어왔을 때만 안전하게 파싱하여 덮어쓰기
+            if (currentPrice !== undefined && changePercent !== undefined) {
+              newIndices[name] = { price: formatNum(currentPrice, 2), change: changePercent };
+            }
+          }
         }
       }
-      setMarketIndices(newIndices);
-    } catch (e) { 
-      console.error("지수 API 호출 에러 - 이전 데이터를 유지합니다.", e); 
+      // 🎯 가져온 지수 상태값을 즉시 동기화하여 화면에 바로 반영
+      setMarketIndices({ ...newIndices });
+
+      // 2. 실시간 환율(USD/KRW) 패칭 및 동기화 (갱신 버튼 누를 때 함께 업데이트)
+      const resFx = await fetch('https://open.er-api.com/v6/latest/USD');
+      const dataFx = await resFx.json();
+      if (dataFx?.rates?.KRW) {
+        setExchangeRate(Math.round(dataFx.rates.KRW).toString());
+      }
+
+    } catch (e) {
+      console.error("⚠️ 실시간 금융 데이터 호출 실패. 화면 짤림을 방지하기 위해 기존 데이터를 유지합니다.", e);
     }
   };
   const [flowingTextId, setFlowingTextId] = useState(null); // 물흐름 애니메이션 ID
@@ -352,20 +366,33 @@ const AppContent = () => {
   // 1.5 데이터 덮어쓰기 방지용 상태 추가
   const [isCloudDataLoaded, setIsCloudDataLoaded] = useState(false);
 
-  // 2. 클라우드에서 내 데이터 불러오기 엔진 (완벽 격리)
+  // 2. 클라우드에서 내 데이터 불러오기 엔진 (완벽 격리 및 신규 유저 초기화)
   useEffect(() => {
     if (!session?.user?.id) return;
     const loadCloudData = async () => {
-       // 🎯 현재 로그인한 유저의 데이터만 정확히 가져오도록 필터링 (.eq)
-       const { data } = await supabase.from('app_data').select('*').eq('user_id', session.user.id).single();
-       if (data) {
-          if(data.global_cash !== undefined) setGlobalCash(data.global_cash);
-          if(data.accounts) setAccounts(data.accounts);
-          if(data.stocks) setStocks(data.stocks);
-          if(data.trade_logs) setTradeLogs(data.trade_logs);
-          if(data.my_cards) setMyCards(data.my_cards);
+       const userId = session.user.id;
+       // 🎯 다중 사용자 격리 완벽 적용 (.eq 필터링)
+       const [appRes, accRes, stockRes] = await Promise.all([
+          supabase.from('app_data').select('*').eq('user_id', userId).single(),
+          supabase.from('accounts').select('*').eq('user_id', userId),
+          supabase.from('stocks').select('*').eq('user_id', userId)
+       ]);
+
+       // 🎯 신규 사용자일 경우 기존 캐시 찌꺼기가 보이지 않도록 완벽 초기화
+       if (appRes.data) {
+          setGlobalCash(appRes.data.global_cash ?? 0);
+          setTradeLogs(appRes.data.trade_logs || []);
+          setMyCards(appRes.data.my_cards || []);
+       } else {
+          setGlobalCash(0); 
+          setTradeLogs([]); 
+          setMyCards([]);
        }
-       setIsCloudDataLoaded(true); // 내 데이터를 모두 안전하게 불러왔음을 체크
+       
+       setAccounts(accRes.data || []);
+       setStocks(stockRes.data || []);
+       
+       setIsCloudDataLoaded(true);
     };
     loadCloudData();
   }, [session]);
@@ -398,9 +425,21 @@ const AppContent = () => {
 
     if (isSignUpMode) {
       const { error } = await supabase.auth.signUp({ email: fakeEmail, password: authPassword });
-      if (error) showToast(`❌ 가입 실패: 이미 있는 아이디거나 비밀번호가 짧습니다.`);
-      else showToast('✅ 가입 성공! 이제 로그인해주세요.');
-    } else {
+      
+      if (error) {
+        // 🎯 에러 코드 분석을 통한 지능형 알림창
+        if (error.status === 400 || error.message.includes('already') || error.message.includes('exists')) {
+          alert("⚠️ 이미 존재하는 아이디입니다. 다른 아이디로 만들어 주세요.");
+        } else {
+          alert(`⚠️ 가입 오류: ${error.message}`);
+        }
+      } else {
+        alert("🎉 가입이 완료되었습니다! 로그인을 진행해 주세요.");
+        setIsSignUpMode(false); // 가입 성공 시 자동으로 로그인 화면으로 전환
+        setAuthPassword(''); // 비밀번호 칸 초기화
+      }
+    }
+    else {
       const { error } = await supabase.auth.signInWithPassword({ email: fakeEmail, password: authPassword });
       if (error) {
         showToast(`❌ 로그인 실패: 아이디나 비밀번호를 확인해주세요.`);
@@ -421,10 +460,19 @@ const AppContent = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    // 🎯 로그아웃 시 로컬 상태값 완벽 초기화 (타인 노출 절대 차단)
+    setSession(null);
+    setGlobalCash(0);
+    setAccounts([]);
+    setStocks([]);
+    setTradeLogs([]);
+    setMyCards([]);
+    setIsCloudDataLoaded(false);
     showToast('👋 로그아웃 되었습니다.');
   };
   const [calendarDate, setCalendarDate] = useState(new Date()); // 🎯 가계부 달력 현재 달
   const [selectedDay, setSelectedDay] = useState(null); // 🎯 가계부 선택된 날짜
+  const [touchStartX, setTouchStartX] = useState(0); // 🎯 스와이프 감지용 State
   const [investInput, setInvestInput] = useState(''); 
   const [transferFromId, setTransferFromId] = useState('wallet');
   const [transferToId, setTransferToId] = useState('');
@@ -964,21 +1012,31 @@ const AppContent = () => {
     showToast("✅ 통장 이름이 변경되었습니다.");
   };
 
-  const handleDeleteAccount = (idToDel) => {
-    if (accounts.length <= 1) return showToast("⚠️ 최소 하나 이상의 계좌가 필요합니다.");
-    setConfirmModal({
-      isOpen: true, message: "계좌를 삭제하시겠습니까?\n계좌 내 모든 항목이 지워집니다.",
-      onConfirm: () => {
-        saveStateToHistory();
-        const updatedAccs = accounts.filter(a => a.id !== idToDel);
-        const updatedStocks = stocks.filter(s => s.accountId !== idToDel);
-        setAccounts(updatedAccs);
-        setStocks(updatedStocks);
-        if (selectedAccountId === idToDel) setSelectedAccountId(updatedAccs[0].id);
-        saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
-        showToast("🗑️ 삭제되었습니다.");
-      }
-    });
+  const handleDeleteAccount = async (id) => {
+    if (!window.confirm('정말 이 계좌를 삭제하시겠습니까? (관련 주식은 별도 삭제 필요)')) return;
+    
+    // 🎯 DB 삭제 시 타인 계좌 건드림 방지 및 완벽 격리
+    const { error } = await supabase.from('accounts').delete().eq('id', id).eq('user_id', session?.user?.id);
+    
+    if (!error) {
+      setAccounts(prev => prev.filter(a => a.id !== id));
+      showToast("🗑️ 계좌가 삭제되었습니다.");
+      setActiveCardId(null);
+    } else {
+      showToast("⚠️ 계좌 삭제 실패: " + error.message);
+    }
+  };
+
+  const handleUpdateAccount = async (id, updatedData) => {
+    // 🎯 DB 수정 시 완벽 격리
+    const { error } = await supabase.from('accounts').update(updatedData).eq('id', id).eq('user_id', session?.user?.id);
+    
+    if (!error) {
+      setAccounts(prev => prev.map(a => a.id === id ? { ...a, ...updatedData } : a));
+      showToast("✅ 계좌가 수정되었습니다.");
+    } else {
+      showToast("⚠️ 계좌 수정 실패: " + error.message);
+    }
   };
 
   const handleTempTimelineChange = (sId, mId, val) => {
