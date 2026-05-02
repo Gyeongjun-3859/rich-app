@@ -14,6 +14,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = 'https://slpzlgpbcetnspmjcqee.supabase.co';
 const supabaseKey = 'sb_publishable_YjqpB1tMubbU4oV-ZGzOEw_TnVmGzqk';
 const supabase = createClient(supabaseUrl, supabaseKey);
+const TWELVE_DATA_KEY = '545d7e2d5da54e82b62a57654ee535f8';
 
 const toPureNumber = (str) => Number(String(str).replace(/,/g, "")) || 0;
 const toCommaString = (val) => String(val).replace(/[^0-9.-]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -122,42 +123,37 @@ const AppContent = () => {
   });
 
   const fetchMarketIndices = async () => {
-    const indexMap = { '^KS11': 'KOSPI', '^KQ11': 'KOSDAQ', '^GSPC': 'S&P 500', '^DJI': 'DOW', '^IXIC': 'NASDAQ' };
-    const tickers = Object.keys(indexMap).join(',');
+    const indexMap = { '%5EKS11': 'KOSPI', '%5EKQ11': 'KOSDAQ', '%5EGSPC': 'S&P 500', '%5EDJI': 'DOW', '%5EIXIC': 'NASDAQ' };
     const newIndices = { ...marketIndices };
 
-    try {
-      // 🎯 Yahoo의 강력한 보안(Crumb)을 무력화하는 spark API 사용
-      const targetUrl = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${tickers}`;
-      const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
-      const parsed = await res.json();
-
-      if (parsed?.spark?.result) {
-        parsed.spark.result.forEach(item => {
-          const name = indexMap[item.symbol];
-          if (name && item.response?.[0]?.meta) {
-            const meta = item.response[0].meta;
-            const price = meta.regularMarketPrice;
-            const prevClose = meta.previousClose || price; // 에러 방지용 방어 코드
-            
-            if (price !== undefined && prevClose !== undefined) {
-              const change = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
-              const formattedPrice = Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-              newIndices[name] = { price: formattedPrice, change: Number(change) };
-            }
-          }
-        });
-        setMarketIndices({ ...newIndices }); // 성공 시 즉시 렌더링
+    await Promise.all(Object.entries(indexMap).map(async ([sym, name]) => {
+      try {
+        const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}`;
+        const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`);
+        const parsed = await res.json();
+        const meta = parsed?.chart?.result?.[0]?.meta;
+        if (!meta) return;
+        const price = meta.regularMarketPrice;
+        const prevClose = meta.chartPreviousClose ?? meta.previousClose;
+        if (price && prevClose) {
+          const change = ((price - prevClose) / prevClose) * 100;
+          newIndices[name] = {
+            price: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            change: Number(change)
+          };
+        }
+      } catch (e) {
+        console.error(`⚠️ [${name}] 지수 호출 실패:`, e);
       }
-    } catch (e) {
-      console.error("⚠️ 지수 데이터 호출 실패:", e);
-    }
+    }));
+
+    setMarketIndices({ ...newIndices });
 
     try {
       const resFx = await fetch('https://open.er-api.com/v6/latest/USD');
       const dataFx = await resFx.json();
       if (dataFx?.rates?.KRW) setExchangeRate(Math.round(dataFx.rates.KRW).toString());
-    } catch (e) { console.error("⚠️ 환율 호출 실패:", e); }
+    } catch (e) {}
   };
 
   // 🎯 마운트 시 1회 + 5분마다 지수/환율 자동 갱신 (버튼 안 눌러도 화면에 즉시 반영)
@@ -214,10 +210,10 @@ const AppContent = () => {
   
   const [itemWithdrawModal, setItemWithdrawModal] = useState({ isOpen: false, targetId: null, amount: '', toAccId: 'wallet' });
 
-  const [appTitle, setAppTitle] = useState(() => getRecoveredValue('kj_final_v87_title', 'kj_final_v86_title', '경준 부자 포트폴리오'));
-  const [appSubtitle, setAppSubtitle] = useState(() => getRecoveredValue('kj_final_v87_subtitle', 'kj_final_v86_subtitle', 'Dream Big, Invest Smart'));
-  const [characterName, setCharacterName] = useState(() => getRecoveredValue('kj_final_v87_characterName', 'kj_final_v86_characterName', '경준'));
-  const [appTheme, setAppTheme] = useState(() => getRecoveredValue('kj_final_v87_theme', 'kj_final_v86_theme', 'pink'));
+  const [appTitle, setAppTitle] = useState('경준 부자 포트폴리오');
+  const [appSubtitle, setAppSubtitle] = useState('Dream Big, Invest Smart');
+  const [characterName, setCharacterName] = useState('경준');
+  const [appTheme, setAppTheme] = useState('pink');
  
   
   // 수정용 임시 상태 (설정창용)
@@ -232,7 +228,7 @@ const AppContent = () => {
   const [editCharacterName, setEditCharacterName] = useState('');
   const [editProfileImage, setEditProfileImage] = useState(''); 
 
-  const [accounts, setAccounts] = useState(() => getRecoveredValue('kj_final_v87_accounts', 'kj_final_v86_accounts', [{ id: 'default', name: '메인 계좌', cash: "0", type: 'stock', label: '입출금 통장' }]));
+  const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('default');
   const [stocks, setStocksState] = useState([]);
 
@@ -241,15 +237,15 @@ const AppContent = () => {
     setStocksState(newStocks);
   };
 
-  const [exchangeRate, setExchangeRate] = useState(() => getRecoveredValue('kj_final_v87_fx', 'kj_final_v86_fx', "1392"));
+  const [exchangeRate, setExchangeRate] = useState("1392");
   const [isFetchingStocks, setIsFetchingStocks] = useState(false);
   
-  const [historyRecords, setHistoryRecords] = useState(() => getRecoveredValue('kj_final_v87_history', 'kj_final_v86_history', [])); 
-  const [tradeLogs, setTradeLogs] = useState(() => getRecoveredValue('kj_final_v87_tradeLogs', 'kj_final_v86_tradeLogs', [])); 
+  const [historyRecords, setHistoryRecords] = useState([]);
+  const [tradeLogs, setTradeLogs] = useState([]);
 
-  const [profileImage, setProfileImage] = useState(() => getRecoveredValue('kj_final_v87_profile', 'kj_final_v86_profile', PRESET_PROFILES[0].url)); 
-  const [globalCash, setGlobalCash] = useState(() => getRecoveredValue('kj_final_v87_globalCash', 'kj_final_v86_globalCash', 0));
-  const [lastFetchTime, setLastFetchTime] = useState(() => localStorage.getItem('kj_final_v87_lastFetchTime') || localStorage.getItem('kj_final_v86_lastFetchTime') || '');
+  const [profileImage, setProfileImage] = useState(PRESET_PROFILES[0].url);
+  const [globalCash, setGlobalCash] = useState(0);
+  const [lastFetchTime, setLastFetchTime] = useState('');
 
   const [pastStates, setPastStates] = useState([]);
   const [futureStates, setFutureStates] = useState([]);
@@ -323,8 +319,8 @@ const AppContent = () => {
   const [newCardLinkedAcc, setNewCardLinkedAcc] = useState('wallet');
   const [isTaxAccount, setIsTaxAccount] = useState(false);
   // --- 은퇴 목표 및 저축액 상태 (설정 복구 로직 포함) ---
-  const [fireTarget, setFireTarget] = useState(() => Number(getRecoveredValue('kj_final_v87_fireTarget', 'kj_final_v86_fireTarget', 1000000000))); 
-  const [annualLimit, setAnnualLimit] = useState(() => Number(getRecoveredValue('kj_final_v87_monthlySaving', 'kj_final_v86_monthlySaving', 2000000)));
+  const [fireTarget, setFireTarget] = useState(1000000000);
+  const [annualLimit, setAnnualLimit] = useState(2000000);
 
   // 설정창 수정을 위한 임시 상태값
   const [expectedReturn, setExpectedReturn] = useState('5');
@@ -339,7 +335,7 @@ const AppContent = () => {
   // 설정창 수정을 위한 임시 상태값
   const [newCardName, setNewCardName] = useState('');
   const [accountbookTab, setAccountbookTab] = useState('calendar');
-  const [zoomLevel, setZoomLevel] = useState(() => getRecoveredValue('kj_final_v87_zoom', 'kj_final_v86_zoom', 100));
+  const [zoomLevel, setZoomLevel] = useState(100);
   const [session, setSession] = useState(null);
   const [authId, setAuthId] = useState(''); 
   const [authPassword, setAuthPassword] = useState('');
@@ -392,7 +388,9 @@ const AppContent = () => {
 
     if (!user?.id) {
        // 로그아웃 상태면 화면의 모든 데이터(State)를 0으로 싹 비움
-       setGlobalCash(0); setTradeLogs([]); setMyCards([]); setAccounts([]); setStocks([]);
+       setGlobalCash(0); setTradeLogs([]); setMyCards([]); setAccounts([]); setStocks([]); setHistoryRecords([]);
+       setAppTitle('경준 부자 포트폴리오'); setAppSubtitle('Dream Big, Invest Smart'); setCharacterName('경준'); setAppTheme('pink');
+       setProfileImage(PRESET_PROFILES[0].url); setFireTarget(1000000000); setAnnualLimit(2000000); setZoomLevel(100);
        setIsCloudDataLoaded(false);
        return;
     }
@@ -400,20 +398,52 @@ const AppContent = () => {
     const loadCloudData = async () => {
        // 🎯 데이터 일원화: 비어있는 accounts/stocks 테이블을 버리고, 
        // 실제 데이터가 들어있는 app_data 테이블 하나에서만 모든 정보를 가져옵니다.
-              const { data, error } = await supabase.from('app_data').select('*').eq('user_id', user.id).maybeSingle();
+       const { data, error } = await supabase.from('app_data').select('*').eq('user_id', user.id).maybeSingle();
+
+       const parseJson = (val, fallback) => {
+         if (val === null || val === undefined) return fallback;
+         if (typeof val === 'string') { try { return JSON.parse(val); } catch { return fallback; } }
+         return val;
+       };
 
        if (data) {
-          // 데이터가 있으면 화면에 뿌려주기 전에 문자열인지 확인하고 파싱(JSON.parse)합니다.
+          // 기본 데이터
           setGlobalCash(data.global_cash ?? 0);
-          setAccounts(typeof data.accounts === 'string' ? JSON.parse(data.accounts) : (data.accounts || []));
-          setStocks(typeof data.stocks === 'string' ? JSON.parse(data.stocks) : (data.stocks || []));
-          setTradeLogs(typeof data.trade_logs === 'string' ? JSON.parse(data.trade_logs) : (data.trade_logs || []));
-          setMyCards(typeof data.my_cards === 'string' ? JSON.parse(data.my_cards) : (data.my_cards || []));
+          setAccounts(parseJson(data.accounts, []));
+          setStocks(parseJson(data.stocks, []));
+          setTradeLogs(parseJson(data.trade_logs, []));
+          setMyCards(parseJson(data.my_cards, []));
+          // 🎯 가계부 (성장일기 차트의 원본 데이터)
+          setHistoryRecords(parseJson(data.history_records, []));
+          // 🎯 설정 (테마/제목/프로필 등 통합)
+          const s = parseJson(data.settings, {});
+          setAppTitle(s.appTitle ?? '경준 부자 포트폴리오');
+          setAppSubtitle(s.appSubtitle ?? 'Dream Big, Invest Smart');
+          setCharacterName(s.characterName ?? '경준');
+          setAppTheme(s.appTheme ?? 'pink');
+          setProfileImage(s.profileImage ?? PRESET_PROFILES[0].url);
+          setFireTarget(Number(s.fireTarget ?? 1000000000));
+          setAnnualLimit(Number(s.annualLimit ?? 2000000));
+          setZoomLevel(s.zoomLevel ?? 100);
+          setExchangeRate(s.exchangeRate ?? "1392");
        } else {
-          // 내 데이터가 없으면 신규 가입자로 간주하고 빈 데이터를 만들어 줍니다.
-                    await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0 }]);
-          setAccounts([]);
+          // 신규 가입자: 모든 데이터 빈 상태로 초기화
+          await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0, settings: {}, history_records: [] }]);
+          setGlobalCash(0);
+          setAccounts([{ id: 'default', name: '메인 계좌', cash: "0", type: 'stock', label: '입출금 통장' }]);
           setStocks([]);
+          setTradeLogs([]);
+          setMyCards([]);
+          setHistoryRecords([]);
+          setProfileImage(PRESET_PROFILES[0].url);
+          setCharacterName('경준');
+          setAppTitle('경준 부자 포트폴리오');
+          setAppSubtitle('Dream Big, Invest Smart');
+          setAppTheme('pink');
+          setFireTarget(1000000000);
+          setAnnualLimit(2000000);
+          setZoomLevel(100);
+          setExchangeRate("1392");
        }
        
        setIsCloudDataLoaded(true); // 불러오기 완료 도장 쾅!
@@ -429,20 +459,30 @@ const AppContent = () => {
     const saveToCloud = async () => {
        const currentUserId = session.user.id;
        
-       await supabase.from('app_data').upsert({
-         user_id: currentUserId, // 🎯 저장 시 내 ID 강제 주입
+       // 🎯 jsonb 컬럼은 객체/배열 그대로 보내야 함 (JSON.stringify 하면 문자열로 저장돼서 매번 파싱 필요)
+       const settings = {
+         appTitle, appSubtitle, characterName, appTheme,
+         profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate
+       };
+
+       const { error } = await supabase.from('app_data').upsert({
+         user_id: currentUserId,
          global_cash: globalCash,
-         // JSON.stringify 로 확실하게 감싸서 에러 방지
-         accounts: JSON.stringify(accounts),
-         stocks: JSON.stringify(stocks),
-         trade_logs: JSON.stringify(tradeLogs),
-         my_cards: JSON.stringify(myCards)
-       }, { onConflict: 'user_id' }); // 내 ID가 이미 있으면 덮어쓰기(업데이트)
+         accounts: accounts,
+         stocks: stocks,
+         trade_logs: tradeLogs,
+         my_cards: myCards,
+         history_records: historyRecords,
+         settings: settings,
+         updated_at: new Date().toISOString()
+       }, { onConflict: 'user_id' });
+
+       if (error) console.error("❌ 클라우드 저장 실패:", error);
     };
     
     const timeoutId = setTimeout(saveToCloud, 2000); 
     return () => clearTimeout(timeoutId);
-  }, [globalCash, accounts, stocks, tradeLogs, myCards, session, isCloudDataLoaded]);
+  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, session, isCloudDataLoaded]);
 
   // 4. 나만의 아이디(영문/숫자) 로그인 실행 로직
   const handleAuthSubmit = async (e) => {
@@ -487,8 +527,14 @@ const AppContent = () => {
     setAuthLoading(false);
   };
 
-  const handleLogout = async () => {
+    const handleLogout = async () => {
     await supabase.auth.signOut();
+    // 🎯 다른 아이디 로그인 시 데이터 누출 방지: 모든 localStorage 데이터 초기화
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('kj_final_v') || key.startsWith('kj_nbbang') || key === 'savedRichId' || key === 'savedRichPw' || key === 'kj_auto_login_session') {
+        localStorage.removeItem(key);
+      }
+    });
     // 🎯 로그아웃 시 로컬 상태값 완벽 초기화 (타인 노출 절대 차단)
     setSession(null);
     setGlobalCash(0);
@@ -579,9 +625,8 @@ const AppContent = () => {
         if (!s.ticker) continue; 
         try {
           const ticker = s.isUSD ? s.ticker : `${s.ticker}.KS`;
-          const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`)}`);
-          const data = await res.json();
-          const parsed = JSON.parse(data.contents);
+          const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`)}`);
+          const parsed = await res.json();
           const price = parsed.chart.result[0].meta.regularMarketPrice;
           if (price && !isNaN(price)) {
             successCount++;
@@ -643,7 +688,7 @@ const AppContent = () => {
             // 국내 종목/ETF는 티커 뒤에 .KS 부착
             const ticker = s.isUSD ? s.ticker : `${s.ticker}.KS`; 
             const targetUrl = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${ticker}`;
-            const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
+            const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
             const parsed = await res.json();
             const price = parsed.spark.result[0].response[0].meta.regularMarketPrice;
             
