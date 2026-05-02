@@ -122,45 +122,52 @@ const AppContent = () => {
   });
 
   const fetchMarketIndices = async () => {
-    const indexMap = { 'KOSPI': '^KS11', 'KOSDAQ': '^KQ11', 'S&P 500': '^GSPC', 'DOW': '^DJI', 'NASDAQ': '^IXIC' };
+    const indexMap = { '^KS11': 'KOSPI', '^KQ11': 'KOSDAQ', '^GSPC': 'S&P 500', '^DJI': 'DOW', '^IXIC': 'NASDAQ' };
+    const tickers = Object.keys(indexMap).join(',');
     const newIndices = { ...marketIndices };
 
     try {
-      // 1. 글로벌 증시 지수 패칭 (Yahoo Quote API + AllOrigins 프록시 우회)
-      for (const [name, ticker] of Object.entries(indexMap)) {
-        const targetUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}`;
-        // 🎯 CORS 우회 및 항상 최신 데이터를 가져오기 위한 타임스탬프(&t=) 적용
-        const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
-        const data = await res.json();
+      // 🎯 Yahoo의 강력한 보안(Crumb)을 무력화하는 spark API 사용
+      const targetUrl = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${tickers}`;
+      const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
+      const parsed = await res.json();
 
-        if (data && data.contents) {
-          const parsed = JSON.parse(data.contents);
-          if (parsed.quoteResponse && parsed.quoteResponse.result && parsed.quoteResponse.result.length > 0) {
-            const result = parsed.quoteResponse.result[0];
-            const currentPrice = result.regularMarketPrice;
-            const changePercent = result.regularMarketChangePercent;
-
-            // 🎯 0이 아닌 유효한 데이터가 들어왔을 때만 안전하게 파싱하여 덮어쓰기
-            if (currentPrice !== undefined && changePercent !== undefined) {
-              newIndices[name] = { price: formatNum(currentPrice, 2), change: changePercent };
+      if (parsed?.spark?.result) {
+        parsed.spark.result.forEach(item => {
+          const name = indexMap[item.symbol];
+          if (name && item.response?.[0]?.meta) {
+            const meta = item.response[0].meta;
+            const price = meta.regularMarketPrice;
+            const prevClose = meta.previousClose || price; // 에러 방지용 방어 코드
+            
+            if (price !== undefined && prevClose !== undefined) {
+              const change = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+              const formattedPrice = Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              newIndices[name] = { price: formattedPrice, change: Number(change) };
             }
           }
-        }
+        });
+        setMarketIndices({ ...newIndices }); // 성공 시 즉시 렌더링
       }
-      // 🎯 가져온 지수 상태값을 즉시 동기화하여 화면에 바로 반영
-      setMarketIndices({ ...newIndices });
+    } catch (e) {
+      console.error("⚠️ 지수 데이터 호출 실패:", e);
+    }
 
-      // 2. 실시간 환율(USD/KRW) 패칭 및 동기화 (갱신 버튼 누를 때 함께 업데이트)
+    try {
       const resFx = await fetch('https://open.er-api.com/v6/latest/USD');
       const dataFx = await resFx.json();
-      if (dataFx?.rates?.KRW) {
-        setExchangeRate(Math.round(dataFx.rates.KRW).toString());
-      }
-
-    } catch (e) {
-      console.error("⚠️ 실시간 금융 데이터 호출 실패. 화면 짤림을 방지하기 위해 기존 데이터를 유지합니다.", e);
-    }
+      if (dataFx?.rates?.KRW) setExchangeRate(Math.round(dataFx.rates.KRW).toString());
+    } catch (e) { console.error("⚠️ 환율 호출 실패:", e); }
   };
+
+  // 🎯 마운트 시 1회 + 5분마다 지수/환율 자동 갱신 (버튼 안 눌러도 화면에 즉시 반영)
+  useEffect(() => {
+    fetchMarketIndices();
+    const id = setInterval(fetchMarketIndices, 5 * 60 * 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [flowingTextId, setFlowingTextId] = useState(null); // 물흐름 애니메이션 ID
 
   // 🎯 화면 빈 곳(외부) 클릭 시 달력 상세내역 해제 및 툴팁 닫기 (전역 마우스 이벤트)
@@ -228,7 +235,6 @@ const AppContent = () => {
   const [accounts, setAccounts] = useState(() => getRecoveredValue('kj_final_v87_accounts', 'kj_final_v86_accounts', [{ id: 'default', name: '메인 계좌', cash: "0", type: 'stock', label: '입출금 통장' }]));
   const [selectedAccountId, setSelectedAccountId] = useState('default');
   const [stocks, setStocksState] = useState([]);
-  const currentUserId = '00000000-0000-0000-0000-000000000000'; // ⚠️ 임시 유저 ID (추후 로그인 기능 추가 시 변경하세요)
 
   // 2. 상태 업데이트 함수 (저장은 2초 자동 저장 엔진이 일괄 처리함)
   const setStocks = (newStocks) => {
@@ -351,66 +357,89 @@ const AppContent = () => {
     }
   }, []);
 
-  // 1. 로그인 상태 확인 로직
+  // 🎯 Context API 역할을 대체하는 전역 사용자 상태 및 세션 동기화 락(Lock)
+  const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(false); // 세션 복구가 끝났는지 확인하는 상태
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    // 1. 새로고침 시 기존 세션 완벽 복구
+    const restoreSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setSession(session);
+        setUser(session.user);
+      }
+      setIsAuthReady(true); // 인증 상태 확인 완료 (이제 데이터 불러오기 허용)
       setAuthLoading(false);
+    };
+    restoreSession();
+
+    // 2. 실시간 로그인/로그아웃/토큰 만료 감지기
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      setSession(currentSession);
+      setUser(currentSession?.user || null);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
+
     return () => subscription.unsubscribe();
   }, []);
 
   // 1.5 데이터 덮어쓰기 방지용 상태 추가
   const [isCloudDataLoaded, setIsCloudDataLoaded] = useState(false);
 
-  // 2. 클라우드에서 내 데이터 불러오기 엔진 (완벽 격리 및 신규 유저 초기화)
+  // 2. 🎯 완벽 격리: 내 로그인 ID와 일치하는 데이터만 불러오기
   useEffect(() => {
-    if (!session?.user?.id) return;
-    const loadCloudData = async () => {
-       const userId = session.user.id;
-       // 🎯 다중 사용자 격리 완벽 적용 (.eq 필터링)
-       const [appRes, accRes, stockRes] = await Promise.all([
-          supabase.from('app_data').select('*').eq('user_id', userId).single(),
-          supabase.from('accounts').select('*').eq('user_id', userId),
-          supabase.from('stocks').select('*').eq('user_id', userId)
-       ]);
+    if (!isAuthReady) return; 
 
-       // 🎯 신규 사용자일 경우 기존 캐시 찌꺼기가 보이지 않도록 완벽 초기화
-       if (appRes.data) {
-          setGlobalCash(appRes.data.global_cash ?? 0);
-          setTradeLogs(appRes.data.trade_logs || []);
-          setMyCards(appRes.data.my_cards || []);
+    if (!user?.id) {
+       // 로그아웃 상태면 화면의 모든 데이터(State)를 0으로 싹 비움
+       setGlobalCash(0); setTradeLogs([]); setMyCards([]); setAccounts([]); setStocks([]);
+       setIsCloudDataLoaded(false);
+       return;
+    }
+
+    const loadCloudData = async () => {
+       // 🎯 데이터 일원화: 비어있는 accounts/stocks 테이블을 버리고, 
+       // 실제 데이터가 들어있는 app_data 테이블 하나에서만 모든 정보를 가져옵니다.
+              const { data, error } = await supabase.from('app_data').select('*').eq('user_id', user.id).maybeSingle();
+
+       if (data) {
+          // 데이터가 있으면 화면에 뿌려주기 전에 문자열인지 확인하고 파싱(JSON.parse)합니다.
+          setGlobalCash(data.global_cash ?? 0);
+          setAccounts(typeof data.accounts === 'string' ? JSON.parse(data.accounts) : (data.accounts || []));
+          setStocks(typeof data.stocks === 'string' ? JSON.parse(data.stocks) : (data.stocks || []));
+          setTradeLogs(typeof data.trade_logs === 'string' ? JSON.parse(data.trade_logs) : (data.trade_logs || []));
+          setMyCards(typeof data.my_cards === 'string' ? JSON.parse(data.my_cards) : (data.my_cards || []));
        } else {
-          setGlobalCash(0); 
-          setTradeLogs([]); 
-          setMyCards([]);
+          // 내 데이터가 없으면 신규 가입자로 간주하고 빈 데이터를 만들어 줍니다.
+                    await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0 }]);
+          setAccounts([]);
+          setStocks([]);
        }
        
-       setAccounts(accRes.data || []);
-       setStocks(stockRes.data || []);
-       
-       setIsCloudDataLoaded(true);
+       setIsCloudDataLoaded(true); // 불러오기 완료 도장 쾅!
     };
     loadCloudData();
-  }, [session]);
+  }, [user, isAuthReady]);
 
-  // 3. 내 데이터를 클라우드에 2초마다 자동 저장하는 엔진 (완벽 격리)
+  // 3. 🎯 완벽 격리: 저장할 때 내 로그인 ID 꼬리표를 꽉 묶어서 저장
   useEffect(() => {
-    // 🎯 불러오기가 끝나지 않았는데 초기값(0원 등)이 클라우드에 덮어씌워지는 대참사 원천 차단
+    // 세션이 없거나, 불러오기가 안 끝났으면 절대 저장 안 함 (0원으로 덮어써지는 참사 방지)
     if (!session?.user?.id || !isCloudDataLoaded) return; 
+    
     const saveToCloud = async () => {
+       const currentUserId = session.user.id;
+       
        await supabase.from('app_data').upsert({
-         user_id: session.user.id, // 🎯 반드시 내 ID로 꼬리표를 달아서 저장
+         user_id: currentUserId, // 🎯 저장 시 내 ID 강제 주입
          global_cash: globalCash,
-         accounts: accounts,
-         stocks: stocks,
-         trade_logs: tradeLogs,
-         my_cards: myCards
-       }, { onConflict: 'user_id' }); // 내 row만 콕 찝어서 안전하게 업데이트
+         // JSON.stringify 로 확실하게 감싸서 에러 방지
+         accounts: JSON.stringify(accounts),
+         stocks: JSON.stringify(stocks),
+         trade_logs: JSON.stringify(tradeLogs),
+         my_cards: JSON.stringify(myCards)
+       }, { onConflict: 'user_id' }); // 내 ID가 이미 있으면 덮어쓰기(업데이트)
     };
+    
     const timeoutId = setTimeout(saveToCloud, 2000); 
     return () => clearTimeout(timeoutId);
   }, [globalCash, accounts, stocks, tradeLogs, myCards, session, isCloudDataLoaded]);
@@ -613,10 +642,10 @@ const AppContent = () => {
         try {
             // 국내 종목/ETF는 티커 뒤에 .KS 부착
             const ticker = s.isUSD ? s.ticker : `${s.ticker}.KS`; 
-            const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`)}`);
-            const data = await res.json();
-            const parsed = JSON.parse(data.contents);
-            const price = parsed.chart.result[0].meta.regularMarketPrice;
+            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${ticker}`;
+            const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
+            const parsed = await res.json();
+            const price = parsed.spark.result[0].response[0].meta.regularMarketPrice;
             
             if (price && !isNaN(price)) {
               stockSuccessCount++;
@@ -1015,28 +1044,16 @@ const AppContent = () => {
   const handleDeleteAccount = async (id) => {
     if (!window.confirm('정말 이 계좌를 삭제하시겠습니까? (관련 주식은 별도 삭제 필요)')) return;
     
-    // 🎯 DB 삭제 시 타인 계좌 건드림 방지 및 완벽 격리
-    const { error } = await supabase.from('accounts').delete().eq('id', id).eq('user_id', session?.user?.id);
-    
-    if (!error) {
-      setAccounts(prev => prev.filter(a => a.id !== id));
-      showToast("🗑️ 계좌가 삭제되었습니다.");
-      setActiveCardId(null);
-    } else {
-      showToast("⚠️ 계좌 삭제 실패: " + error.message);
-    }
+    // 🎯 화면 상태만 지우면 2초 뒤 자동 저장 엔진이 알아서 app_data에 덮어씁니다.
+    setAccounts(prev => prev.filter(a => a.id !== id));
+    showToast("🗑️ 계좌가 삭제되었습니다.");
+    setActiveCardId(null);
   };
 
   const handleUpdateAccount = async (id, updatedData) => {
-    // 🎯 DB 수정 시 완벽 격리
-    const { error } = await supabase.from('accounts').update(updatedData).eq('id', id).eq('user_id', session?.user?.id);
-    
-    if (!error) {
-      setAccounts(prev => prev.map(a => a.id === id ? { ...a, ...updatedData } : a));
-      showToast("✅ 계좌가 수정되었습니다.");
-    } else {
-      showToast("⚠️ 계좌 수정 실패: " + error.message);
-    }
+    // 🎯 화면 상태만 수정하면 2초 뒤 자동 저장 엔진이 알아서 app_data에 덮어씁니다.
+    setAccounts(prev => prev.map(a => a.id === id ? { ...a, ...updatedData } : a));
+    showToast("✅ 계좌가 수정되었습니다.");
   };
 
   const handleTempTimelineChange = (sId, mId, val) => {
@@ -1491,8 +1508,9 @@ const AppContent = () => {
         if (matchedDb) {
            const searchContext = [line, lines[i+1], lines[i+2], lines[i+3]].filter(Boolean).join(' ');
            
-           const qtyMatch = searchContext.match(/([0-9,]+)\s*(주|좌)/);
-           const priceMatch = searchContext.match(/([0-9,]+)\s*(원|USD)/) || searchContext.match(/평?단가?\s*[:\-]?\s*([0-9,]+)/);
+           // 🎯 깐깐했던 Tesseract 정규식을 완화하여 인식률 대폭 향상
+           const qtyMatch = searchContext.match(/([0-9,]+)\s*(주|좌|수량|보유|잔고)/) || searchContext.match(/수량\s*([0-9,]+)/);
+           const priceMatch = searchContext.match(/([0-9,]+)\s*(원|USD)/) || searchContext.match(/평?단가?\s*[:\-]?\s*([0-9,]+)/) || searchContext.match(/매입가\s*([0-9,]+)/);
 
            if (qtyMatch) {
               const qty = Number(qtyMatch[1].replace(/,/g, ''));
@@ -1524,17 +1542,6 @@ const AppContent = () => {
                  setIsOcrLoading(false);
                  return;
              }
-
-             const mappedInserts = foundStocks.map(s => ({
-                id: s.id, 
-                user_id: userIdToSave, // 🎯 DB 저장 시 내 ID 강제 주입
-                name: s.name, ticker: s.ticker,
-                buyprice: s.buyPrice, currentprice: s.currentPrice, quantity: s.quantity,
-                isusd: s.isUSD, targetratio: s.targetRatio, accountid: s.accountId
-             }));
-
-             const { error } = await supabase.from('stocks').insert(mappedInserts);
-         if (error) throw new Error(error.message);
 
          setStocks([...stocks, ...foundStocks]);
          setIsModalOpen(false);
