@@ -14,7 +14,25 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = 'https://slpzlgpbcetnspmjcqee.supabase.co';
 const supabaseKey = 'sb_publishable_YjqpB1tMubbU4oV-ZGzOEw_TnVmGzqk';
 const supabase = createClient(supabaseUrl, supabaseKey);
-const TWELVE_DATA_KEY = '545d7e2d5da54e82b62a57654ee535f8';
+// 🎯 Edge Function을 통해 시세/지수 일괄 조회 (서버에서 Yahoo 호출, CORS 안전, 안정적)
+const fetchMarketDataViaEdgeFn = async (symbols) => {
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({ symbols }),
+    });
+    const data = await res.json();
+    return data?.results || {};
+  } catch (e) {
+    console.error('⚠️ Edge Function 호출 실패:', e);
+    return {};
+  }
+};
 
 const toPureNumber = (str) => Number(String(str).replace(/,/g, "")) || 0;
 const toCommaString = (val) => String(val).replace(/[^0-9.-]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -123,32 +141,23 @@ const AppContent = () => {
   });
 
   const fetchMarketIndices = async () => {
-    const indexMap = { '%5EKS11': 'KOSPI', '%5EKQ11': 'KOSDAQ', '%5EGSPC': 'S&P 500', '%5EDJI': 'DOW', '%5EIXIC': 'NASDAQ' };
+    const indexMap = { '^KS11': 'KOSPI', '^KQ11': 'KOSDAQ', '^GSPC': 'S&P 500', '^DJI': 'DOW', '^IXIC': 'NASDAQ' };
+    const results = await fetchMarketDataViaEdgeFn(Object.keys(indexMap));
+
     const newIndices = { ...marketIndices };
-
-    await Promise.all(Object.entries(indexMap).map(async ([sym, name]) => {
-      try {
-        const targetUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}`;
-        const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`);
-        const parsed = await res.json();
-        const meta = parsed?.chart?.result?.[0]?.meta;
-        if (!meta) return;
-        const price = meta.regularMarketPrice;
-        const prevClose = meta.chartPreviousClose ?? meta.previousClose;
-        if (price && prevClose) {
-          const change = ((price - prevClose) / prevClose) * 100;
-          newIndices[name] = {
-            price: Number(price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            change: Number(change)
-          };
-        }
-      } catch (e) {
-        console.error(`⚠️ [${name}] 지수 호출 실패:`, e);
+    Object.entries(indexMap).forEach(([sym, name]) => {
+      const r = results[sym];
+      if (r?.price && r?.prevClose) {
+        const change = ((r.price - r.prevClose) / r.prevClose) * 100;
+        newIndices[name] = {
+          price: Number(r.price).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          change: Number(change)
+        };
       }
-    }));
+    });
+    setMarketIndices(newIndices);
 
-    setMarketIndices({ ...newIndices });
-
+    // 환율은 별도 무료 API 사용
     try {
       const resFx = await fetch('https://open.er-api.com/v6/latest/USD');
       const dataFx = await resFx.json();
@@ -220,6 +229,19 @@ const AppContent = () => {
   
   const t = THEME_STYLES[appTheme] || THEME_STYLES.pink;
 
+  // 🎯 테마 배경색을 body/html에도 적용 → zoom 축소 시 흰색 노출 방지
+  useEffect(() => {
+    const themeBg = {
+      pink: '#fffafb', blue: '#f0f9ff', green: '#f0fdf4',
+      white: '#f8fafc', yellow: '#fffbeb', purple: '#faf5ff'
+    }[appTheme] || '#fffafb';
+    document.body.style.backgroundColor = themeBg;
+    document.documentElement.style.backgroundColor = themeBg;
+    // 모바일 상태바 색상도 일치
+    let themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute('content', themeBg);
+  }, [appTheme]);
+
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
   const [isFireModalOpen, setIsFireModalOpen] = useState(false); // 🔥 FIRE 대시보드 팝업 스위치
   const [isEditHeaderOpen, setIsEditHeaderOpen] = useState(false);
@@ -230,6 +252,13 @@ const AppContent = () => {
 
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('default');
+
+  // 🎯 accounts가 로드되거나 바뀌면, selectedAccountId가 실제 계좌 중 하나를 가리키도록 자동 동기화
+  useEffect(() => {
+    if (accounts.length === 0) return;
+    const exists = accounts.some(a => a.id === selectedAccountId);
+    if (!exists) setSelectedAccountId(accounts[0].id);
+  }, [accounts, selectedAccountId]);
   const [stocks, setStocksState] = useState([]);
 
   // 2. 상태 업데이트 함수 (저장은 2초 자동 저장 엔진이 일괄 처리함)
@@ -308,7 +337,7 @@ const AppContent = () => {
   const [isSettledHistoryView, setIsSettledHistoryView] = useState(false);
   const [settledDetailModal, setSettledDetailModal] = useState({ isOpen: false, person: '', details: [] }); // 🎯 정산 완료 상세 모달
   const [settledNbbangFilter, setSettledNbbangFilter] = useState('person'); // 🎯 완료 내역 전용 필터 상태 추가
-  const [myDisplayName, setMyDisplayName] = useState(() => localStorage.getItem('kj_nbbang_name') || ''); // 🎯 내 이름 설정
+  const [myDisplayName, setMyDisplayName] = useState(''); // 🎯 내 이름 설정 (settings에 동기화)
   const [isNameSettingOpen, setIsNameSettingOpen] = useState(false); // 🎯 내 이름 설정 팝업 상태
   const [selectedPersonsToSettle, setSelectedPersonsToSettle] = useState([]); // 🎯 선택적 N빵 정산
   const [expandedBatches, setExpandedBatches] = useState({}); // 🎯 계층형 완료 내역 아코디언
@@ -426,6 +455,7 @@ const AppContent = () => {
           setAnnualLimit(Number(s.annualLimit ?? 2000000));
           setZoomLevel(s.zoomLevel ?? 100);
           setExchangeRate(s.exchangeRate ?? "1392");
+          setMyDisplayName(s.myDisplayName ?? '');
        } else {
           // 신규 가입자: 모든 데이터 빈 상태로 초기화
           await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0, settings: {}, history_records: [] }]);
@@ -462,7 +492,8 @@ const AppContent = () => {
        // 🎯 jsonb 컬럼은 객체/배열 그대로 보내야 함 (JSON.stringify 하면 문자열로 저장돼서 매번 파싱 필요)
        const settings = {
          appTitle, appSubtitle, characterName, appTheme,
-         profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate
+         profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate,
+         myDisplayName
        };
 
        const { error } = await supabase.from('app_data').upsert({
@@ -482,7 +513,7 @@ const AppContent = () => {
     
     const timeoutId = setTimeout(saveToCloud, 2000); 
     return () => clearTimeout(timeoutId);
-  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, session, isCloudDataLoaded]);
+  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, myDisplayName, session, isCloudDataLoaded]);
 
   // 4. 나만의 아이디(영문/숫자) 로그인 실행 로직
   const handleAuthSubmit = async (e) => {
@@ -607,46 +638,40 @@ const AppContent = () => {
   useEffect(() => {
     let isMounted = true;
     const fetchPrices = async () => {
+      // 1. 환율
       try {
         const resFx = await fetch('https://open.er-api.com/v6/latest/USD');
         const dataFx = await resFx.json();
-        if (dataFx?.rates?.KRW) {
-          const liveRate = Math.round(dataFx.rates.KRW).toString();
-          setExchangeRate(liveRate);
-          localStorage.setItem('kj_final_v87_fx', liveRate);
-        }
+        if (dataFx?.rates?.KRW) setExchangeRate(Math.round(dataFx.rates.KRW).toString());
       } catch (error) {}
 
+      // 2. 주식 시세 일괄 조회 (Edge Function 한 번 호출)
+      const stocksList = stocksRef.current;
+      const symbols = stocksList.filter(s => s.ticker).map(s => s.isUSD ? s.ticker : `${s.ticker}.KS`);
+      if (symbols.length === 0) return;
+
+      const results = await fetchMarketDataViaEdgeFn(symbols);
       let updated = false;
       let successCount = 0;
-      let newStocks = [...stocksRef.current];
-      for (let i = 0; i < newStocks.length; i++) {
-        let s = newStocks[i];
-        if (!s.ticker) continue; 
-        try {
-          const ticker = s.isUSD ? s.ticker : `${s.ticker}.KS`;
-          const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}`)}`);
-          const parsed = await res.json();
-          const price = parsed.chart.result[0].meta.regularMarketPrice;
-          if (price && !isNaN(price)) {
-            successCount++;
-            if (Number(s.currentPrice) !== price) {
-              newStocks[i] = { ...s, currentPrice: String(price) };
-              updated = true;
-            }
+      const newStocks = stocksList.map(s => {
+        if (!s.ticker) return s;
+        const sym = s.isUSD ? s.ticker : `${s.ticker}.KS`;
+        const price = results[sym]?.price;
+        if (price && !isNaN(price)) {
+          successCount++;
+          if (Number(s.currentPrice) !== price) {
+            updated = true;
+            return { ...s, currentPrice: String(price) };
           }
-        } catch(e) {}
-      }
-      
+        }
+        return s;
+      });
+
       if (successCount > 0 && isMounted) {
         const now = new Date();
         const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
         setLastFetchTime(timeStr);
-        localStorage.setItem('kj_final_v87_lastFetchTime', timeStr);
-        
-        if (updated) {
-          setStocks(newStocks);
-        }
+        if (updated) setStocks(newStocks);
       }
     };
     
@@ -680,28 +705,23 @@ const AppContent = () => {
       console.error("❌ 환율 업데이트 실패:", error);
     }
 
-    // 2. 실시간 주식/ETF 시세 호출 (Yahoo Finance API 활용)
-    for (let i = 0; i < updatedStocks.length; i++) {
-        let s = updatedStocks[i];
-        if (!s.ticker) continue;
-        try {
-            // 국내 종목/ETF는 티커 뒤에 .KS 부착
-            const ticker = s.isUSD ? s.ticker : `${s.ticker}.KS`; 
-            const targetUrl = `https://query1.finance.yahoo.com/v8/finance/spark?symbols=${ticker}`;
-            const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}&t=${Date.now()}`);
-            const parsed = await res.json();
-            const price = parsed.spark.result[0].response[0].meta.regularMarketPrice;
-            
-            if (price && !isNaN(price)) {
-              stockSuccessCount++;
-              if (Number(s.currentPrice) !== price) {
-                updatedStocks[i] = { ...s, currentPrice: String(price) };
-                isStockUpdated = true;
-              }
-            }
-        } catch(e) {
-            console.error(`❌ [${s.name}] 시세 업데이트 실패:`, e);
+    // 2. 실시간 주식/ETF 시세 일괄 조회 (Edge Function 한 번에 호출)
+    const symbolsToFetch = updatedStocks.filter(s => s.ticker).map(s => s.isUSD ? s.ticker : `${s.ticker}.KS`);
+    if (symbolsToFetch.length > 0) {
+      const results = await fetchMarketDataViaEdgeFn(symbolsToFetch);
+      updatedStocks = updatedStocks.map(s => {
+        if (!s.ticker) return s;
+        const sym = s.isUSD ? s.ticker : `${s.ticker}.KS`;
+        const price = results[sym]?.price;
+        if (price && !isNaN(price)) {
+          stockSuccessCount++;
+          if (Number(s.currentPrice) !== price) {
+            isStockUpdated = true;
+            return { ...s, currentPrice: String(price) };
+          }
         }
+        return s;
+      });
     }
     
     // 3. 변경사항 발생 시 Supabase 및 화면 상태값 자동 반영
@@ -709,7 +729,6 @@ const AppContent = () => {
       const now = new Date();
       const timeStr = `${now.getFullYear()}.${now.getMonth()+1}.${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
       setLastFetchTime(timeStr);
-      localStorage.setItem('kj_final_v87_lastFetchTime', timeStr);
       
       if (isStockUpdated) {
         // 🎯 해결: 기존에 개조해둔 setStocks 함수가 화면 갱신과 Supabase 저장을 동시에 처리합니다.
@@ -895,7 +914,6 @@ const AppContent = () => {
       }
       const rec = { id, year: currentYearNum, month: currentMonthNum, invested: globalStats.totalPrincipal, current: globalStats.totalAssets, profit: globalStats.globalProfit, roi: globalStats.totalROI, dividend: globalStats.globalReceivedDiv };
       const newHistory = [rec, ...prev.filter(r => r.id !== id)].sort((a,b) => b.id.localeCompare(a.id));
-      localStorage.setItem('kj_final_v87_history', JSON.stringify(newHistory));
       return newHistory;
     });
   }, [globalStats, currentYearNum, currentMonthNum]);
@@ -951,21 +969,12 @@ const AppContent = () => {
   };
 
   const saveConfig = (accs, fx, title = appTitle, subtitle = appSubtitle, charName = characterName, theme = appTheme, gCash = globalCash, zLevel = zoomLevel) => {
-    localStorage.setItem('kj_final_v87_accounts', JSON.stringify(accs));
-    localStorage.setItem('kj_final_v87_fx', fx);
-    localStorage.setItem('kj_final_v87_title', title);
-    localStorage.setItem('kj_final_v87_subtitle', subtitle);
-    localStorage.setItem('kj_final_v87_characterName', charName);
-    localStorage.setItem('kj_final_v87_theme', theme);
-    localStorage.setItem('kj_final_v87_zoom', JSON.stringify(zLevel));
-    localStorage.setItem('kj_final_v87_globalCash', JSON.stringify(gCash));
   };
 
   const logTrade = (tradeDetails) => {
     const newLog = { id: Date.now().toString(), date: dateString, timestamp: Date.now(), ...tradeDetails };
     const updatedLogs = [newLog, ...tradeLogs];
     setTradeLogs(updatedLogs);
-    localStorage.setItem('kj_final_v87_tradeLogs', JSON.stringify(updatedLogs));
   };
 
   const handleExportData = () => {
@@ -998,11 +1007,28 @@ const AppContent = () => {
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setEditProfileImage(reader.result);
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+    // 🎯 너무 큰 이미지는 캔버스로 리사이즈해서 저장 (DB 용량 절약 + 빠른 로딩)
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 256; // 프로필은 256px이면 충분
+        const canvas = document.createElement('canvas');
+        const scale = Math.min(MAX / img.width, MAX / img.height, 1);
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.85);
+        // 🎯 모달 내 미리보기 + 메인 화면 캐릭터 동시 즉시 반영
+        setEditProfileImage(compressed);
+        setProfileImage(compressed);
+        showToast("✅ 프로필 사진이 변경되었습니다!");
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAddClick = () => {
@@ -1113,7 +1139,6 @@ const AppContent = () => {
     saveStateToHistory();
     const updated = historyRecords.filter(r => r.id !== id);
     setHistoryRecords(updated);
-    localStorage.setItem('kj_final_v87_history', JSON.stringify(updated));
   };
 
   const handleDragStart = (e, index) => {
@@ -1404,16 +1429,13 @@ const AppContent = () => {
         const finalStocks = updatedStocks.filter(s => s.id !== id);
         setStocks(finalStocks);
         setGlobalCash(newCash);
-        localStorage.setItem('kj_final_v87_globalCash', JSON.stringify(newCash));
       }, () => {
         setStocks(updatedStocks);
         setGlobalCash(newCash);
-        localStorage.setItem('kj_final_v87_globalCash', JSON.stringify(newCash));
       });
     } else {
       setStocks(updatedStocks);
       setGlobalCash(newCash);
-      localStorage.setItem('kj_final_v87_globalCash', JSON.stringify(newCash));
     }
   };
 
@@ -1506,7 +1528,6 @@ const AppContent = () => {
     setSavingsMaturityModal({ isOpen: false, targetId: null, finalAmount: '' });
     showToast(`🎉 축하합니다!\n노력의 결실 ₩${formatNum(finalAmt)} 입금 완료! 🥳`);
 
-    localStorage.setItem('kj_final_v87_globalCash', JSON.stringify(newCash));
   };
 
   const handleScreenshotOcr = async (e) => {
@@ -1693,7 +1714,7 @@ const AppContent = () => {
     );
   }
   return (
-    <div className={`min-h-screen ${t.bg} text-slate-800 pb-16 selection:bg-slate-200 transition-colors duration-500`} style={{ fontFamily: "'Pretendard', sans-serif", zoom: zoomLevel / 100 }}>
+    <div className={`min-h-screen ${t.bg} text-slate-800 pb-16 selection:bg-slate-200 transition-colors duration-500`} style={{ fontFamily: "'Pretendard', sans-serif", zoom: zoomLevel / 100, paddingBottom: 'max(64px, env(safe-area-inset-bottom))', paddingTop: 'env(safe-area-inset-top)' }}>
       <style>{`
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
         html { overflow-y: scroll; }
@@ -1833,7 +1854,7 @@ const AppContent = () => {
             {/* Left: Accounts Container (더블클릭 인터랙션 + 물흐름 적용) */}
             <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0 bg-white p-2 md:p-1.5 rounded-[1.25rem] md:rounded-[1rem] shadow-sm border border-slate-200" onClick={(e) => e.stopPropagation()}>
               {accounts.map((acc, index) => (
-                <div key={acc.id} className="relative group flex items-center">
+                <div key={acc.id} className="account-card-area relative group flex items-center">
                   <button 
                     draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)} onDragEnd={handleDragEnd} 
                     onClick={() => setSelectedAccountId(acc.id)}
@@ -1984,7 +2005,7 @@ const AppContent = () => {
                       <div key={s.id} 
                            onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(s.id); }} 
                            onClick={(e) => e.stopPropagation()} 
-                           className={`picture-card p-2 md:p-3 relative cursor-pointer transition-all group flex flex-col justify-between gap-1 md:gap-1.5 overflow-hidden min-h-[95px] md:min-h-[110px] ${activeCardId === s.id ? 'border-indigo-400 ring-2 ring-indigo-100 shadow-md scale-[1.02] z-10' : 'hover:border-slate-300 border-transparent'}`}>
+                           className={`account-card-area picture-card p-2 md:p-3 relative cursor-pointer transition-all group flex flex-col justify-between gap-1 md:gap-1.5 overflow-hidden min-h-[95px] md:min-h-[110px] ${activeCardId === s.id ? 'border-indigo-400 ring-2 ring-indigo-100 shadow-md scale-[1.02] z-10' : 'hover:border-slate-300 border-transparent'}`}>
                         
                         <div className="flex justify-between items-start">
                           <div className="flex flex-col min-w-0 pr-1 w-[80%]">
@@ -2533,7 +2554,7 @@ const AppContent = () => {
                             {myDisplayName ? `${myDisplayName}` : '👤 이름 설정'}
                           </button>
                           {isNameSettingOpen && (
-                             <input type="text" className="absolute top-[110%] right-0 text-[10px] font-black text-purple-700 border border-purple-300 outline-none text-center w-24 bg-white px-2 py-2 rounded-lg shadow-xl z-10" placeholder="내 이름" value={myDisplayName} onChange={e=>setMyDisplayName(e.target.value)} autoFocus onBlur={()=>{ localStorage.setItem('kj_nbbang_name', myDisplayName); setIsNameSettingOpen(false); }} onKeyDown={e=>{ if(e.key==='Enter'){ localStorage.setItem('kj_nbbang_name', myDisplayName); setIsNameSettingOpen(false); } }} />
+                             <input type="text" className="absolute top-[110%] right-0 text-[10px] font-black text-purple-700 border border-purple-300 outline-none text-center w-24 bg-white px-2 py-2 rounded-lg shadow-xl z-10" placeholder="내 이름" value={myDisplayName} onChange={e=>setMyDisplayName(e.target.value)} autoFocus onBlur={()=>{ setIsNameSettingOpen(false); }} onKeyDown={e=>{ if(e.key==='Enter'){ setIsNameSettingOpen(false); } }} />
                           )}
                           <button onClick={handleSettleSelected} disabled={selectedPersonsToSettle.length === 0} className={`text-white px-3 py-2 rounded-lg text-[10px] font-black shadow-sm transition-all whitespace-nowrap ${selectedPersonsToSettle.length > 0 ? 'bg-emerald-500 hover:bg-emerald-600 animate-pulse' : 'bg-slate-300'}`}>
                             {selectedPersonsToSettle.length > 0 ? `₩${formatNum(selectedTotal)} 정산 완료` : '선택 정산하기'}
@@ -3127,14 +3148,14 @@ const AppContent = () => {
                   <label className="text-[10px] font-bold text-white/60 flex items-center gap-1"><Target size={10}/> 목표 금액</label>
                   <div className="flex items-center bg-slate-900/50 rounded-lg border border-white/10 px-2 py-1.5 w-36 focus-within:border-rose-400 transition-colors">
                     <span className="text-[9px] font-bold text-slate-400 mr-1">₩</span>
-                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(fireTarget)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setFireTarget(val); localStorage.setItem('kj_final_v87_fireTarget', String(val)); }} />
+                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(fireTarget)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setFireTarget(val); }} />
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-bold text-white/60 flex items-center gap-1"><TrendingUp size={10}/> 월 저축액</label>
                   <div className="flex items-center bg-slate-900/50 rounded-lg border border-white/10 px-2 py-1.5 w-36 focus-within:border-orange-400 transition-colors">
                     <span className="text-[9px] font-bold text-slate-400 mr-1">₩</span>
-                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(annualLimit)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setAnnualLimit(val); localStorage.setItem('kj_final_v87_monthlySaving', String(val)); }} />
+                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(annualLimit)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setAnnualLimit(val); }} />
                   </div>
                 </div>
               </div>
@@ -3657,7 +3678,6 @@ const AppContent = () => {
                              
                              const updatedLogs = [...logsToAdd.reverse(), ...tradeLogs];
                              setTradeLogs(updatedLogs);
-                             localStorage.setItem('kj_final_v87_tradeLogs', JSON.stringify(updatedLogs));
                           } else {
                              logTrade(baseLog);
                           }

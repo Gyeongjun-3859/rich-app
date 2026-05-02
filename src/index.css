@@ -1,13 +1,151 @@
+/* ============================================================
+   🎨 부자 포트폴리오 — 디자인 시스템 (Design Tokens)
+   ============================================================ */
+
+/* --- 1. 디자인 토큰 (CSS 변수) --- */
+:root {
+  /* Shadows — Tailwind 기본보다 훨씬 부드럽고 자연스러움 */
+  --shadow-xs:   0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-sm:   0 1px 3px 0 rgba(15, 23, 42, 0.05), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --shadow-md:   0 4px 12px -2px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+  --shadow-lg:   0 12px 28px -8px rgba(15, 23, 42, 0.10), 0 4px 8px -4px rgba(15, 23, 42, 0.05);
+  --shadow-xl:   0 24px 48px -12px rgba(15, 23, 42, 0.14);
+  --shadow-card: 0 1px 2px 0 rgba(15, 23, 42, 0.04), 0 4px 16px -4px rgba(15, 23, 42, 0.04);
+
+  /* Borders */
+  --border-subtle:   rgba(15, 23, 42, 0.06);
+  --border-soft:     rgba(15, 23, 42, 0.10);
+  --border-strong:   rgba(15, 23, 42, 0.14);
+
+  /* Easing */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* --- 2. 타이포그래피 (한글 최적화) --- */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css');
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, 
+               'Apple SD Gothic Neo', 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.01em; /* 한글 자간 살짝 좁힘 → 전문적 인상 */
+  color: rgb(15, 23, 42);
+  -webkit-tap-highlight-color: transparent; /* 모바일 탭 시 파란 박스 제거 */
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+/* --- 3. Tailwind shadow 클래스 부드럽게 오버라이드 --- */
+.shadow-sm  { box-shadow: var(--shadow-sm)  !important; }
+.shadow,
+.shadow-DEFAULT { box-shadow: var(--shadow-sm) !important; }
+.shadow-md  { box-shadow: var(--shadow-md)  !important; }
+.shadow-lg  { box-shadow: var(--shadow-lg)  !important; }
+.shadow-xl  { box-shadow: var(--shadow-xl)  !important; }
+.shadow-2xl { box-shadow: var(--shadow-xl)  !important; }
+
+/* --- 4. 인터랙션 디테일 (전역 적용) --- */
+
+/* 버튼 누름 피드백 */
+button {
+  transition: transform 0.12s var(--ease-out), 
+              box-shadow 0.18s var(--ease-out),
+              background-color 0.18s var(--ease-out),
+              color 0.18s var(--ease-out),
+              border-color 0.18s var(--ease-out);
+  outline: none;
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 인풋 포커스 — Tailwind ring보다 부드럽게 */
+input:focus-visible, 
+textarea:focus-visible, 
+select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(244, 114, 182, 0.18); /* 핑크 톤의 부드러운 글로우 */
+}
+
+/* 키보드 접근성 — 마우스가 아닐 때만 outline */
+button:focus-visible {
+  outline: 2px solid rgba(244, 114, 182, 0.6);
+  outline-offset: 2px;
+}
+
+/* --- 5. 카드 / 컨테이너 표준화 --- */
+.picture-card {
+  background: #ffffff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.18s var(--ease-out), 
+              box-shadow 0.22s var(--ease-out),
+              border-color 0.18s var(--ease-out);
+}
+.picture-card:hover {
+  border-color: var(--border-soft);
+  box-shadow: var(--shadow-md);
+}
+
+/* --- 6. 스크롤바 (얇고 깔끔하게) --- */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.12);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.24);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(15, 23, 42, 0.12) transparent;
+}
+
+/* --- 7. 모달/팝업 백드롭 부드럽게 --- */
+.fixed.inset-0[class*="bg-slate-900"] {
+  background-color: rgba(15, 23, 42, 0.42) !important;
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+}
+
+/* --- 8. 텍스트 선택 색상 통일 --- */
+::selection {
+  background: rgba(244, 114, 182, 0.25);
+  color: inherit;
+}
+
+/* --- 9. 이미지 드래그 방지 --- */
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* --- 10. Tailwind animate-in 부드럽게 (기본값보다 살짝 느리게) --- */
+.animate-in {
+  animation-duration: 280ms !important;
+  animation-timing-function: var(--ease-out) !important;
+}
+
+/* --- 11. Disabled 상태 일관성 --- */
+[disabled], .disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  pointer-events: none;
 }
