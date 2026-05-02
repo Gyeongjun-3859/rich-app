@@ -314,8 +314,11 @@ const AppContent = () => {
   const [incomeCategory, setIncomeCategory] = useState('출장비'); // 🎯 수익 카테고리 기본값 '출장비'로 변경
   const [expenseCategory, setExpenseCategory] = useState('식비');
   const [expenseMemo, setExpenseMemo] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('현금/체크카드');
+  const [paymentMethod, setPaymentMethod] = useState('현금');
   const [selectedCard, setSelectedCard] = useState('');
+  const [cashSource, setCashSource] = useState(''); // '' = 지갑, accId = 소비계좌, 'transfer' = 계좌이체
+  const [transferAccId, setTransferAccId] = useState('');
+  const [spendingItem, setSpendingItem] = useState(''); // 소비계좌 내 선택된 항목 stock id
   const [myCards, setMyCards] = useState([]); 
   const [isNbbang, setIsNbbang] = useState(false);
   const [nbbangCount, setNbbangCount] = useState(1);
@@ -611,7 +614,7 @@ const AppContent = () => {
   const [newStock, setNewStock] = useState({ 
     name: '', ticker: '', buyPrice: '', quantity: '', targetRatio: '', isUSD: false, 
     currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15',
-    maturityDate: '', interestRate: '', interestType: '단리'
+    maturityDate: '', interestRate: '', interestType: '단리', benefit: ''
   });
 
   const currentYearNum = new Date().getFullYear();
@@ -1058,7 +1061,8 @@ const AppContent = () => {
         saveStateToHistory();
         const updated = stocks.filter(s => s.id !== id);
         setStocks(updated);
-        logTrade({ type: 'sell', name: target.name, notes: '수동 삭제됨' });
+        const updatedLogs = tradeLogs.filter(log => log.name !== target.name);
+        setTradeLogs(updatedLogs);
         showToast("🗑️ 삭제되었습니다.");
       }
     });
@@ -1643,9 +1647,23 @@ const AppContent = () => {
     const updatedStocks = editingStockId ? stocks.map(s => s.id === id ? finalStock : s) : [...stocks, finalStock];
     
     setStocks(updatedStocks);
+
+    if (!editingStockId) {
+      const accountType = currentAccountStat?.type;
+      if (accountType === 'stock') {
+        const total = toPureNumber(finalStock.quantity) * toPureNumber(finalStock.buyPrice) * (finalStock.isUSD ? toPureNumber(exchangeRate) : 1);
+        logTrade({ type: 'buy', name: finalStock.name, shares: toPureNumber(finalStock.quantity), price: finalStock.buyPrice, amount: total, total, isUSD: finalStock.isUSD });
+      } else if (accountType === 'spending') {
+        // 소비계좌 항목은 가계부 로그 없음
+      } else {
+        const amount = toPureNumber(finalStock.quantity);
+        logTrade({ type: 'deposit', name: finalStock.name, amount, category: '저축/예금' });
+      }
+    }
+
     setIsModalOpen(false);
     showToast(editingStockId ? `✅ 수정되었습니다.` : `✅ 추가되었습니다.`);
-    
+
   };
 
   const handleFormattedChange = (field, value) => {
@@ -1859,9 +1877,9 @@ const AppContent = () => {
                     draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)} onDragEnd={handleDragEnd} 
                     onClick={() => setSelectedAccountId(acc.id)}
                     onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
-                    className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
+                    className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : acc.type === 'spending' ? 'bg-rose-500 text-white shadow-md' : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
                   >
-                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : '📈'}</span>
+                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : acc.type === 'spending' ? '🛍️' : '📈'}</span>
                     <span className="truncate block max-w-[80px] sm:max-w-[110px] leading-tight mt-[1px]">
                       {acc.name}
                     </span>
@@ -1893,7 +1911,7 @@ const AppContent = () => {
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden relative">
                  <div className="flex justify-between items-center mb-1">
                    <span className={`text-[10px] sm:text-[11px] font-black text-slate-500 flex items-center gap-1 sm:gap-1.5 truncate ${currentAccountStat?.type === 'savings' ? `cursor-pointer hover:${t.text} transition-colors group/label` : ''}`} onClick={() => { if(currentAccountStat?.type === 'savings') { setEditLabelInput(currentAccountStat.label || '입출금 통장'); setIsEditLabelModalOpen(true); } }}>
-                     <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : '총 평가액'}</span>                
+                     <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : currentAccountStat?.type === 'spending' ? '소비 계좌' : '총 평가액'}</span>
                    </span>
                    <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black text-white shrink-0 ml-1 ${currentAccountStat?.type === 'stock' ? (currentAccountStat?.totalROI >= 0 ? t.main.split(' ')[0] : 'bg-blue-400') : 'opacity-0 invisible'}`}>
                      {currentAccountStat?.totalROI >= 0 ? '▲' : '▼'} {formatNum(Math.abs(currentAccountStat?.totalROI), 1)}%
@@ -1901,22 +1919,22 @@ const AppContent = () => {
                  </div>
                  <div className="flex items-baseline gap-1 sm:gap-1.5 overflow-hidden">
                    <span className="text-slate-400 text-xs sm:text-sm font-black shrink-0">₩</span>
-                   {isEditingAccCash && currentAccountStat?.type === 'savings' ? (
+                   {isEditingAccCash && ['savings','spending'].includes(currentAccountStat?.type) ? (
                       <div className="flex items-center gap-1 z-20"><input type="text" className="w-16 sm:w-24 text-right border-b border-slate-300 font-black text-slate-800 text-sm sm:text-xl outline-none bg-transparent" value={toCommaString(editAccCashAmount)} onChange={e => setEditAccCashAmount(e.target.value.replace(/[^0-9]/g, ''))} autoFocus /><button onClick={() => { const val = editAccCashAmount.trim() === '' ? currentAccountStat?.cash : toPureNumber(editAccCashAmount); setAccounts(accounts.map(a => a.id === selectedAccountId ? { ...a, cash: String(val) } : a)); setIsEditingAccCash(false); }} className={`${t.main} px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold`}>저장</button></div>
                    ) : (
-                     <span className="text-[17px] sm:text-2xl font-black text-slate-800 tracking-tight leading-none cursor-pointer flex items-center gap-1.5 truncate py-1" onClick={() => { if(currentAccountStat?.type === 'savings') { setEditAccCashAmount(''); setIsEditingAccCash(true); } }}>
-                       {formatNum(currentAccountStat?.type === 'savings' ? currentAccountStat?.cash : (currentAccountStat?.totalValue || 0) + (currentAccountStat?.cash || 0))}
-                       {currentAccountStat?.type === 'savings' && <Edit2 size={10} className="text-slate-300 hover:text-slate-500 shrink-0"/>}
+                     <span className="text-[17px] sm:text-2xl font-black text-slate-800 tracking-tight leading-none cursor-pointer flex items-center gap-1.5 truncate py-1" onClick={() => { if(['savings','spending'].includes(currentAccountStat?.type)) { setEditAccCashAmount(''); setIsEditingAccCash(true); } }}>
+                       {formatNum(['savings','spending'].includes(currentAccountStat?.type) ? currentAccountStat?.cash : (currentAccountStat?.totalValue || 0) + (currentAccountStat?.cash || 0))}
+                       {['savings','spending'].includes(currentAccountStat?.type) && <Edit2 size={10} className="text-slate-300 hover:text-slate-500 shrink-0"/>}
                      </span>
                    )}
                    {currentAccountStat?.type === 'stock' && <span className="text-[8px] sm:text-[9px] font-black text-slate-400 ml-1 opacity-80 uppercase hidden sm:inline whitespace-nowrap">원금 ₩{formatNum(currentAccountStat?.totalInvestedKRW)}</span>}
-                   {currentAccountStat?.type === 'savings' && !inlineConsume.isOpen && (
+                   {['savings','spending'].includes(currentAccountStat?.type) && !inlineConsume.isOpen && (
                      <div className="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0 relative -top-0.5">
                        <button onClick={(e) => { e.stopPropagation(); setInlineConsume({isOpen: true, amount: ''}) }} className={`${t.light} px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black transition-colors`}>🛍️ 소비</button>
                        <button onClick={(e) => { e.stopPropagation(); setSavingsWithdrawModal({ isOpen: true, amount: '', targetAccId: 'wallet' }) }} className="bg-slate-100 text-slate-600 px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black hover:bg-slate-200 transition-colors">💸 출금</button>
                      </div>
                    )}
-                   {currentAccountStat?.type === 'savings' && inlineConsume.isOpen && (
+                   {['savings','spending'].includes(currentAccountStat?.type) && inlineConsume.isOpen && (
                      <div className="flex items-center gap-1 ml-auto shrink-0 relative -top-0.5">
                        <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-50 rounded p-1 border border-slate-200">
                          <input type="text" className="w-12 sm:w-16 text-[9px] sm:text-[10px] p-0.5 rounded text-right outline-none text-slate-600 font-black bg-white" placeholder="금액" value={toCommaString(inlineConsume.amount)} onChange={e => setInlineConsume({...inlineConsume, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus />
@@ -1931,7 +1949,7 @@ const AppContent = () => {
               <div className="bg-white rounded-xl border border-orange-100 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden">
                  <div className="flex justify-between items-center mb-1">
                    <span className="text-[10px] sm:text-[11px] font-black text-orange-500 flex items-center gap-1 sm:gap-1.5 truncate">
-                     {currentAccountStat?.type === 'stock' ? <><Star size={12} className="shrink-0"/> <span className="truncate">예상 연 배당금</span></> : <><Landmark size={12} className="shrink-0"/> <span className="truncate">현재 저축 합계</span></>}
+                     {currentAccountStat?.type === 'stock' ? <><Star size={12} className="shrink-0"/> <span className="truncate">예상 연 배당금</span></> : <><Landmark size={12} className="shrink-0"/> <span className="truncate">{currentAccountStat?.type === 'spending' ? '현재 잔액' : '현재 저축 합계'}</span></>}
                    </span>
                    {currentAccountStat?.type === 'stock' ? (
                      <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black border border-orange-100 text-orange-600 bg-orange-50 shrink-0 ml-1 ${currentAccountStat?.futureExpectedTotalROI >= 0 ? '' : 'text-blue-500 bg-blue-50 border-blue-100'}`}>
@@ -1945,7 +1963,7 @@ const AppContent = () => {
                  </div>
                  <div className="flex items-baseline gap-1 sm:gap-1.5 overflow-hidden">
                    <span className="text-orange-400 text-xs sm:text-sm font-black shrink-0">₩</span>
-                   <span className="text-[17px] sm:text-2xl lg:text-3xl font-black text-slate-800 tracking-tight leading-none truncate py-1">{formatNum(currentAccountStat?.type === 'stock' ? currentAccountStat?.futureTotalDiv : currentAccountStat?.totalValue)}</span>
+                   <span className="text-[17px] sm:text-2xl lg:text-3xl font-black text-slate-800 tracking-tight leading-none truncate py-1">{formatNum(currentAccountStat?.type === 'stock' ? currentAccountStat?.futureTotalDiv : currentAccountStat?.type === 'spending' ? currentAccountStat?.cash : currentAccountStat?.totalValue)}</span>
                    <span className={`text-[8px] sm:text-[9px] font-black text-slate-400 ml-1 opacity-80 uppercase hidden sm:inline whitespace-nowrap ${currentAccountStat?.type === 'savings' ? 'opacity-0 invisible' : ''}`}>누적 ₩{formatNum(currentAccountStat?.totalReceivedDivKRW)}</span>
                  </div>
               </div>
@@ -1988,7 +2006,7 @@ const AppContent = () => {
               ) : (
                 <>
                   {currentAccountStat?.rebalanceData.map(s => {
-                    const isP = s.stockROI >= 0, isSavings = currentAccountStat.type === 'savings';
+                    const isP = s.stockROI >= 0, isSavings = currentAccountStat.type === 'savings', isSpending = currentAccountStat.type === 'spending';
                     const divAmount = toPureNumber(s.quantity) * toPureNumber(s.divPerShare) * (s.isUSD ? toPureNumber(exchangeRate) : 1);
                     
                     const availableSources = [];
@@ -2017,20 +2035,29 @@ const AppContent = () => {
                               {isSavings && <button onClick={(e)=>{ e.stopPropagation(); setSavingsMaturityModal({ isOpen: true, targetId: s.id, finalAmount: String(Math.floor(toPureNumber(s.quantity) * (s.interestType==='복리'?Math.pow(1+toPureNumber(s.interestRate)/100,1):(1+toPureNumber(s.interestRate)/100)))) }); }} className="bg-amber-100 text-amber-600 px-1 md:px-1.5 py-0.5 rounded text-[7px] md:text-[8px] font-black shrink-0 ml-0.5 hover:bg-amber-200 transition-colors shadow-sm">🎉 만기</button>}
                             </h4>
                             <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-0.5 truncate">
-                              {isSavings ? `${s.interestType} ${s.interestRate}%` : <>{s.targetRatio !== '' && s.targetRatio !== undefined ? `목표 ${s.targetRatio}% ` : ''}<span className="text-slate-500 font-black">({formatNum(s.currentRatio, 1)}%)</span></>}
+                              {isSpending ? `혜택 ${s.benefit || 0}%` : isSavings ? `${s.interestType} ${s.interestRate}%` : <>{s.targetRatio !== '' && s.targetRatio !== undefined ? `목표 ${s.targetRatio}% ` : ''}<span className="text-slate-500 font-black">({formatNum(s.currentRatio, 1)}%)</span></>}
                             </span>
                           </div>
-                          {!isSavings && toPureNumber(s.divPerShare) > 0 && <span className={`text-[7px] md:text-[8px] font-black ${t.text} ${t.light.split(' ')[0]} px-1 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1`}>배당 ₩{formatNum(s.divPerShare)}</span>}
+                          {!isSavings && !isSpending && toPureNumber(s.divPerShare) > 0 && <span className={`text-[7px] md:text-[8px] font-black ${t.text} ${t.light.split(' ')[0]} px-1 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1`}>배당 ₩{formatNum(s.divPerShare)}</span>}
                           {isSavings && <span className={`text-[8px] md:text-[9px] font-black ${t.altText} ${t.altBgOnly} px-1 md:px-1.5 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1`}>저축</span>}
+                          {isSpending && <span className="text-[8px] md:text-[9px] font-black text-rose-500 bg-rose-50 px-1 md:px-1.5 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1">소비</span>}
                         </div>
                         
                         <div className="flex justify-between items-end bg-slate-50 rounded-md md:rounded-lg p-1.5 md:p-2 border border-slate-100">
+                          {isSpending ? (
+                            <div className="flex flex-col gap-0.5 min-w-0 w-full items-center"><span className="text-slate-800 font-black text-[11px] md:text-[12px] truncate">₩{formatNum(s.quantity)}</span></div>
+                          ) : (<>
                           <div className="flex flex-col gap-0.5 min-w-0"><span className="text-slate-500 font-bold text-[8px] md:text-[9px] truncate">{isSavings ? `만기: ${s.maturityDate || '-'}` : `${s.isUSD ? '$' : '₩'}${formatNum(s.currentPrice, s.isUSD ? 2 : 0)}`}</span><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate">{isSavings ? `원금 ₩${formatNum(s.investedKRW)}` : `${formatNum(s.quantity)}주 보유`}</span></div>
                           <div className="flex flex-col items-end gap-0.5 ml-1 text-right min-w-0">{!isSavings ? (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(toPureNumber(s.currentPrice) * toPureNumber(s.quantity) * (s.isUSD ? toPureNumber(exchangeRate) : 1))}</span><span className={`text-[8px] md:text-[9px] font-black ${isP?t.text:'text-blue-500'}`}>{isP?'▲':'▼'}{formatNum(Math.abs(s.stockROI), 1)}%</span></>) : (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(s.quantity)}</span>{s.interestRate && <span className={`${t.altText} font-black text-[8px] md:text-[9px] truncate`}>예상 ₩{formatNum(Math.floor(s.interestType==='복리' ? toPureNumber(s.quantity)*Math.pow(1+toPureNumber(s.interestRate)/100,1) : toPureNumber(s.quantity)*(1+toPureNumber(s.interestRate)/100)))}</span>}</>)}</div>
+                          </>)}
                         </div>
                         
                         <div className="flex gap-1 mt-1 h-[20px] md:h-[24px]">
-                          {!isSavings ? ( <>
+                          {isSpending ? (
+                            <div className="flex gap-1 w-full">{activeDepositId === s.id ? ( <div className="flex gap-1 w-full">{availableSources.length > 1 ? ( <select className={`w-[35%] text-[8px] md:text-[9px] px-1 border rounded outline-none font-black bg-rose-50 shrink-0 text-right`} value={depositSourceId} onChange={e=>setDepositSourceId(e.target.value)} onClick={e=>e.stopPropagation()}>{availableSources.map(src => <option key={src.id} value={src.id}>{src.name}</option>)}</select> ) : ( <div className={`w-[35%] text-[8px] md:text-[9px] px-1 border rounded font-black bg-rose-50 flex items-center justify-center truncate shrink-0`}>{availableSources[0]?.name || '지갑'}</div> )}<input type="text" className="flex-1 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black text-rose-600 py-0.5 md:py-1 min-w-0" placeholder="금액" value={toCommaString(depositAmount)} onChange={e => setDepositAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => handleSavingsDeposit(e, s.id)} className="bg-rose-500 text-white rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 px-1 md:px-1.5 shadow-sm shrink-0">확인</button><button onClick={(e)=>{e.stopPropagation();setActiveDepositId(null);}} className="bg-slate-200 text-slate-600 rounded px-1 md:px-1.5 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : (
+                              <button onClick={(e)=>{e.stopPropagation(); if(!canDeposit){ showToast("⚠️ 지갑이나 입출금 계좌에 잔액이 없습니다."); return; } setActiveDepositId(s.id);setDepositAmount('');setDepositSourceId(availableSources.find(a=>a.id === selectedAccountId)?.id || availableSources[0]?.id || 'wallet');}} className="flex-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[9px] md:text-[10px] font-black shadow-sm flex items-center justify-center gap-1 w-full whitespace-nowrap py-0.5 md:py-1">💳 충전</button>
+                            )}</div>
+                          ) : !isSavings ? ( <>
                             {pendingBuys[s.id] ? ( <div className="flex gap-1 flex-1"><input type="text" className={`w-8 md:w-10 flex-1 min-w-0 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black ${t.text} py-0.5 md:py-1`} placeholder="수량" value={buyAmount} onChange={e => setBuyAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => handleBuyStock(e, s.id, buyAmount)} className={`flex-[0.8] ${t.main} rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shadow-sm px-1.5 md:px-2`}>확인</button><button onClick={(e)=>{e.stopPropagation();setPendingBuys(p=>({...p,[s.id]:false}));}} className="bg-slate-200 text-slate-600 rounded px-1.5 md:px-2 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : 
                              pendingSells[s.id] ? ( <div className="flex gap-1 flex-1"><input type="text" className={`w-8 md:w-10 flex-1 min-w-0 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black text-slate-600 py-0.5 md:py-1`} placeholder="수량" value={sellAmount} onChange={e => setSellAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => { e.stopPropagation(); setSellAmount(s.quantity); }} className="px-1 md:px-1.5 bg-slate-200 text-slate-600 rounded text-[8px] md:text-[9px] font-black py-0.5 md:py-1 shrink-0 hover:bg-slate-300">전체</button><button onClick={(e) => handleSellStock(e, s.id, sellAmount)} className="flex-[0.8] bg-slate-500 text-white rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shadow-sm px-1.5 md:px-2 hover:bg-slate-600">확인</button><button onClick={(e)=>{e.stopPropagation();setPendingSells(p=>({...p,[s.id]:false}));}} className="bg-slate-200 text-slate-600 rounded px-1.5 md:px-2 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : (
                                 <div className="flex gap-1 flex-1"><button onClick={(e)=>{e.stopPropagation();setPendingBuys(p=>({...p,[s.id]:true}));}} className={`flex-1 ${t.light} rounded text-[9px] md:text-[10px] font-black bubbly-btn py-0.5 md:py-1 shadow-sm`}>매수</button><button onClick={(e)=>{e.stopPropagation();setPendingSells(p=>({...p,[s.id]:true}));}} className="flex-1 bg-slate-50 text-slate-600 border border-slate-200 rounded text-[9px] md:text-[10px] font-black bubbly-btn py-0.5 md:py-1 shadow-sm hover:bg-slate-100">매도</button></div>
@@ -2106,7 +2133,7 @@ const AppContent = () => {
                 {accountStatsList.map(acc => (
                 <div key={acc.id} className="bg-white rounded-xl p-3.5 shadow-sm border border-slate-100 flex flex-col justify-between relative group overflow-hidden">
                   <div className="flex justify-between items-center mb-2.5"><h4 className="font-bold text-slate-800 text-[12px] truncate flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${acc.type === 'stock' ? t.main.split(' ')[0] : t.altMain.split(' ')[0]}`}></div> {acc.name}</h4></div>
-                  <div className="space-y-1.5"><div className="flex justify-between text-[11px]"><span className="text-slate-500 font-bold whitespace-nowrap">평가액</span><span className="font-black text-slate-800 truncate ml-1 text-right">₩{formatNum(acc.totalValue + acc.cash)}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold whitespace-nowrap">{acc.type === 'savings' ? '여분 금액' : '계좌 잔여금'}</span><span className="font-bold text-slate-600 truncate ml-1 text-right">₩{formatNum(acc.cash)}</span></div><div className="w-full border-t border-dashed border-slate-100 my-1"></div><div className="flex justify-between text-[10px]"><span className="text-slate-500 font-bold">유형</span><span className={`font-black whitespace-nowrap ${acc.type === 'stock' ? t.text : t.altText}`}>{acc.type === 'stock' ? '주식' : '저축'}</span></div></div>
+                  <div className="space-y-1.5"><div className="flex justify-between text-[11px]"><span className="text-slate-500 font-bold whitespace-nowrap">평가액</span><span className="font-black text-slate-800 truncate ml-1 text-right">₩{formatNum(acc.totalValue + acc.cash)}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold whitespace-nowrap">{acc.type === 'savings' ? '여분 금액' : '계좌 잔여금'}</span><span className="font-bold text-slate-600 truncate ml-1 text-right">₩{formatNum(acc.cash)}</span></div><div className="w-full border-t border-dashed border-slate-100 my-1"></div><div className="flex justify-between text-[10px]"><span className="text-slate-500 font-bold">유형</span><span className={`font-black whitespace-nowrap ${acc.type === 'stock' ? t.text : t.altText}`}>{acc.type === 'stock' ? '주식' : acc.type === 'spending' ? '소비' : '저축'}</span></div></div>
                 </div>
               ))}</div>
             </div>
@@ -2834,7 +2861,7 @@ const AppContent = () => {
                          })}
                        </div>
                      ) : (
-                        <div className="text-center py-6 text-[10px] font-bold text-slate-400 bg-slate-50 rounded-xl border border-slate-100">우측 상단 톱니바퀴 > 내 카드에서<br/>카드를 먼저 등록해주세요.</div>
+                        <div className="text-center py-6 text-[10px] font-bold text-slate-400 bg-slate-50 rounded-xl border border-slate-100">우측 상단 톱니바퀴 {'>'} 내 카드에서<br/>카드를 먼저 등록해주세요.</div>
                      )}
 
                      {/* 🎯 카드 선결제 상세 모달 UI */}
@@ -3264,19 +3291,24 @@ const AppContent = () => {
                 )}
                 <div className="relative z-[55]">
                   {currentAccountStat?.type === 'stock' && <Search className="absolute right-3 top-2 text-slate-300" size={14}/>}
-                  <input type="text" placeholder={currentAccountStat?.type === 'stock' ? "종목명 검색 (클릭 시 전체)" : "예: 정기예금, 파킹통장"} className={`w-full bg-slate-50 py-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center ${currentAccountStat?.type === 'stock' ? 'px-8' : 'px-3'}`} value={searchQuery} onChange={e => {setSearchQuery(e.target.value); setNewStock(p=>({...p, name: e.target.value})); if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true);}} onClick={() => { if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true); }} onFocus={() => { if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true); }}/>
+                  <input type="text" placeholder={currentAccountStat?.type === 'stock' ? "종목명 검색 (클릭 시 전체)" : currentAccountStat?.type === 'spending' ? "예: 네이버페이, 삼성월렛" : "예: 정기예금, 파킹통장"} className={`w-full bg-slate-50 py-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center ${currentAccountStat?.type === 'stock' ? 'px-8' : 'px-3'}`} value={searchQuery} onChange={e => {setSearchQuery(e.target.value); setNewStock(p=>({...p, name: e.target.value})); if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true);}} onClick={() => { if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true); }} onFocus={() => { if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true); }}/>
                   {isDropdownOpen && currentAccountStat?.type === 'stock' && (
                     <div className="absolute z-[60] w-full mt-1 bg-white border rounded-xl shadow-xl max-h-[200px] flex divide-x overflow-hidden border-slate-200 text-left"><div className="w-1/2 p-2 overflow-y-auto custom-scrollbar bg-white"><div className={`text-[9px] font-black ${t.text} mb-1 border-b ${t.border} pb-1 sticky top-0 bg-white whitespace-nowrap`}>📈 주식</div>{filteredSList.map(db => (<div key={db.id} onClick={() => { setNewStock({...newStock, name: db.name, ticker: db.ticker, isUSD: db.isUSD, currentPrice: String(db.currentPrice)}); setSearchQuery(db.name); setIsDropdownOpen(false); }} className={`p-1.5 hover:${t.light.split(' ')[0]} rounded-lg cursor-pointer flex flex-col gap-0.5`}><span className="font-bold text-[10px] truncate text-slate-800">{db.name}</span><span className="text-slate-400 text-[8px] font-black">{db.ticker}</span></div>))}</div><div className="w-1/2 p-2 overflow-y-auto custom-scrollbar bg-slate-50"><div className="text-[9px] font-black text-indigo-500 mb-1 border-b border-indigo-100 pb-1 sticky top-0 bg-slate-50 whitespace-nowrap">📊 ETF</div>{filteredEList.map(db => (<div key={db.id} onClick={() => { setNewStock({...newStock, name: db.name, ticker: db.ticker, isUSD: db.isUSD, currentPrice: String(db.currentPrice)}); setSearchQuery(db.name); setIsDropdownOpen(false); }} className="p-1.5 hover:bg-indigo-100 rounded-lg cursor-pointer flex flex-col gap-0.5"><span className="font-bold text-[10px] truncate text-slate-800">{db.name}</span><span className="text-indigo-400 text-[8px] font-black">{db.ticker}</span></div>))}</div></div>
                   )}
                 </div>
-              {currentAccountStat?.type === 'stock' ? ( 
+              {currentAccountStat?.type === 'stock' ? (
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재가</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.currentPrice)} onChange={e => handleFormattedChange('currentPrice', e.target.value)} placeholder="0" required /></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">평단가</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.buyPrice)} onChange={e => handleFormattedChange('buyPrice', e.target.value)} placeholder="0" required /></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">보유 수량</label><div className="relative flex items-center"><input type="text" className={`w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" required /><span className="absolute right-2.5 text-xs font-bold text-slate-400">주</span></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">목표 비중</label><div className="relative flex items-center"><input type="text" className={`w-full py-2 pl-2.5 pr-6 rounded-xl font-black text-xs outline-none border transition-colors text-right ${isRatioExceededModal ? 'bg-red-50 border-red-500 text-red-500' : `bg-slate-50 focus:${t.border}`}`} value={newStock.targetRatio} onChange={e => handleFormattedChange('targetRatio', e.target.value)} placeholder="자유입력" />{newStock.targetRatio && <span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span>}</div></div>
-                </div> 
-              ) : ( 
+                </div>
+              ) : currentAccountStat?.type === 'spending' ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재금액</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">₩</span><input type="text" className="w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" required /></div></div>
+                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">혜택</label><div className="relative flex items-center"><input type="text" className="w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={newStock.benefit} onChange={e => handleFormattedChange('benefit', e.target.value)} placeholder="0" /><span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span></div></div>
+                </div>
+              ) : (
                 <>
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재 금액 (원금)</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">₩</span><input type="text" className="w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none border focus:border-emerald-300 text-right" value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" required /></div></div>
@@ -3291,7 +3323,7 @@ const AppContent = () => {
                       </div>
                     </div>
                     <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">금리</label><div className="relative flex items-center"><input type="text" className="w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none border focus:border-emerald-300 text-right" value={newStock.interestRate} onChange={e => handleFormattedChange('interestRate', e.target.value)} placeholder="0"/><span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span></div></div>
-                </div> 
+                </div>
                 </>
               )}
               {currentAccountStat?.type === 'stock' && ( 
@@ -3310,7 +3342,7 @@ const AppContent = () => {
               <div className="pt-3 shrink-0 flex flex-col gap-1.5">
                 {isRatioExceededModal && <div className="text-[9px] text-red-500 font-bold bg-red-50 border border-red-100 p-2 rounded-lg text-center">⚠️ 목표 비중 총합이 100%를 초과할 수 없습니다. ({currentModalTotalRatio}%)</div>}
                 {isDuplicateStock && <div className="text-[9px] text-red-500 font-bold bg-red-50 border border-red-100 p-2 rounded-lg text-center">⚠️ 이미 동일한 이름의 종목이 존재합니다.</div>}
-                <button type="submit" disabled={isRatioExceededModal || isDuplicateStock} className={`w-full py-2.5 rounded-xl font-black text-xs text-white shadow-md transition-colors ${(isRatioExceededModal || isDuplicateStock) ? 'bg-slate-300 cursor-not-allowed' : t.main}`}>포트폴리오에 반영하기</button>
+                <button type="submit" disabled={isRatioExceededModal || isDuplicateStock} className={`w-full py-2.5 rounded-xl font-black text-xs text-white shadow-md transition-colors ${(isRatioExceededModal || isDuplicateStock) ? 'bg-slate-300 cursor-not-allowed' : t.main}`}>{currentAccountStat?.type === 'spending' ? '항목 저장하기' : '포트폴리오에 반영하기'}</button>
               </div>
             </form>
           </div>
@@ -3346,10 +3378,11 @@ const AppContent = () => {
                 </div>
               </div>
 
-              {newCardType === '체크' && (
+              {(newCardType === '체크' || newCardType === '신용') && (
                 <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center" value={newCardLinkedAcc} onChange={e=>setNewCardLinkedAcc(e.target.value)}>
-                  <option value="wallet">체크 연동: 내 지갑 출금</option>
-                  {accounts.map(a => <option key={a.id} value={a.id}>체크 연동: {a.name}</option>)}
+                  {newCardType === '신용' && <option value="">연동 없음 (나중에 결제)</option>}
+                  <option value="wallet">{newCardType === '체크' ? '체크' : '신용'} 연동: 내 지갑 출금</option>
+                  {accounts.map(a => <option key={a.id} value={a.id}>{newCardType === '체크' ? '체크' : '신용'} 연동: {a.name}</option>)}
                 </select>
               )}
 
@@ -3376,7 +3409,7 @@ const AppContent = () => {
       )}
       {isAddAccountOpen && (
         <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <form onSubmit={handleAddAccountSubmit} className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative"><button type="button" onClick={() => setIsAddAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button><h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">새 계좌 추가</h3><div className="flex gap-2 mb-3 bg-slate-50 p-1 rounded-xl"><button type="button" onClick={()=>setNewAccountType('stock')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'stock' ? `${t.main}` : 'text-slate-400'}`}>주식 계좌</button><button type="button" onClick={()=>setNewAccountType('savings')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'savings' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>저축 계좌</button></div><input type="text" placeholder="계좌 별칭 (예: 미래에셋)" autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold mb-4 outline-none border focus:${t.border} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} required /><button type="submit" className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${newAccountType === 'stock' ? `${t.main}` : 'bg-emerald-500 hover:bg-emerald-600'}`}>계좌 생성하기</button></form>
+          <form onSubmit={handleAddAccountSubmit} className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative"><button type="button" onClick={() => setIsAddAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button><h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">새 계좌 추가</h3><div className="flex gap-1.5 mb-3 bg-slate-50 p-1 rounded-xl"><button type="button" onClick={()=>setNewAccountType('stock')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'stock' ? `${t.main}` : 'text-slate-400'}`}>📈 주식</button><button type="button" onClick={()=>setNewAccountType('savings')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'savings' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>🏦 저축</button><button type="button" onClick={()=>setNewAccountType('spending')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'spending' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-400'}`}>🛍️ 소비</button></div><input type="text" placeholder="계좌 별칭 (예: 생활비 통장)" autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold mb-4 outline-none border focus:${t.border} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} required /><button type="submit" className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${newAccountType === 'stock' ? `${t.main}` : newAccountType === 'spending' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>계좌 생성하기</button></form>
         </div>
       )}
 
@@ -3397,7 +3430,7 @@ const AppContent = () => {
                 <label className="text-[10px] font-black text-slate-400 text-center">받는 대상</label>
                 <select className="w-full p-2.5 rounded-xl bg-slate-50 border outline-none font-black text-xs text-center" value={itemWithdrawModal.toAccId} onChange={e=>setItemWithdrawModal({...itemWithdrawModal, toAccId: e.target.value})}>
                   <option value="wallet">👛 지갑</option>
-                  {accounts.map(a=><option key={a.id} value={a.id}>{a.type === 'savings' ? '🏦 ' : '📈 '}{a.name}</option>)}
+                  {accounts.map(a=><option key={a.id} value={a.id}>{a.type === 'savings' ? '🏦 ' : a.type === 'spending' ? '🛍️ ' : '📈 '}{a.name}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -3500,14 +3533,56 @@ const AppContent = () => {
                                 </div>
                               )}
                            </div>
-                            <select className="flex-1 text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                              <option value="현금/체크카드">현금/체크</option><option value="신용카드">신용카드</option>
+                            <select className="flex-1 text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={paymentMethod} onChange={e => { setPaymentMethod(e.target.value); setSelectedCard(''); setCashSource(''); setTransferAccId(''); }}>
+                              <option value="현금">현금</option><option value="체크카드">체크카드</option><option value="신용카드">신용카드</option>
                             </select>
                           </div>
-                          {paymentMethod === '신용카드' && (
+                          {(paymentMethod === '체크카드' || paymentMethod === '신용카드') && (
                             <select className="w-full text-[10px] font-black text-blue-600 border border-blue-200 rounded-lg p-2 outline-none bg-blue-50" value={selectedCard} onChange={e => setSelectedCard(e.target.value)}>
-                              <option value="">결제할 카드 선택</option>
-                              {myCards.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                              <option value="">카드 선택</option>
+                              {myCards.filter(c => paymentMethod === '체크카드' ? c.type === '체크' : c.type === '신용').map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                            </select>
+                          )}
+                          {paymentMethod === '현금' && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {accounts.filter(a => a.type === 'spending').map(a => (
+                                <button key={a.id} type="button"
+                                  onClick={() => { setCashSource(cashSource === a.id ? '' : a.id); setSelectedCard(''); setSpendingItem(''); }}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${cashSource === a.id ? 'bg-rose-500 text-white border-rose-500' : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'}`}>
+                                  🛍️ {a.name} <span className="opacity-70">₩{formatNum(a.cash)}</span>
+                                </button>
+                              ))}
+                              <button type="button"
+                                onClick={() => { setCashSource(cashSource === 'transfer' ? '' : 'transfer'); setTransferAccId(''); setSelectedCard(''); }}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${cashSource === 'transfer' ? 'bg-slate-700 text-white border-slate-700' : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'}`}>
+                                🏦 계좌이체
+                              </button>
+                            </div>
+                          )}
+                          {paymentMethod === '현금' && cashSource && cashSource !== 'transfer' && (() => {
+                            const items = stocks.filter(s => (s.accountId || 'default') === cashSource);
+                            return (
+                              <div className="flex flex-wrap gap-1.5 bg-rose-50/60 p-2 rounded-lg border border-rose-100">
+                                <span className="w-full text-[9px] font-black text-rose-400 mb-0.5">결제 수단 선택 (선택 안 하면 계좌 잔액에서 차감)</span>
+                                {items.length === 0 ? (
+                                  <span className="text-[9px] text-slate-400 font-bold">이 소비계좌에 저장된 항목이 없습니다</span>
+                                ) : (
+                                  items.map(s => (
+                                    <button key={s.id} type="button"
+                                      onClick={() => setSpendingItem(spendingItem === s.id ? '' : s.id)}
+                                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${spendingItem === s.id ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
+                                      {s.name} <span className="text-[9px] opacity-70">₩{formatNum(s.quantity)}</span>
+                                    </button>
+                                  ))
+                                )}
+                              </div>
+                            );
+                          })()}
+                          {paymentMethod === '현금' && cashSource === 'transfer' && (
+                            <select className="w-full text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-slate-50"
+                              value={transferAccId} onChange={e => setTransferAccId(e.target.value)}>
+                              <option value="">계좌 선택 (없으면 현금 처리)</option>
+                              {accounts.map(a => <option key={a.id} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name} (₩{formatNum(a.cash)})</option>)}
                             </select>
                           )}
                           <div className="flex gap-1.5">
@@ -3595,28 +3670,48 @@ const AppContent = () => {
                           
                           let updatedGlobalCash = Number(globalCash);
                           let updatedAccs = [...accounts];
+                          let updatedStocks = [...stocks];
                           let isPaidNow = false;
 
                           if (!isExpense) {
                             updatedGlobalCash += amt;
                             isPaidNow = true;
                           } else {
-                            if (paymentMethod === '현금/체크카드') {
-                               updatedGlobalCash -= myShare; 
-                               if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
-                               isPaidNow = true;
-                            } else if (paymentMethod === '신용카드') {
-                               const selectedCardInfo = myCards.find(c => c.name === selectedCard);
-                               if (selectedCardInfo && selectedCardInfo.type === '체크') {
-                                  const linkedAccId = selectedCardInfo.linkedAcc || 'wallet';
-                                  if (linkedAccId === 'wallet') {
-                                     updatedGlobalCash -= myShare;
-                                     if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                            if (paymentMethod === '현금') {
+                               if (cashSource && cashSource !== 'transfer') {
+                                  if (spendingItem) {
+                                     const item = updatedStocks.find(s => s.id === spendingItem);
+                                     if (!item || toPureNumber(item.quantity) < myShare) return showToast("⚠️ 잔액이 부족합니다.");
+                                     const benefit = toPureNumber(item.benefit) || 0;
+                                     const accumulation = Math.floor(myShare * benefit / 100);
+                                     updatedStocks = updatedStocks.map(s => s.id === spendingItem ? { ...s, quantity: String(toPureNumber(s.quantity) - myShare + accumulation) } : s);
+                                     if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
                                   } else {
-                                     const acc = updatedAccs.find(a => a.id === linkedAccId);
-                                     if (!acc || toPureNumber(acc.cash) < myShare) return showToast("⚠️ 연동된 계좌 잔액이 부족합니다.");
-                                     updatedAccs = updatedAccs.map(a => a.id === linkedAccId ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
+                                     const srcAcc = updatedAccs.find(a => a.id === cashSource);
+                                     if (!srcAcc || toPureNumber(srcAcc.cash) < myShare) return showToast("⚠️ 소비계좌 잔액이 부족합니다.");
+                                     updatedAccs = updatedAccs.map(a => a.id === cashSource ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
                                   }
+                               } else if (cashSource === 'transfer' && transferAccId) {
+                                  const srcAcc = updatedAccs.find(a => a.id === transferAccId);
+                                  if (!srcAcc || toPureNumber(srcAcc.cash) < myShare) return showToast("⚠️ 계좌 잔액이 부족합니다.");
+                                  updatedAccs = updatedAccs.map(a => a.id === transferAccId ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
+                               } else {
+                                  updatedGlobalCash -= myShare;
+                                  if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                               }
+                               isPaidNow = true;
+                            } else {
+                               const selectedCardInfo = myCards.find(c => c.name === selectedCard);
+                               const linkedAccId = selectedCardInfo?.linkedAcc || '';
+                               const deductFrom = linkedAccId || (paymentMethod === '체크카드' ? 'wallet' : '');
+                               if (deductFrom === 'wallet') {
+                                  updatedGlobalCash -= myShare;
+                                  if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                                  isPaidNow = true;
+                               } else if (deductFrom) {
+                                  const acc = updatedAccs.find(a => a.id === deductFrom);
+                                  if (!acc || toPureNumber(acc.cash) < myShare) return showToast("⚠️ 연동된 계좌 잔액이 부족합니다.");
+                                  updatedAccs = updatedAccs.map(a => a.id === deductFrom ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
                                   isPaidNow = true;
                                } else {
                                   isPaidNow = false;
@@ -3626,7 +3721,8 @@ const AppContent = () => {
                           
                           setGlobalCash(updatedGlobalCash);
                           setAccounts(updatedAccs);
-                          
+                          setStocks(updatedStocks);
+
                           let logType = 'income'; let logCat = '기타'; let logName = ''; let logMemo = expenseMemo;
                           if (incomeMode === 'salary') { logCat = '급여'; logName = '월급 입금'; }
                           else if (incomeMode === 'bonus') { logCat = incomeCategory; logName = `${incomeCategory} 입금`; }
@@ -3642,7 +3738,7 @@ const AppContent = () => {
                           let logsToAdd = [];
                           const baseLog = { 
                             type: logType, name: logName, category: logCat, amount: myShare, totalAmount: amt, 
-                            memo: logMemo, paymentMethod: isExpense ? paymentMethod : null, cardName: paymentMethod === '신용카드' ? selectedCard : null,
+                            memo: logMemo, paymentMethod: isExpense ? paymentMethod : null, cardName: selectedCard || null,
                             isPaid: isPaidNow, isNbbang: isExpense ? isNbbang : false, nbbangCount: finalNbbangCount, nbbangNames: finalNbbangNames, perPersonShare: perPersonShare,
                             date: finalDate, timestamp: Date.now()
                           };
@@ -3696,14 +3792,14 @@ const AppContent = () => {
                   </label>
                     <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={transferFromId} onChange={e=>setTransferFromId(e.target.value)}>
                       <option value="wallet">👛 지갑 (₩{formatNum(globalCash)})</option>
-                      {accounts.map(a=><option key={`from-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : '📈'} {a.name} (₩{formatNum(a.cash)})</option>)}
+                      {accounts.map(a=><option key={`from-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name} (₩{formatNum(a.cash)})</option>)}
                     </select>
                   </div>
                   <div className="flex justify-center -my-1 text-slate-300 text-[10px]">▼</div>
                   <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-slate-400 text-center">받는 대상 (입금)</label>
                     <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={transferToId} onChange={e=>setTransferToId(e.target.value)}>
                       <option value="wallet">👛 지갑</option>
-                      {accounts.map(a=><option key={`to-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : '📈'} {a.name}</option>)}
+                      {accounts.map(a=><option key={`to-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name}</option>)}
                     </select>
                   </div>
                   <div className="flex items-stretch gap-1.5 mt-2">
