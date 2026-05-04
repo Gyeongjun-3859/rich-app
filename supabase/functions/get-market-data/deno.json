@@ -1,5 +1,12 @@
 {
   "imports": {
     "@supabase/functions-js": "jsr:@supabase/functions-js@^2"
+  },
+  "supabase": {
+    "functions": {
+      "get-market-data": {
+        "verify_jwt": false
+      }
+    }
   }
 }
