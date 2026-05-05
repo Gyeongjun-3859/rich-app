@@ -377,6 +377,7 @@ const AppContent = () => {
   const [editingNbbang, setEditingNbbang] = useState(null); 
   const [prepayModalState, setPrepayModalState] = useState({ isOpen: false, cardName: '' });
   const [prepaySelectedKey, setPrepaySelectedKey] = useState(null);
+  const [prepayEditKey, setPrepayEditKey] = useState(null);
   const [expenseDateInput, setExpenseDateInput] = useState(''); 
   const [isSettledHistoryView, setIsSettledHistoryView] = useState(false);
   const [settledDetailModal, setSettledDetailModal] = useState({ isOpen: false, person: '', details: [] }); // 🎯 정산 완료 상세 모달
@@ -985,25 +986,40 @@ const AppContent = () => {
     showToast(stockSuccessCount > 0 ? `✅ 시세 & 환율(₩${formatNum(newFxRate)}) 연동 완료!` : "⚠️ API 연동에 실패하여 기존 데이터를 유지합니다.");
   };
 
-  // 카드 실적 기간 계산: cardPeriod(실적인정일)를 기준으로 [시작일, 종료일] 반환
-  const getCardPeriodRange = (cardPeriod) => {
+  // 카드 실적 필터: 단순 이번달(1일~말일) 기준 — 실적 게이지에 사용
+  const filterByCurrentMonth = (logs) => {
+    const today = new Date();
+    const y = today.getFullYear(), m = today.getMonth();
+    const start = new Date(y, m, 1);
+    const end = new Date(y, m + 1, 0);
+    return logs.filter(r => {
+      const d = parseLocalDate(r.date || r.timestamp);
+      return d && d >= start && d <= end;
+    });
+  };
+
+  // 카드 결제 기준일 범위 계산: cardPeriod(기준일)를 기준으로 [시작일, 종료일] 반환 — 결제 예정금액에 사용
+  // refYear/refMonth(0-based)를 넘기면 해당 월 기준으로 계산, 생략 시 오늘 기준
+  const getCardPeriodRange = (cardPeriod, refYear, refMonth) => {
+    if (!cardPeriod) return [null, null];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const y = today.getFullYear(), m = today.getMonth(); // m: 0-based
-    if (!cardPeriod) return [null, null];
+    const y = refYear != null ? refYear : today.getFullYear();
+    const m = refMonth != null ? refMonth : today.getMonth(); // m: 0-based
     const periodDay = cardPeriod === '말일'
-      ? new Date(y, m + 1, 0).getDate()  // 이번달 마지막일
+      ? new Date(y, m + 1, 0).getDate()
       : Number(cardPeriod);
-    // 종료일: 이번달 periodDay일 → 이미 지났으면 다음달로 밀기
+    // 종료일: 해당 월의 periodDay일
+    // refYear/refMonth가 주어진 경우 해당 월 기준으로 고정, 없으면 오늘 기준으로 밀기
     let endDate = new Date(y, m, periodDay);
-    if (endDate < today) {
-      endDate = new Date(y, m + 1, periodDay === '말일' ? new Date(y, m + 2, 0).getDate() : periodDay);
+    if (refYear == null && endDate < today) {
+      endDate = new Date(y, m + 1, cardPeriod === '말일' ? new Date(y, m + 2, 0).getDate() : periodDay);
     }
     // 시작일: 종료일 기준 전달 periodDay+1일
-    const ey = endDate.getFullYear(), em = endDate.getMonth();
-    const prevMonthLastDay = new Date(ey, em, 0).getDate();
+    const ey = endDate.getFullYear(), em2 = endDate.getMonth();
+    const prevMonthLastDay = new Date(ey, em2, 0).getDate();
     const startDay = Math.min(periodDay + 1, prevMonthLastDay);
-    const startDate = new Date(ey, em - 1, startDay);
+    const startDate = new Date(ey, em2 - 1, startDay);
     return [startDate, endDate];
   };
 
@@ -1045,11 +1061,17 @@ const AppContent = () => {
          } else if (isSpendingAcc) {
            spendingItemsTotal += qty;
          } else if (isCardAcc) {
-           const rawLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드'));
-           const cardLogs = filterByCardPeriod(rawLogs, s.cardPeriod);
-           const cardUsed = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
-           cardItemsTotal += cardUsed;
-           if (!s.isNbbang) cardItemsNonNbbang += cardUsed;
+           const rawLogs = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isNbbang);
+           const cardLogs = filterByCurrentMonth(rawLogs);
+           // 전체 카드 사용금액: N빵 원본은 전체금액(perPersonShare*nbbangCount)으로 복원
+           const totalUsed = cardLogs.reduce((sum, r) => {
+             const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+             return sum + full;
+           }, 0);
+           // N빵제외(내 몫만): 내 몫 금액(amount) 그대로
+           const myUsed = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
+           cardItemsTotal += totalUsed;
+           cardItemsNonNbbang += myUsed;
          } else {
            // 🎯 핵심: 종목별 배당 주기(월, 분기, 연 등)를 파악해 1년치 합산 계산
            const divFreq = getPayoutsPerYear(s.divFreq || '월');
@@ -1112,10 +1134,10 @@ const AppContent = () => {
       let tInvested = 0, tValue = 0, tDiv = 0;
       cStocks.forEach(s => {
         if (isCard) {
-          const rawLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드'));
-          const cardLogs = filterByCardPeriod(rawLogs, s.cardPeriod);
-          const cardUsed = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
-          if (!s.isNbbang) cardNonNbbangTotal += cardUsed;
+          const rawLogs = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isNbbang);
+          const cardLogs = filterByCurrentMonth(rawLogs);
+          const myUsed = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
+          cardNonNbbangTotal += myUsed;
           return;
         }
         const qty = toPureNumber(s.quantity), curP = isSav ? 1 : toPureNumber(s.currentPrice), buyP = isSav ? 1 : toPureNumber(s.buyPrice), mult = (s.isUSD && !isSav) ? rate : 1;
@@ -2657,9 +2679,9 @@ const AppContent = () => {
                     const canDeposit = availableSources.length > 0;
 
                     return (
-                      <div key={s.id} 
-                           onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(s.id); }} 
-                           onClick={(e) => e.stopPropagation()} 
+                      <div key={s.id}
+                           onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(s.id); }}
+                           onClick={(e) => { e.stopPropagation(); if (isCard) setPrepayModalState({ isOpen: true, cardName: s.name, fromPortfolio: true }); }}
                            className={`account-card-area picture-card p-2 md:p-3 relative cursor-pointer transition-all group flex flex-col justify-between gap-1 overflow-hidden min-h-[95px] md:min-h-[110px] ${activeCardId === s.id ? 'border-indigo-400 ring-2 ring-indigo-100 shadow-md scale-[1.02] z-10' : 'hover:border-slate-300 border-transparent'}`}>
                         
                         <div className="flex justify-between items-start">
@@ -2674,15 +2696,14 @@ const AppContent = () => {
                                 const _goal = toPureNumber(s.performance);
                                 if (_goal <= 0) return null;
                                 const _raw = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드'));
-                                const [_cs, _ce] = getCardPeriodRange(s.cardPeriod);
-                                const _ps = _cs ? new Date(_cs.getFullYear(), _cs.getMonth() - 1, _cs.getDate()) : null;
-                                const _pe = _ce ? new Date(_ce.getFullYear(), _ce.getMonth() - 1, _ce.getDate()) : null;
-                                const _pu = _ps && _pe ? _raw.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _ps && d <= _pe; }).reduce((a, r) => a + toPureNumber(r.amount), 0) : 0;
+                                const _today = new Date(); const _py = _today.getMonth() === 0 ? _today.getFullYear()-1 : _today.getFullYear(); const _pm = _today.getMonth() === 0 ? 11 : _today.getMonth()-1;
+                                const _ps = new Date(_py, _pm, 1); const _pe = new Date(_py, _pm+1, 0);
+                                const _pu = _raw.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _ps && d <= _pe; }).reduce((a, r) => a + toPureNumber(r.amount), 0);
                                 return _pu >= _goal ? <span className="text-[7px] font-black bg-emerald-100 text-emerald-600 px-1.5 py-0.5 rounded-full shadow-sm whitespace-nowrap shrink-0">✓ 전월달성</span> : null;
                               })()}
                             </h4>
                             <span className="text-[8px] md:text-[9px] font-bold text-slate-400 mt-0.5 truncate">
-                              {isCard ? `${s.cardPayDay ? `결제 ${s.cardPayDay}일` : (s.cardType === '신용' ? '결제일 미설정' : '')}${s.cardPeriod ? ` · 실적 ${s.cardPeriod}일` : ''}` : isSpending ? `혜택 ${s.benefit || 0}%` : isSavings ? `${s.interestType} ${s.interestRate}%` : <>{s.targetRatio !== '' && s.targetRatio !== undefined ? `목표 ${s.targetRatio}% ` : ''}<span className="text-slate-500 font-black">({formatNum(s.currentRatio, 1)}%)</span></>}
+                              {isCard ? `${s.cardPayDay ? `결제 ${s.cardPayDay}일` : (s.cardType === '신용' ? '결제일 미설정' : '')}${s.cardPeriod ? ` · 기준 ${s.cardPeriod}일` : ''}` :isSpending ? `혜택 ${s.benefit || 0}%` : isSavings ? `${s.interestType} ${s.interestRate}%` : <>{s.targetRatio !== '' && s.targetRatio !== undefined ? `목표 ${s.targetRatio}% ` : ''}<span className="text-slate-500 font-black">({formatNum(s.currentRatio, 1)}%)</span></>}
                             </span>
                           </div>
                           {!isSavings && !isSpending && toPureNumber(s.divPerShare) > 0 && <span className={`text-[7px] md:text-[8px] font-black ${t.text} ${t.light.split(' ')[0]} px-1 py-0.5 rounded shadow-sm shrink-0 whitespace-nowrap ml-1`}>배당 ₩{formatNum(s.divPerShare)}</span>}
@@ -2695,9 +2716,9 @@ const AppContent = () => {
                         <div className="flex justify-between items-end bg-slate-50 rounded-md md:rounded-lg p-1.5 md:p-2 border border-slate-100">
                           {isCard ? (
                             (() => {
-                              const rawCardLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드'));
-                              const cardLogs = filterByCardPeriod(rawCardLogs, s.cardPeriod);
-                              const used = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
+                              const rawCardLogs = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isNbbang);
+                              const cardLogs = filterByCurrentMonth(rawCardLogs);
+                              const used = cardLogs.reduce((sum, r) => { const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare)*Number(r.nbbangCount) : toPureNumber(r.amount); return sum + full; }, 0);
                               const goal = toPureNumber(s.performance);
                               const achieved = goal > 0 && used >= goal;
                               const pct = goal > 0 ? Math.min(100, Math.round((used / goal) * 100)) : 0;
@@ -3654,20 +3675,21 @@ const AppContent = () => {
                      {(() => {
                        // 전체 미결제를 카드별 실적기간 기준으로 이번달/다음달로 분리
                        let totalThisMonth = 0, totalNextMonth = 0;
-                       const allUnpaidLogs = (tradeLogs || []).filter(r => r.paymentMethod === '신용카드' && !r.isPaid);
+                       const allUnpaidLogs = (tradeLogs || []).filter(r => r.paymentMethod === '신용카드' && !r.isPaid && !r.isNbbang);
                        const cardPeriodMap = {};
                        [...myCards.map(c => ({ name: c.name, period: c.period })),
                         ...stocks.filter(s => accounts.find(a => a.id === (s.accountId||'default'))?.type === 'card').map(s => ({ name: s.name, period: s.cardPeriod }))
                        ].forEach(c => { if (!cardPeriodMap[c.name]) cardPeriodMap[c.name] = c.period; });
                        allUnpaidLogs.forEach(r => {
                          const period = cardPeriodMap[r.cardName];
-                         const [cs, ce] = getCardPeriodRange(period);
-                         const ps = cs ? new Date(cs.getFullYear(), cs.getMonth() - 1, cs.getDate()) : null;
-                         const pe = ce ? new Date(ce.getFullYear(), ce.getMonth() - 1, ce.getDate()) : null;
+                         const [cs, ce] = getCardPeriodRange(period, calYear, calMonth);
+                         const ns = ce ? new Date(ce.getFullYear(), ce.getMonth(), ce.getDate() + 1) : null;
+                         const ne = ce ? new Date(ce.getFullYear(), ce.getMonth() + 1, ce.getDate()) : null;
                          const d = parseLocalDate(r.date || r.timestamp);
-                         const amt = toPureNumber(r.amount);
-                         if (d && ps && pe && d >= ps && d <= pe) totalThisMonth += amt;
-                         else if (d && cs && ce && d >= cs && d <= ce) totalNextMonth += amt;
+                         // N빵 원본은 카드에 전체금액이 청구됨
+                         const amt = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                         if (d && cs && ce && d >= cs && d <= ce) totalThisMonth += amt;
+                         else if (d && ns && ne && d >= ns && d <= ne) totalNextMonth += amt;
                        });
                        return (
                          <div className="flex gap-2">
@@ -3693,18 +3715,19 @@ const AppContent = () => {
                        // 🎯 카드 요약본 모바일 1열, PC 2열 그리드 배치
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
                          {myCards.map(c => {
-                           const periodFiltered = filterByCardPeriod(myCardRecords.filter(r => r.cardName === c.name), c.period);
-                           const totalUsed = periodFiltered.reduce((sum, r) => sum + r.amount, 0);
+                           const periodFiltered = (tradeLogs || []).filter(r => r.cardName === c.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang && (() => { const d = parseLocalDate(r.date || r.timestamp); return d && d.getFullYear() === calYear && d.getMonth() === calMonth; })());
+                           const totalUsed = periodFiltered.reduce((sum, r) => { const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare)*Number(r.nbbangCount) : toPureNumber(r.amount); return sum + full; }, 0);
                            const target = Number(c.target || 0);
                            const percent = target > 0 ? Math.min((totalUsed / target) * 100, 100) : 0;
                            const isReached = target > 0 && totalUsed >= target;
-                           // 이번달/다음달 결제예정 분리 (실적기준일 기반)
-                           const [_curS, _curE] = getCardPeriodRange(c.period);
-                           const _prevS = _curS ? new Date(_curS.getFullYear(), _curS.getMonth() - 1, _curS.getDate()) : null;
-                           const _prevE = _curE ? new Date(_curE.getFullYear(), _curE.getMonth() - 1, _curE.getDate()) : null;
-                           const _allUnpaid = (tradeLogs || []).filter(r => r.cardName === c.name && r.paymentMethod === '신용카드' && !r.isPaid);
-                           const thisMonthPay = _prevS && _prevE ? _allUnpaid.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _prevS && d <= _prevE; }).reduce((s, r) => s + toPureNumber(r.amount), 0) : 0;
-                           const nextMonthPay = _curS && _curE ? _allUnpaid.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _curS && d <= _curE; }).reduce((s, r) => s + toPureNumber(r.amount), 0) : 0;
+                           // 이번달/다음달 결제예정 분리: 이번달 = 현재 기준일 범위, 다음달 = 다음 기준일 범위
+                           const [_curS, _curE] = getCardPeriodRange(c.period, calYear, calMonth);
+                           const _nextS = _curE ? new Date(_curE.getFullYear(), _curE.getMonth(), _curE.getDate() + 1) : null;
+                           const _nextE = _curE ? new Date(_curE.getFullYear(), _curE.getMonth() + 1, _curE.getDate()) : null;
+                           const _allUnpaid = (tradeLogs || []).filter(r => r.cardName === c.name && r.paymentMethod === '신용카드' && !r.isPaid && !r.isNbbang);
+                           const _toAmt = r => (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                           const thisMonthPay = _curS && _curE ? _allUnpaid.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _curS && d <= _curE; }).reduce((s, r) => s + _toAmt(r), 0) : 0;
+                           const nextMonthPay = _nextS && _nextE ? _allUnpaid.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _nextS && d <= _nextE; }).reduce((s, r) => s + _toAmt(r), 0) : 0;
                            const toPay = thisMonthPay + nextMonthPay;
                            
                            let isPayDayActive = false;
@@ -3714,19 +3737,19 @@ const AppContent = () => {
                            }
 
                            return (
-                             <div key={`prog-${c.id}`} className="flex flex-col bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                             <div key={`prog-${c.id}`} className="flex flex-col bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all" onClick={() => setPrepayModalState({ isOpen: true, cardName: c.name, fromPortfolio: true })}>
                                <div className="flex justify-between items-center mb-1.5">
                                  <div className="flex flex-col">
                                     <span className="text-[11px] font-black text-slate-800">{c.name} {isReached && <span className="text-[8px] bg-emerald-100 text-emerald-600 px-1 py-0.5 rounded shadow-sm ml-1">실적 달성!</span>}</span>
                                     <span className="text-[8px] font-bold text-slate-400 mt-0.5">
-                                      {c.period && `실적: ${c.period}일 `} 
+                                      {c.period && `기준: ${c.period}일 `}
                                       {c.payDay && `| 결제: ${c.payDay}${c.payDay === '말일' ? '' : '일'}`}
                                     </span>
                                  </div>
                                  {isPayDayActive && toPay > 0 ? (
-                                    <button onClick={() => handleAutoPayCard(c.name, toPay)} className="px-2.5 py-1.5 bg-rose-500 text-white rounded shadow-md text-[9px] font-black hover:bg-rose-600 transition-colors animate-pulse whitespace-nowrap">오늘 결제</button>
+                                    <button onClick={e => { e.stopPropagation(); handleAutoPayCard(c.name, toPay); }} className="px-2.5 py-1.5 bg-rose-500 text-white rounded shadow-md text-[9px] font-black hover:bg-rose-600 transition-colors animate-pulse whitespace-nowrap">오늘 결제</button>
                                  ) : (
-                                    <button onClick={() => setPrepayModalState({ isOpen: true, cardName: c.name })} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors whitespace-nowrap">미리 갚기</button>
+                                    <button onClick={e => { e.stopPropagation(); setPrepayModalState({ isOpen: true, cardName: c.name }); }} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors whitespace-nowrap">미리 갚기</button>
                                  )}
                                </div>
 
@@ -3759,16 +3782,17 @@ const AppContent = () => {
                            const acc = accounts.find(a => a.id === (s.accountId || 'default'));
                            return acc?.type === 'card' && !myCards.some(c => c.name === s.name);
                          }).map(s => {
-                           const rawUsedLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드'));
-                           const totalUsed = filterByCardPeriod(rawUsedLogs, s.cardPeriod).reduce((sum, r) => sum + toPureNumber(r.amount), 0);
+                           const rawUsedLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang);
+                           const totalUsed = rawUsedLogs.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d.getFullYear() === calYear && d.getMonth() === calMonth; }).reduce((sum, r) => { const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare)*Number(r.nbbangCount) : toPureNumber(r.amount); return sum + full; }, 0);
                            const target = toPureNumber(s.performance);
-                           // 이번달/다음달 결제예정 분리 (실적기준일 기반)
-                           const [_cs2, _ce2] = getCardPeriodRange(s.cardPeriod);
-                           const _ps2 = _cs2 ? new Date(_cs2.getFullYear(), _cs2.getMonth() - 1, _cs2.getDate()) : null;
-                           const _pe2 = _ce2 ? new Date(_ce2.getFullYear(), _ce2.getMonth() - 1, _ce2.getDate()) : null;
-                           const _unpaid2 = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isPaid);
-                           const thisMonthPay2 = _ps2 && _pe2 ? _unpaid2.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _ps2 && d <= _pe2; }).reduce((a, r) => a + toPureNumber(r.amount), 0) : 0;
-                           const nextMonthPay2 = _cs2 && _ce2 ? _unpaid2.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _cs2 && d <= _ce2; }).reduce((a, r) => a + toPureNumber(r.amount), 0) : 0;
+                           // 이번달/다음달 결제예정 분리: 이번달 = 현재 기준일 범위, 다음달 = 다음 기준일 범위
+                           const [_cs2, _ce2] = getCardPeriodRange(s.cardPeriod, calYear, calMonth);
+                           const _ns2 = _ce2 ? new Date(_ce2.getFullYear(), _ce2.getMonth(), _ce2.getDate() + 1) : null;
+                           const _ne2 = _ce2 ? new Date(_ce2.getFullYear(), _ce2.getMonth() + 1, _ce2.getDate()) : null;
+                           const _unpaid2 = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isPaid && !r.isNbbang);
+                           const _toAmt2 = r => (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                           const thisMonthPay2 = _cs2 && _ce2 ? _unpaid2.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _cs2 && d <= _ce2; }).reduce((a, r) => a + _toAmt2(r), 0) : 0;
+                           const nextMonthPay2 = _ns2 && _ne2 ? _unpaid2.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _ns2 && d <= _ne2; }).reduce((a, r) => a + _toAmt2(r), 0) : 0;
                            const toPay = thisMonthPay2 + nextMonthPay2;
                            const percent = target > 0 ? Math.min((totalUsed / target) * 100, 100) : 0;
                            const isReached = target > 0 && totalUsed >= target;
@@ -3778,19 +3802,19 @@ const AppContent = () => {
                              if (currentDay === payDayNum && currentHour >= 9) isPayDayActive = true;
                            }
                            return (
-                             <div key={`cardacc-${s.id}`} className="flex flex-col bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm">
+                             <div key={`cardacc-${s.id}`} className="flex flex-col bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm cursor-pointer hover:border-blue-300 hover:shadow-md transition-all" onClick={() => setPrepayModalState({ isOpen: true, cardName: s.name, fromPortfolio: true })}>
                                <div className="flex justify-between items-center mb-1.5">
                                  <div className="flex flex-col">
                                    <span className="text-[11px] font-black text-slate-800">{s.name} {isReached && <span className="text-[8px] bg-emerald-100 text-emerald-600 px-1 py-0.5 rounded shadow-sm ml-1">실적 달성!</span>}</span>
                                    <span className="text-[8px] font-bold text-slate-400 mt-0.5">
-                                     {s.cardPeriod && `실적: ${s.cardPeriod}일 `}
+                                     {s.cardPeriod && `기준: ${s.cardPeriod}일 `}
                                      {s.cardPayDay && `| 결제: ${s.cardPayDay}${s.cardPayDay === '말일' ? '' : '일'}`}
                                    </span>
                                  </div>
                                  {s.cardType === '신용' && (isPayDayActive && toPay > 0 ? (
-                                   <button onClick={() => handleAutoPayCard(s.name, toPay)} className="px-2.5 py-1.5 bg-rose-500 text-white rounded shadow-md text-[9px] font-black hover:bg-rose-600 transition-colors animate-pulse whitespace-nowrap">오늘 결제</button>
+                                   <button onClick={e => { e.stopPropagation(); handleAutoPayCard(s.name, toPay); }} className="px-2.5 py-1.5 bg-rose-500 text-white rounded shadow-md text-[9px] font-black hover:bg-rose-600 transition-colors animate-pulse whitespace-nowrap">오늘 결제</button>
                                  ) : (
-                                   <button onClick={() => setPrepayModalState({ isOpen: true, cardName: s.name })} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors whitespace-nowrap">미리 갚기</button>
+                                   <button onClick={e => { e.stopPropagation(); setPrepayModalState({ isOpen: true, cardName: s.name }); }} disabled={toPay <= 0} className="px-2 py-1.5 bg-blue-500 text-white rounded shadow-sm text-[9px] font-black hover:bg-blue-600 disabled:bg-slate-200 disabled:text-slate-400 transition-colors whitespace-nowrap">미리 갚기</button>
                                  ))}
                                </div>
                                {s.cardType === '신용' && (
@@ -3826,56 +3850,106 @@ const AppContent = () => {
 
                      {/* 🎯 카드 선결제 상세 모달 UI */}
                      {prepayModalState.isOpen && (() => {
-                       const allUnpaidForCard = (tradeLogs || []).filter(r =>
-                         r.cardName === prepayModalState.cardName &&
-                         r.paymentMethod === '신용카드' &&
-                         !r.isPaid
-                       );
-                       const modalItems = Object.values(allUnpaidForCard.reduce((acc, log) => {
+                       const isFromPortfolio = prepayModalState.fromPortfolio;
+                       // 미리갚기: calYear/calMonth 기준일 범위 내 미결제만, 포트폴리오: 해당 월 전체 내역
+                       const _modalCardPeriod = (() => { const mc = myCards.find(c => c.name === prepayModalState.cardName); const sc = stocks.find(s => s.name === prepayModalState.cardName); return mc ? mc.period : sc?.cardPeriod; })();
+                       const _refY = typeof calYear !== 'undefined' ? calYear : new Date().getFullYear();
+                       const _refM = typeof calMonth !== 'undefined' ? calMonth : new Date().getMonth();
+                       const [_mcs, _mce] = getCardPeriodRange(_modalCardPeriod, _refY, _refM);
+                       const allRecordsForCard = (tradeLogs || []).filter(r => {
+                         if (r.cardName !== prepayModalState.cardName) return false;
+                         if (!(r.paymentMethod === '신용카드' || r.paymentMethod === '체크카드')) return false;
+                         if (r.isNbbang) return false;
+                         if (isFromPortfolio) {
+                           // 포트폴리오에서 열면 해당 월 전체
+                           const d = parseLocalDate(r.date || r.timestamp);
+                           return d && d.getFullYear() === _refY && d.getMonth() === _refM;
+                         }
+                         // 미리갚기: 해당 월 기준일 범위 내 미결제
+                         if (r.isPaid) return false;
+                         if (!_mcs || !_mce) return true;
+                         const d = parseLocalDate(r.date || r.timestamp);
+                         return d && d >= _mcs && d <= _mce;
+                       });
+                       const modalItems = allRecordsForCard.map(log => {
                          const cleanName = (log.name || '').replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim();
-                         const groupKey = log.isNbbang ? `${log.date}_${log.memo || cleanName}` : log.id;
-                         if (!acc[groupKey]) acc[groupKey] = { ...log, combinedIds: [log.id], combinedAmount: Number(log.amount), displayTitle: log.isNbbang ? (log.memo || cleanName) : cleanName };
-                         else { acc[groupKey].combinedIds.push(log.id); acc[groupKey].combinedAmount += Number(log.amount); }
-                         return acc;
-                       }, {})).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-                       const totalForCard = modalItems.reduce((sum, l) => sum + l.combinedAmount, 0);
-                       const closeModal = () => { setPrepayModalState({ isOpen: false, cardName: '' }); setPrepaySelectedKey(null); };
+                         const nbbangTotal = (log.nbbangCount > 1 && log.perPersonShare) ? Number(log.perPersonShare) * Number(log.nbbangCount) : null;
+                         // 항상 전체금액 표시 (N빵이면 카드 실제 결제금액 = perPersonShare * nbbangCount)
+                         const displayAmount = nbbangTotal || Number(log.amount);
+                         const myAmount = Number(log.amount);
+                         return { ...log, combinedIds: [log.id], combinedAmount: displayAmount, myAmount, displayTitle: cleanName, hasNbbang: nbbangTotal != null };
+                       }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                       const unpaidItems = modalItems.filter(l => !l.isPaid);
+                       // 전액갚기도 카드 실제 결제금액(전체금액) 기준
+                       const totalUnpaid = unpaidItems.reduce((sum, l) => sum + l.combinedAmount, 0);
+                       const closeModal = () => { setPrepayModalState({ isOpen: false, cardName: '' }); setPrepaySelectedKey(null); setPrepayEditKey(null); };
+                       const handleDeleteItem = (log) => {
+                         saveStateToHistory();
+                         setTradeLogs(prev => prev.filter(r => !log.combinedIds.map(String).includes(String(r.id))));
+                         setPrepayEditKey(null);
+                       };
                        return (
                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4" onClick={closeModal}>
                          <div className="bg-white w-full max-w-sm md:max-w-md rounded-2xl p-5 shadow-2xl relative flex flex-col max-h-[85vh] animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
                            <button onClick={closeModal} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100"><X size={14}/></button>
-                           <h3 className="font-black text-sm mb-0.5 text-slate-800">💳 {prepayModalState.cardName} 미결제 내역</h3>
-                           <p className="text-[9px] font-bold text-slate-400 mb-3">항목을 눌러 선택 후 결제하기를 눌러 개별 결제하세요.</p>
+                           <h3 className="font-black text-sm mb-0.5 text-slate-800">💳 {prepayModalState.cardName} {isFromPortfolio ? '사용 내역' : '미결제 내역'}</h3>
+                           <p className="text-[9px] font-bold text-slate-400 mb-3">{isFromPortfolio ? '더블클릭으로 내역 삭제 가능. N빵 항목은 전액 기준 표시.' : '항목을 눌러 선택 후 결제하기를 눌러 개별 결제하세요.'}</p>
 
                            {modalItems.length === 0 ? (
-                             <div className="text-center py-8 text-[11px] font-bold text-slate-400">미결제 내역이 없습니다.</div>
+                             <div className="text-center py-8 text-[11px] font-bold text-slate-400">{isFromPortfolio ? '사용 내역이 없습니다.' : '미결제 내역이 없습니다.'}</div>
                            ) : (
                              <>
-                               {/* 전액 갚기 버튼 */}
-                               <button onClick={() => { if (!window.confirm(`₩${formatNum(totalForCard)} 전액을 결제하시겠습니까?`)) return; handleAutoPayCard(prepayModalState.cardName, totalForCard); closeModal(); }}
-                                 className="w-full mb-3 py-2.5 bg-rose-500 text-white rounded-xl text-[11px] font-black shadow-sm hover:bg-rose-600 active:scale-95 transition-all flex items-center justify-center gap-2">
-                                 전액 갚기 <span className="bg-white/20 px-2 py-0.5 rounded-lg">₩{formatNum(totalForCard)}</span>
-                               </button>
+                               {/* 포트폴리오에서 열면 미결제 합계만 표시, 가계부에서 열면 전액 갚기 버튼 */}
+                               {isFromPortfolio ? (
+                                 totalUnpaid > 0 && (
+                                   <div className="w-full mb-3 py-2 px-3 bg-rose-50 border border-rose-200 rounded-xl text-[11px] font-black text-rose-600 flex items-center justify-between">
+                                     <span>미결제 합계</span>
+                                     <span>₩{formatNum(totalUnpaid)}</span>
+                                   </div>
+                                 )
+                               ) : (
+                                 <button onClick={() => { if (!window.confirm(`₩${formatNum(totalUnpaid)} 전액을 결제하시겠습니까?`)) return; handleAutoPayCard(prepayModalState.cardName, totalUnpaid); closeModal(); }}
+                                   className="w-full mb-3 py-2.5 bg-rose-500 text-white rounded-xl text-[11px] font-black shadow-sm hover:bg-rose-600 active:scale-95 transition-all flex items-center justify-center gap-2">
+                                   전액 갚기 <span className="bg-white/20 px-2 py-0.5 rounded-lg">₩{formatNum(totalUnpaid)}</span>
+                                 </button>
+                               )}
 
                                {/* 개별 내역 — 2열 그리드 */}
                                <div className="grid grid-cols-2 gap-2 overflow-y-auto custom-scrollbar pb-1" style={{WebkitOverflowScrolling:'touch'}}>
                                  {modalItems.map(log => {
                                    const itemKey = log.combinedIds ? log.combinedIds[0] : log.id;
                                    const isActive = prepaySelectedKey === itemKey;
+                                   const isEditing = prepayEditKey === itemKey;
+                                   const isPaidItem = log.isPaid;
                                    return (
                                      <div key={itemKey}
                                        onClick={() => {
+                                         if (isFromPortfolio) { if (isEditing) setPrepayEditKey(null); return; }
                                          if (!isActive) { setPrepaySelectedKey(itemKey); return; }
                                          if (!window.confirm(`₩${formatNum(log.combinedAmount)} 결제하시겠습니까?`)) return;
                                          handlePaySingleItem(log);
                                          setPrepaySelectedKey(null);
                                        }}
-                                       className={`p-2 rounded-xl border shadow-sm cursor-pointer transition-all flex flex-col gap-0.5 ${isActive ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200' : 'border-slate-200 bg-slate-50 hover:border-slate-300'}`}>
-                                       <span className="text-[9px] font-black text-slate-800 truncate leading-tight">{log.displayTitle}</span>
-                                       <span className="text-[8px] font-bold text-slate-400">{log.date?.substring(5)}</span>
-                                       <div className="flex items-center justify-between mt-1">
-                                         <span className="text-[10px] font-black text-rose-500">₩{formatNum(log.combinedAmount)}</span>
-                                         {isActive && <span className="text-[8px] font-black text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-md animate-in fade-in duration-150">결제하기</span>}
+                                       onDoubleClick={() => { setPrepayEditKey(isEditing ? null : itemKey); setPrepaySelectedKey(null); }}
+                                       className={`p-2 rounded-xl border shadow-sm transition-all flex flex-col gap-0.5 cursor-pointer ${isEditing ? 'border-rose-400 bg-rose-50 ring-2 ring-rose-200' : isActive ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200' : isPaidItem ? 'border-slate-100 bg-slate-50 opacity-50' : 'border-slate-200 bg-slate-50 hover:border-slate-300'}`}>
+                                       <div className="flex items-center justify-between gap-1">
+                                         <span className="text-[9px] font-black text-slate-800 truncate leading-tight flex-1">{log.displayTitle}</span>
+                                         <div className="flex items-center gap-0.5 shrink-0">
+                                           {log.hasNbbang && <span className="text-[7px] font-black text-violet-500 bg-violet-50 px-1 py-0.5 rounded">N빵</span>}
+                                           {isPaidItem && <span className="text-[7px] font-black text-emerald-500 bg-emerald-50 px-1 py-0.5 rounded">완납</span>}
+                                         </div>
+                                       </div>
+                                       <span className="text-[8px] font-bold text-slate-400">{log.date?.substring(5)} · {log.paymentMethod === '체크카드' ? '체크' : '신용'}</span>
+                                       <div className="flex flex-col mt-1 gap-0.5">
+                                         <span className={`text-[10px] font-black ${isPaidItem ? 'text-slate-400' : isEditing ? 'text-rose-600' : 'text-rose-500'}`}>₩{formatNum(log.combinedAmount)}</span>
+                                         {log.hasNbbang && <span className="text-[8px] font-bold text-slate-400">내 몫 ₩{formatNum(log.myAmount)}</span>}
+                                         {isActive && !isFromPortfolio && <span className="text-[8px] font-black text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-md animate-in fade-in duration-150 self-end">결제하기</span>}
+                                         {isEditing && (
+                                           <div className="flex gap-1 mt-1 animate-in fade-in duration-150" onClick={e => e.stopPropagation()}>
+                                             <button onClick={() => handleDeleteItem(log)} className="flex-1 py-1 bg-rose-500 text-white rounded-lg text-[8px] font-black hover:bg-rose-600 active:scale-95 transition-all">🗑 삭제</button>
+                                             <button onClick={() => setPrepayEditKey(null)} className="flex-1 py-1 bg-slate-200 text-slate-600 rounded-lg text-[8px] font-black hover:bg-slate-300 active:scale-95 transition-all">취소</button>
+                                           </div>
+                                         )}
                                        </div>
                                      </div>
                                    );
@@ -4355,18 +4429,48 @@ const AppContent = () => {
                               return acc?.type === 'card' && (isCredit ? s.cardType === '신용' : s.cardType !== '신용');
                             }).filter(s => !myCards.some(c => c.name === s.name)).map(s => ({ key: `ca-${s.id}`, name: s.name })),
                           ];
+                          // 선택된 카드 실적 게이지 계산
+                          const selCardGauge = (() => {
+                            if (!selectedCard) return null;
+                            const mc = myCards.find(c => c.name === selectedCard);
+                            const sc = stocks.find(s => s.name === selectedCard && accounts.find(a => a.id === (s.accountId||'default'))?.type === 'card');
+                            const period = mc ? mc.period : sc?.cardPeriod;
+                            const target = mc ? Number(mc.target || 0) : toPureNumber(sc?.performance);
+                            if (!target || target <= 0) return null;
+                            const rawLogs = (tradeLogs || []).filter(r => r.cardName === selectedCard && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang);
+                            const totalUsed = filterByCurrentMonth(rawLogs).reduce((sum, r) => {
+                              const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                              return sum + full;
+                            }, 0);
+                            const percent = Math.min((totalUsed / target) * 100, 100);
+                            const isReached = totalUsed >= target;
+                            return { totalUsed, target, percent, isReached, period };
+                          })();
                           return (
-                            <div className="flex flex-wrap gap-1.5">
-                              {cardList.length === 0
-                                ? <span className="text-[9px] text-slate-400 font-bold">등록된 {paymentMethod}가 없습니다</span>
-                                : cardList.map(c => (
-                                  <button key={c.key} type="button"
-                                    onClick={() => setSelectedCard(selectedCard === c.name ? '' : c.name)}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${selectedCard === c.name ? 'bg-blue-500 text-white border-blue-500' : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'}`}>
-                                    💳 {c.name}
-                                  </button>
-                                ))
-                              }
+                            <div className="flex flex-col gap-1.5">
+                              <div className="flex flex-wrap gap-1.5">
+                                {cardList.length === 0
+                                  ? <span className="text-[9px] text-slate-400 font-bold">등록된 {paymentMethod}가 없습니다</span>
+                                  : cardList.map(c => (
+                                    <button key={c.key} type="button"
+                                      onClick={() => setSelectedCard(selectedCard === c.name ? '' : c.name)}
+                                      className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${selectedCard === c.name ? 'bg-blue-500 text-white border-blue-500' : 'bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100'}`}>
+                                      💳 {c.name}
+                                    </button>
+                                  ))
+                                }
+                              </div>
+                              {selCardGauge && (
+                                <div className="px-1 pt-0.5 pb-1 animate-in fade-in duration-200">
+                                  <div className="flex justify-between text-[8px] font-bold text-slate-400 mb-1">
+                                    <span>이번달 실적 ₩{formatNum(selCardGauge.totalUsed)}</span>
+                                    <span className={selCardGauge.isReached ? 'text-emerald-500 font-black' : ''}>목표 ₩{formatNum(selCardGauge.target)}{selCardGauge.isReached ? ' ✓' : ''}</span>
+                                  </div>
+                                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden shadow-inner">
+                                    <div className={`h-full rounded-full transition-all duration-500 ${selCardGauge.isReached ? 'bg-emerald-400' : 'bg-blue-400'}`} style={{ width: `${selCardGauge.percent}%` }}></div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
@@ -4961,7 +5065,7 @@ const AppContent = () => {
       )}
 
       {isEditAccountOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setIsEditAccountOpen(false); }}>
           <form onSubmit={handleEditAccountSubmit} className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative">
             <button type="button" onClick={() => setIsEditAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
             <h3 className="font-black text-sm mb-4 flex justify-center items-center gap-1.5 w-full"><Edit2 size={14}/> 계좌 이름 변경</h3>
@@ -5005,7 +5109,7 @@ const AppContent = () => {
       )}
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
           <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-2xl flex flex-col max-h-[90vh] animate-in zoom-in duration-200 relative">
             <button type="button" onClick={() => setIsModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-full transition-colors z-50"><X size={14}/></button>
             {/* 🎯 모달 타이틀 및 우측 상단 미니멀 OCR 버튼 */}
@@ -5151,7 +5255,7 @@ const AppContent = () => {
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[9px] font-black text-slate-400 block text-center">실적 인정일</label>
+                      <label className="text-[9px] font-black text-slate-400 block text-center">기준일</label>
                       <select className="w-full bg-slate-50 py-2 px-2.5 rounded-xl font-bold text-xs outline-none border focus:border-slate-400 text-center" value={newStock.cardPeriod || ''} onChange={e=>setNewStock({...newStock, cardPeriod: e.target.value})}>
                         <option value="">선택</option>
                         {Array.from({length:31},(_,i)=>i+1).map(d=><option key={d} value={String(d)}>{d}일</option>)}
@@ -5354,7 +5458,7 @@ const AppContent = () => {
 
               <div className="flex gap-1.5 mt-1.5">
                 <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center text-slate-700" value={newCardPeriod} onChange={e=>setNewCardPeriod(e.target.value)}>
-                  <option value="">실적 인정일 (예: 매월 말일)</option>
+                  <option value="">기준일 (예: 매월 말일)</option>
                   {Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={`p${d}`} value={String(d)}>매월 {d}일 기준</option>)}
                   <option value="말일">매월 말일 기준</option>
                 </select>
@@ -5374,13 +5478,13 @@ const AppContent = () => {
         </div>
       )}
       {isAddAccountOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setIsAddAccountOpen(false); }}>
           <form onSubmit={handleAddAccountSubmit} className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative"><button type="button" onClick={() => setIsAddAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button><h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">새 계좌 추가</h3><div className="flex gap-1.5 mb-3 bg-slate-50 p-1 rounded-xl"><button type="button" onClick={()=>setNewAccountType('stock')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'stock' ? `${t.main}` : 'text-slate-400'}`}>📈 주식</button><button type="button" onClick={()=>setNewAccountType('savings')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'savings' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-400'}`}>🏦 저축</button><button type="button" onClick={()=>setNewAccountType('spending')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'spending' ? 'bg-rose-500 text-white shadow-sm' : 'text-slate-400'}`}>🛍️ 소비</button><button type="button" onClick={()=>setNewAccountType('card')} className={`flex-1 py-2 rounded-lg text-[10px] font-black transition-all ${newAccountType === 'card' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400'}`}>💳 카드</button></div><input type="text" placeholder={newAccountType === 'card' ? '카드 별칭 (예: 신한카드)' : '계좌 별칭 (예: 생활비 통장)'} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold mb-4 outline-none border focus:${t.border} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} required /><button type="submit" className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${newAccountType === 'stock' ? `${t.main}` : newAccountType === 'spending' ? 'bg-rose-500 hover:bg-rose-600' : newAccountType === 'card' ? 'bg-slate-700 hover:bg-slate-800' : 'bg-emerald-500 hover:bg-emerald-600'}`}>계좌 생성하기</button></form>
         </div>
       )}
 
       {isEditLabelModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setIsEditLabelModalOpen(false); }}>
           <form onSubmit={handleEditLabelSubmit} className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative"><button type="button" onClick={() => setIsEditLabelModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button><h3 className="font-black text-sm mb-4 flex justify-center w-full items-center gap-1.5"><Edit2 size={14}/> 통장 명칭 변경</h3><input type="text" placeholder="새로운 통장 이름" autoFocus className="w-full p-2.5 rounded-xl text-sm font-black mb-4 outline-none border focus:border-slate-400 text-center" value={editLabelInput} onChange={e=>setEditLabelInput(e.target.value)} required /><button type="submit" className="w-full bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-md">이름 저장하기</button></form>
         </div>
       )}
