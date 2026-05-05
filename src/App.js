@@ -55,7 +55,19 @@ const getPayoutsPerYear = (freqStr) => {
   if (freqStr === '분기') return 4;
   if (freqStr === '반기') return 2;
   if (freqStr === '연') return 1;
-  return 12; 
+  return 12;
+};
+const getDefaultDivMonths = (freq) => {
+  if (freq === '분기') return [3, 6, 9, 12];
+  if (freq === '반기') return [6, 12];
+  if (freq === '연') return [12];
+  return [];
+};
+// 특정 종목이 특정 월에 배당을 지급하는지 확인
+const isDivMonth = (s, month) => {
+  if (!s.divFreq || s.divFreq === '월') return true;
+  const months = (s.divMonths && s.divMonths.length > 0) ? s.divMonths : getDefaultDivMonths(s.divFreq);
+  return months.includes(month);
 };
 const getRecoveredValue = (key, fallbackKey, defaultVal) => {
   try {
@@ -222,8 +234,25 @@ const AppContent = () => {
   const toastTimerRef = useRef(null);
   const fileInputRef = useRef(null);
   const searchTimerRef = useRef(null);
+  const calendarSwipeRef = useRef(null);
+  const calendarGridRef = useRef(null);
+  const [chartSplit, setChartSplit] = useState(60); // 차트 너비 % (30~80 범위)
+  const chartDividerRef = useRef(null);
+  const chartDragState = useRef(null); // { startX, startSplit }
+  const calDaySummaryRef = useRef(null);
+  const divPickerSectionRef = useRef(null);
+  const stockFormScrollRef = useRef(null);
+  const divDiarySwipeRef = useRef(null);
+  const divDiaryTouchStart = useRef(null);
+  const divDiaryWheelLock = useRef(false);
+  const calSwipeTouchStart = useRef(null);
+  const calSwipeWheelLock = useRef(false);
+  const [calSlide, setCalSlide] = useState({ dragX: 0, animDir: null }); // dragX: 드래그 중 실시간 px, animDir: 'left'|'right'|null
+  const [divDiarySlide, setDivDiarySlide] = useState({ dragX: 0, animDir: null });
   
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, message: '', onConfirm: null, onCancel: null });
+  const [inputModal, setInputModal] = useState({ isOpen: false, title: '', placeholder: '', defaultValue: '', onConfirm: null });
+  const [inputModalValue, setInputModalValue] = useState('');
   const [inlineConsume, setInlineConsume] = useState({ isOpen: false, amount: '' });
   const [savingsWithdrawModal, setSavingsWithdrawModal] = useState({ isOpen: false, amount: '', targetAccId: 'wallet' });
   const [savingsMaturityModal, setSavingsMaturityModal] = useState({ isOpen: false, targetId: null, finalAmount: '' });
@@ -316,7 +345,7 @@ const AppContent = () => {
   const [isEditingAccCash, setIsEditingAccCash] = useState(false);
   const [editAccCashAmount, setEditAccCashAmount] = useState('');
 
-  const [rebalanceTab, setRebalanceTab] = useState('standard'); 
+  const [rebalanceTab, setRebalanceTab] = useState('overview');
   const [rebalanceInvestAmount, setRebalanceInvestAmount] = useState(''); 
 
   const [investTab, setInvestTab] = useState('transfer');
@@ -573,17 +602,73 @@ const AppContent = () => {
       return !tradeLogs.some(r => r.fixedExpenseId === fe.id && r.date === ymd);
     });
     if (toAdd.length === 0) return;
-    const newLogs = toAdd.map(fe => ({
-      id: `fe_${fe.id}_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
-      date: ymd, timestamp: Date.now(),
-      type: 'expense', name: fe.name, amount: Number(fe.amount),
-      category: '고정비', subCategory: fe.name,
-      paymentMethod: fe.paymentMethod || '현금',
-      cardName: fe.cardName || '',
-      fixedExpenseId: fe.id,
-    }));
+    const newLogs = toAdd.map(fe => {
+      const rawAmt = Number(fe.amount);
+      const krwAmt = fe.isUSD ? Math.round(rawAmt * (exchangeRate || 1350)) : rawAmt;
+      return {
+        id: `fe_${fe.id}_${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+        date: ymd, timestamp: Date.now(),
+        type: 'expense', name: fe.name, amount: krwAmt,
+        category: '고정비', subCategory: fe.name,
+        paymentMethod: fe.paymentMethod || '현금',
+        cardName: fe.cardName || '',
+        fixedExpenseId: fe.id,
+      };
+    });
     setTradeLogs(prev => [...newLogs, ...prev]);
   }, [isCloudDataLoaded, fixedExpenses]);
+
+  // 자동 배당 입금: 앱 로드 시 오늘이 배당 지급일인 종목 자동 처리
+  useEffect(() => {
+    if (!isCloudDataLoaded || stocks.length === 0) return;
+    const today = new Date();
+    const todayDay = today.getDate();
+    const todayMonth = today.getMonth() + 1;
+    const todayYear = today.getFullYear();
+    const mId = `${todayYear}-${String(todayMonth).padStart(2, '0')}`;
+    const rate = toPureNumber(exchangeRate) || 1392;
+
+    const toAutoDiv = stocks.filter(s => {
+      if (!toPureNumber(s.divPerShare)) return false;
+      if (s.dividendTimeline?.[mId]) return false; // 이번 달 이미 지급됨
+      const payDay = s.divDay === '말' ? new Date(todayYear, todayMonth, 0).getDate() : Number(s.divDay || 15);
+      if (todayDay !== payDay) return false;
+      return isDivMonth(s, todayMonth);
+    });
+
+    if (toAutoDiv.length === 0) return;
+
+    const summary = [];
+    let updatedStocks = [...stocks];
+    let updatedAccounts = [...accounts];
+
+    toAutoDiv.forEach(s => {
+      const qty = toPureNumber(s.quantity);
+      const divPer = toPureNumber(s.divPerShare);
+      const mult = s.isUSD ? rate : 1;
+      const totalDiv = qty * divPer * mult;
+      if (!totalDiv) return;
+
+      updatedStocks = updatedStocks.map(st =>
+        st.id === s.id
+          ? { ...st, dividendTimeline: { ...(st.dividendTimeline || {}), [mId]: String(totalDiv) } }
+          : st
+      );
+      const accId = s.accountId || 'default';
+      updatedAccounts = updatedAccounts.map(a =>
+        a.id === accId ? { ...a, cash: String(toPureNumber(a.cash) + totalDiv) } : a
+      );
+      summary.push({ name: s.name, amount: totalDiv });
+    });
+
+    setStocks(updatedStocks);
+    setAccounts(updatedAccounts);
+    summary.forEach(({ name, amount }) => {
+      setTradeLogs(prev => [{ id: `div_auto_${Date.now()}_${Math.random().toString(36).slice(2,5)}`, date: `${todayYear}-${String(todayMonth).padStart(2,'0')}-${String(todayDay).padStart(2,'0')}`, timestamp: Date.now(), type: 'dividend', name, amount }, ...prev]);
+    });
+    setAutoDivSummary(summary);
+    setIsAutoDivModalOpen(true);
+  }, [isCloudDataLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 4. 나만의 아이디(영문/숫자) 로그인 실행 로직
   const handleAuthSubmit = async (e) => {
@@ -666,11 +751,16 @@ const AppContent = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]); // Yahoo 실시간 검색 결과
   const [isSearching, setIsSearching] = useState(false);  // 검색 로딩 중
-  const [isSubDivModalOpen, setIsSubDivModalOpen] = useState(false); 
+  const [isSubDivModalOpen, setIsSubDivModalOpen] = useState(false);
   const [isGlobalDivModalOpen, setIsGlobalDivModalOpen] = useState(false);
-  const [divInputView, setDivInputView] = useState('batch'); 
+  const [divInputView, setDivInputView] = useState('schedule');
   const [selectedDivStock, setSelectedDivStock] = useState('');
   const [tempTimelines, setTempTimelines] = useState({});
+  const [isAutoDivModalOpen, setIsAutoDivModalOpen] = useState(false);
+  const [autoDivSummary, setAutoDivSummary] = useState([]);
+  const [showDivMonthPicker, setShowDivMonthPicker] = useState(false);
+  const [showDivExPicker, setShowDivExPicker] = useState(false);
+  const [subDivYear, setSubDivYear] = useState(new Date().getFullYear());
   
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
@@ -680,9 +770,9 @@ const AppContent = () => {
 
   const [editingStockId, setEditingStockId] = useState(null);
   const [activeCardId, setActiveCardId] = useState(null); // 모바일 터치(클릭) 상태 관리를 위한 변수
-  const [newStock, setNewStock] = useState({ 
-    name: '', ticker: '', buyPrice: '', quantity: '', targetRatio: '', isUSD: false, 
-    currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15',
+  const [newStock, setNewStock] = useState({
+    name: '', ticker: '', buyPrice: '', quantity: '', targetRatio: '', isUSD: false,
+    currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15', divMonths: [], divExDay: '1', divExMonths: [],
     maturityDate: '', interestRate: '', interestType: '단리', benefit: '',
     cardType: '체크', performance: '', isNbbang: false, cardPayDay: '', cardPeriod: '', cardLinkedAcc: 'wallet'
   });
@@ -703,10 +793,16 @@ const AppContent = () => {
   const [newFixedAmount, setNewFixedAmount] = useState('');
   const [newFixedDay, setNewFixedDay] = useState('');
   const [newFixedSub, setNewFixedSub] = useState('');
-  const [fixedCategories, setFixedCategories] = useState(['월세/관리비', '공과금', '구독료', '통신비', '보험료', '교육비', '교통비', '기타']);
+  const [fixedCategories, setFixedCategories] = useState(['월세/관리비/공과금', '구독료/통신비', '보험료/교육비/교통비']);
   const [showFixedCatInput, setShowFixedCatInput] = useState(false);
   const [newFixedCatName, setNewFixedCatName] = useState('');
   const [newFixedPayment, setNewFixedPayment] = useState({ method: '현금', cardName: '', transferAccId: '' });
+  const [newFixedIsUSD, setNewFixedIsUSD] = useState(false);
+  const [editFixedModal, setEditFixedModal] = useState(null); // { fe, confirmDelete? } or null
+  const [editFixedAmount, setEditFixedAmount] = useState('');
+  const [editFixedDay, setEditFixedDay] = useState('');
+  const [editFixedPayment, setEditFixedPayment] = useState({ method: '현금', cardName: '', transferAccId: '' });
+  const [editFixedIsUSD, setEditFixedIsUSD] = useState(false);
   const [bonusDestAccId, setBonusDestAccId] = useState(''); // 수익 입금 계좌 ('wallet' | 'acc:{id}' | 'stock:{id}')
 
   const [draggedAccIdx, setDraggedAccIdx] = useState(null); 
@@ -730,6 +826,56 @@ const AppContent = () => {
   const stocksRef = useRef(stocks);
   useEffect(() => { stocksRef.current = stocks; }, [stocks]);
 
+  // 달력 트랙패드 가로 스와이프 (non-passive wheel + 슬라이드 애니메이션)
+  useEffect(() => {
+    const onWheel = (e) => {
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY) * 0.8) return;
+      e.preventDefault();
+      if (calSwipeWheelLock.current) return;
+      if (Math.abs(e.deltaX) < 15) return;
+      calSwipeWheelLock.current = true;
+      const dir = e.deltaX > 0 ? 'left' : 'right';
+      setCalSlide({ dragX: 0, animDir: dir });
+      setTimeout(() => {
+        // 애니메이션 완료 → transition 없이 달 교체 + 위치 리셋 동시 처리
+        if (dir === 'left') { setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1)); setSelectedDay(null); }
+        else { setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1)); setSelectedDay(null); }
+        setCalSlide({ dragX: 0, animDir: null });
+        setTimeout(() => { calSwipeWheelLock.current = false; }, 600);
+      }, 330);
+    };
+    const els = [calendarSwipeRef.current, calendarGridRef.current].filter(Boolean);
+    els.forEach(el => el.addEventListener('wheel', onWheel, { passive: false }));
+    return () => els.forEach(el => el.removeEventListener('wheel', onWheel));
+  });
+
+  // 배당일기 트랙패드 가로 스와이프
+  useEffect(() => {
+    const el = divDiarySwipeRef.current;
+    if (!el) return;
+    const onWheel = (e) => {
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY) * 0.8) return;
+      e.preventDefault();
+      if (divDiaryWheelLock.current) return;
+      if (Math.abs(e.deltaX) < 15) return;
+      divDiaryWheelLock.current = true;
+      const dir = e.deltaX > 0 ? 'left' : 'right';
+      setDivDiarySlide({ dragX: 0, animDir: dir });
+      setTimeout(() => {
+        setBatchMonth(m => {
+          let nm = dir === 'left' ? m + 1 : m - 1;
+          if (nm > 12) { setBatchYear(y => y + 1); return 1; }
+          if (nm < 1) { setBatchYear(y => y - 1); return 12; }
+          return nm;
+        });
+        setDivDiarySlide({ dragX: 0, animDir: null });
+        setTimeout(() => { divDiaryWheelLock.current = false; }, 400);
+      }, 200);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  });
+
   // --- Live API Fetch (Auto) ---
   useEffect(() => {
     let isMounted = true;
@@ -744,14 +890,14 @@ const AppContent = () => {
       // 2. 주식 시세 일괄 조회 (Edge Function 한 번 호출)
       const stocksList = stocksRef.current;
       const getTickerSym = (s) => s.isUSD ? s.ticker : `${s.ticker}${s.tickerSuffix || '.KS'}`;
-      const symbols = stocksList.filter(s => s.ticker).map(getTickerSym);
+      const symbols = stocksList.filter(s => s.ticker && !s.manualPrice).map(getTickerSym);
       if (symbols.length === 0) return;
 
       const results = await fetchMarketDataViaEdgeFn(symbols);
       let updated = false;
       let successCount = 0;
       const newStocks = stocksList.map(s => {
-        if (!s.ticker) return s;
+        if (!s.ticker || s.manualPrice) return s;
         const sym = getTickerSym(s);
         const price = results[sym]?.price;
         if (price && !isNaN(price)) {
@@ -802,13 +948,13 @@ const AppContent = () => {
       console.error("❌ 환율 업데이트 실패:", error);
     }
 
-    // 2. 실시간 주식/ETF 시세 일괄 조회 (Edge Function 한 번에 호출)
+    // 2. 실시간 주식/ETF 시세 일괄 조회 (manualPrice=true 종목 제외)
     const getTickerSymManual = (s) => s.isUSD ? s.ticker : `${s.ticker}${s.tickerSuffix || '.KS'}`;
-    const symbolsToFetch = updatedStocks.filter(s => s.ticker).map(getTickerSymManual);
+    const symbolsToFetch = updatedStocks.filter(s => s.ticker && !s.manualPrice).map(getTickerSymManual);
     if (symbolsToFetch.length > 0) {
       const results = await fetchMarketDataViaEdgeFn(symbolsToFetch);
       updatedStocks = updatedStocks.map(s => {
-        if (!s.ticker) return s;
+        if (!s.ticker || s.manualPrice) return s;
         const sym = getTickerSymManual(s);
         const price = results[sym]?.price;
         if (price && !isNaN(price)) {
@@ -986,6 +1132,61 @@ const AppContent = () => {
     return { globalInvested, globalValue, globalProfit, accountCashSum, globalReceivedDiv, totalAssets, totalPrincipal, totalROI: globalInvested > 0 ? (globalProfit / globalInvested) * 100 : 0 };
   }, [accounts, stocks, exchangeRate, globalCash, tradeLogs]);
 
+  // FIRE: 과거 historyRecords 기반 CAGR 계산 (시세차익 기준 — 배당은 totalAssets에 이미 포함)
+  const fireCAGR = useMemo(() => {
+    const sorted = [...historyRecords].sort((a, b) => a.id.localeCompare(b.id));
+    if (sorted.length < 2) return null;
+    const oldest = sorted[0];
+    const latest = sorted[sorted.length - 1];
+    const yearsDiff = ((latest.year - oldest.year) * 12 + (latest.month - oldest.month)) / 12;
+    if (yearsDiff <= 0 || oldest.invested <= 0 || latest.current <= 0) return null;
+    // latest.current(totalAssets)에 계좌 현금이 포함 → 배당 입금분도 이미 반영됨
+    const cagr = Math.pow(latest.current / oldest.invested, 1 / yearsDiff) - 1;
+    return isFinite(cagr) && cagr > -1 ? parseFloat((cagr * 100).toFixed(1)) : null;
+  }, [historyRecords]);
+
+  // FIRE: 전체 연간 예상 배당금 합산 (모든 계좌의 divPerShare × quantity × 주기)
+  const fireAnnualDiv = useMemo(() => {
+    const rate = toPureNumber(exchangeRate) || 1392;
+    return stocks.reduce((sum, s) => {
+      const qty = toPureNumber(s.quantity);
+      const divPer = toPureNumber(s.divPerShare);
+      if (!qty || !divPer) return sum;
+      const mult = s.isUSD ? rate : 1;
+      const freq = getPayoutsPerYear(s.divFreq || '월');
+      return sum + qty * divPer * mult * freq;
+    }, 0);
+  }, [stocks, exchangeRate]);
+
+  // FIRE: CAGR이 계산되면 expectedReturn 기본값으로 자동 세팅 (사용자 수동 수정 우선)
+  const fireCAGRApplied = useRef(false);
+  useEffect(() => {
+    if (fireCAGR !== null && !fireCAGRApplied.current) {
+      setExpectedReturn(String(fireCAGR));
+      fireCAGRApplied.current = true;
+    }
+  }, [fireCAGR]);
+
+  // FIRE: 복리+저축+배당 월별 시뮬레이션으로 은퇴 기간 계산
+  const fireYearsCalc = useMemo(() => {
+    const r = toPureNumber(expectedReturn) / 100 / 12;
+    const pv = globalStats.totalAssets;
+    // 월 저축액 + 월 예상 배당금을 합산한 월 현금흐름
+    const monthlyDiv = fireAnnualDiv / 12;
+    const pmt = (annualLimit || 0) + monthlyDiv;
+    const target = fireTarget || 1000000000;
+    if (pv >= target) return 0;
+    if (r <= 0) {
+      return pmt > 0 ? Math.max(0, target - pv) / pmt / 12 : Infinity;
+    }
+    let current = pv;
+    for (let month = 1; month <= 12 * 100; month++) {
+      current = current * (1 + r) + pmt;
+      if (current >= target) return parseFloat((month / 12).toFixed(1));
+    }
+    return Infinity;
+  }, [expectedReturn, globalStats.totalAssets, annualLimit, fireTarget, fireAnnualDiv]);
+
   const currentAccountStat = accountStatsList.find(a => a.id === selectedAccountId) || accountStatsList[0];
   
   const currentModalOtherRatioSum = useMemo(() => {
@@ -1084,6 +1285,11 @@ const AppContent = () => {
 
   const showConfirm = (message, onConfirm, onCancel = null) => {
     setConfirmModal({ isOpen: true, message, onConfirm, onCancel });
+  };
+
+  const showInputModal = (title, placeholder, defaultValue, onConfirm) => {
+    setInputModalValue(defaultValue);
+    setInputModal({ isOpen: true, title, placeholder, defaultValue, onConfirm });
   };
 
   const openSettings = () => {
@@ -1285,27 +1491,27 @@ const AppContent = () => {
   };
   
   const handleImportData = () => {
-    const input = prompt("복사해둔 백업 데이터를 여기에 붙여넣기 하세요:");
-    if (!input) return;
-    try {
-      const data = JSON.parse(input);
-      if (data.accounts) setAccounts(data.accounts);
-      if (data.stocks) setStocks(data.stocks);
-      if (data.historyRecords) setHistoryRecords(data.historyRecords);
-      if (data.tradeLogs) setTradeLogs(data.tradeLogs);
-      if (data.globalCash !== undefined) setGlobalCash(data.globalCash);
-      if (data.appTitle) setAppTitle(data.appTitle);
-      if (data.appSubtitle) setAppSubtitle(data.appSubtitle);
-      if (data.characterName) setCharacterName(data.characterName);
-      if (data.appTheme) setAppTheme(data.appTheme);
-      if (data.zoomLevel) setZoomLevel(data.zoomLevel);
-      if (data.exchangeRate) setExchangeRate(data.exchangeRate);
-      if (data.profileImage) setProfileImage(data.profileImage);
-      if (data.monthlyGoals) setMonthlyGoals(data.monthlyGoals);
-      
-      saveConfig(data.accounts || accounts, data.exchangeRate || exchangeRate, data.appTitle || appTitle, data.appSubtitle || appSubtitle, data.characterName || characterName, data.appTheme || appTheme, data.globalCash ?? globalCash, data.zoomLevel || zoomLevel);
-      showToast("✅ 복원되었습니다!");
-    } catch (e) { showToast("❌ 데이터 형식이 올바르지 않습니다."); }
+    showInputModal('백업 데이터 붙여넣기', '복사해둔 백업 데이터를 여기에 붙여넣기 하세요', '', (input) => {
+      if (!input) return;
+      try {
+        const data = JSON.parse(input);
+        if (data.accounts) setAccounts(data.accounts);
+        if (data.stocks) setStocks(data.stocks);
+        if (data.historyRecords) setHistoryRecords(data.historyRecords);
+        if (data.tradeLogs) setTradeLogs(data.tradeLogs);
+        if (data.globalCash !== undefined) setGlobalCash(data.globalCash);
+        if (data.appTitle) setAppTitle(data.appTitle);
+        if (data.appSubtitle) setAppSubtitle(data.appSubtitle);
+        if (data.characterName) setCharacterName(data.characterName);
+        if (data.appTheme) setAppTheme(data.appTheme);
+        if (data.zoomLevel) setZoomLevel(data.zoomLevel);
+        if (data.exchangeRate) setExchangeRate(data.exchangeRate);
+        if (data.profileImage) setProfileImage(data.profileImage);
+        if (data.monthlyGoals) setMonthlyGoals(data.monthlyGoals);
+        saveConfig(data.accounts || accounts, data.exchangeRate || exchangeRate, data.appTitle || appTitle, data.appSubtitle || appSubtitle, data.characterName || characterName, data.appTheme || appTheme, data.globalCash ?? globalCash, data.zoomLevel || zoomLevel);
+        showToast("✅ 복원되었습니다!");
+      } catch (e) { showToast("❌ 데이터 형식이 올바르지 않습니다."); }
+    });
   };
 
   const handleImageUpload = (e) => {
@@ -1338,7 +1544,7 @@ const AppContent = () => {
     setEditingStockId(null);
     setNewStock({
       name: '', ticker: '', buyPrice: '', quantity: '', targetRatio: '', isUSD: false,
-      currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15',
+      currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15', divMonths: [], divExDay: '1', divExMonths: [],
       maturityDate: '', interestRate: '', interestType: '단리', benefit: '',
       cardType: '체크', performance: '', isNbbang: false, cardPayDay: '', cardPeriod: '', cardLinkedAcc: 'wallet'
     });
@@ -1972,13 +2178,15 @@ const AppContent = () => {
     setNewStock(prev => ({ ...prev, [field]: clean }));
   };
 
-  const openGlobalDivModal = (mode = 'batch', stockId = null) => {
+  const openGlobalDivModal = (mode = 'schedule', stockId = null) => {
     if (stocks.length === 0) return showToast("⚠️ 항목을 추가해주세요.");
     const temp = {};
     stocks.forEach(s => { temp[s.id] = { ...(s.dividendTimeline || {}) }; });
-    setTempTimelines(temp); 
-    setDivInputView(mode);
-    setSelectedDivStock(stockId || stocks[0]?.id || ''); 
+    setTempTimelines(temp);
+    setDivInputView('schedule'); // 항상 배당일기 탭으로 시작
+    setBatchYear(new Date().getFullYear());
+    setBatchMonth(new Date().getMonth() + 1);
+    setSelectedDivStock(stockId || stocks[0]?.id || '');
     setIsGlobalDivModalOpen(true);
   };
 
@@ -2056,6 +2264,107 @@ const AppContent = () => {
         </div>
       )}
 
+      {/* 범용 입력 모달 (prompt 대체) */}
+      {inputModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1000000] flex items-center justify-center p-4" onClick={() => setInputModal({ isOpen: false, title: '', placeholder: '', defaultValue: '', onConfirm: null })}>
+          <div className="bg-white rounded-[1.5rem] p-6 shadow-2xl w-full max-w-xs flex flex-col animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+            <h3 className="font-black text-slate-800 text-[13px] mb-4 text-center">{inputModal.title}</h3>
+            <textarea
+              autoFocus
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-[11px] font-semibold text-slate-700 outline-none focus:border-amber-400 resize-none bg-slate-50"
+              rows={inputModal.title === '백업 데이터 붙여넣기' ? 5 : 2}
+              placeholder={inputModal.placeholder}
+              value={inputModalValue}
+              onChange={e => setInputModalValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey && inputModal.title !== '백업 데이터 붙여넣기') {
+                  e.preventDefault();
+                  inputModal.onConfirm && inputModal.onConfirm(inputModalValue);
+                  setInputModal({ isOpen: false, title: '', placeholder: '', defaultValue: '', onConfirm: null });
+                }
+              }}
+            />
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setInputModal({ isOpen: false, title: '', placeholder: '', defaultValue: '', onConfirm: null })} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl text-xs font-black hover:bg-slate-200 transition-colors">취소</button>
+              <button onClick={() => { inputModal.onConfirm && inputModal.onConfirm(inputModalValue); setInputModal({ isOpen: false, title: '', placeholder: '', defaultValue: '', onConfirm: null }); }} className={`flex-1 ${t.main} py-3 rounded-xl text-xs font-black shadow-md transition-colors`}>확인</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 고정비 수정/삭제 모달 */}
+      {editFixedModal && (() => {
+        const fe = editFixedModal.fe;
+        const isConfirmingDelete = !!editFixedModal.confirmDelete;
+        const allPayOpts = [
+          { key: '__cash__', label: '💵 현금(지갑)', method: '현금', cardName: '', transferAccId: '' },
+          ...myCards.map(c => ({ key: `card-${c.name}`, label: `💳 ${c.name}`, method: c.type === '신용' ? '신용카드' : '체크카드', cardName: c.name, transferAccId: '' })),
+          ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'card'; }).map(s => ({ key: `cardacc-${s.id}`, label: `💳 ${s.name}`, method: s.cardType === '신용' ? '신용카드' : '체크카드', cardName: s.name, transferAccId: '' })),
+          ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings'; }).map(s => ({ key: `savstk-${s.id}`, label: `🏦 ${s.name}`, method: '현금', cardName: '', transferAccId: `stock:${s.id}` })),
+        ];
+        const doSave = () => {
+          const parsed = Number(editFixedAmount.replace(/[^0-9]/g, ''));
+          const dayNum = Number(editFixedDay);
+          if (!parsed || !dayNum || dayNum < 1 || dayNum > 31) { showToast('금액과 날짜(일)를 올바르게 입력하세요'); return; }
+          setFixedExpenses(fixedExpenses.map(f => f.id === fe.id ? { ...f, amount: parsed, day: dayNum, paymentMethod: editFixedPayment.method, cardName: editFixedPayment.cardName, transferAccId: editFixedPayment.transferAccId, isUSD: editFixedIsUSD } : f));
+          setEditFixedModal(null);
+          showToast('✅ 고정비 수정 완료');
+        };
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1000000] flex items-center justify-center p-4" onClick={() => setEditFixedModal(null)}>
+            {isConfirmingDelete ? (
+              <div className="bg-white rounded-[1.5rem] p-6 shadow-2xl w-full max-w-xs flex flex-col items-center text-center animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                <h3 className="font-black text-slate-800 text-[13px] mb-5 leading-relaxed">"{fe.name}"<br/>고정비를 삭제할까요?</h3>
+                <div className="flex gap-2 w-full">
+                  <button onClick={() => setEditFixedModal({ fe })} className="flex-1 bg-slate-100 text-slate-600 py-3 rounded-xl text-xs font-black hover:bg-slate-200 transition-colors">아니오</button>
+                  <button onClick={() => { setFixedExpenses(fixedExpenses.filter(f => f.id !== fe.id)); setEditFixedModal(null); showToast('🗑️ 삭제되었습니다.'); }} className="flex-1 bg-red-500 text-white py-3 rounded-xl text-xs font-black shadow-md hover:bg-red-600 transition-colors">삭제</button>
+                </div>
+              </div>
+            ) : (
+            <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xs flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-100">
+                <span className="text-[13px] font-black text-slate-800">고정비 수정</span>
+                <button onClick={() => setEditFixedModal(null)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-400 text-lg">×</button>
+              </div>
+              <div className="flex flex-col gap-3 p-4">
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">항목</span>
+                  <p className="text-[12px] font-black text-slate-700 mt-0.5">{fe.name}</p>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">금액</span>
+                  <div className="flex gap-1.5 mt-1 items-center">
+                    <button onClick={() => setEditFixedIsUSD(v => !v)} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 border transition-colors ${editFixedIsUSD ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{editFixedIsUSD ? '$' : '₩'}</button>
+                    <input type="text" autoFocus className="flex-1 text-right text-[12px] font-black text-slate-800 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-amber-400" placeholder={editFixedIsUSD ? 'USD 금액' : '금액'} value={toCommaString(editFixedAmount)} onChange={e => setEditFixedAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') doSave(); }} />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">결제일 (매월 N일)</span>
+                  <input type="text" inputMode="numeric" className="w-full mt-1 text-center text-[12px] font-black text-slate-800 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-amber-400" value={editFixedDay} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); if (Number(v) <= 31) setEditFixedDay(v); }} onKeyDown={e => { if (e.key === 'Enter') doSave(); }} />
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">결제수단</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {allPayOpts.map(opt => {
+                      const isSelected = opt.cardName === editFixedPayment.cardName && opt.transferAccId === editFixedPayment.transferAccId && (opt.method === editFixedPayment.method || (opt.key === '__cash__' && editFixedPayment.method === '현금' && !editFixedPayment.cardName && !editFixedPayment.transferAccId));
+                      return (
+                        <button key={opt.key} onClick={() => setEditFixedPayment({ method: opt.method, cardName: opt.cardName, transferAccId: opt.transferAccId })}
+                          className={`px-2.5 py-1.5 rounded-lg text-[10px] font-black border transition-colors ${isSelected ? 'bg-amber-400 text-white border-amber-400' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>{opt.label}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="flex gap-2 px-4 pb-4">
+                <button onClick={() => setEditFixedModal({ fe, confirmDelete: true })} className="flex-1 bg-red-50 text-red-500 py-2.5 rounded-xl text-[11px] font-black border border-red-100 hover:bg-red-100 transition-colors">삭제</button>
+                <button onClick={doSave} className="flex-1 bg-amber-400 text-white py-2.5 rounded-xl text-[11px] font-black shadow-sm hover:bg-amber-500 transition-colors">저장</button>
+              </div>
+            </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Toast Notification */}
       {toastMsg && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white/95 text-slate-700 border border-slate-200 px-5 py-3 rounded-2xl shadow-xl z-[999999] font-bold text-xs animate-in fade-in slide-in-from-bottom-4 flex items-center justify-center gap-3 w-[90%] max-w-sm cursor-pointer hover:bg-slate-50 transition-colors backdrop-blur-sm" onClick={dismissToast}>
@@ -2079,6 +2388,9 @@ const AppContent = () => {
               {/* 🎯 기존 환율 대신 지수확인 버튼 신설 */}
               <button onClick={() => setShowIndices(!showIndices)} className="bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded-md text-[9px] font-bold border border-indigo-100 shadow-sm hover:bg-indigo-100 transition-colors flex items-center gap-1 shrink-0">
                 📈 {showIndices ? '닫기' : '지수확인'}
+              </button>
+              <button onClick={() => setIsFireModalOpen(true)} className="bg-rose-50 text-rose-500 px-1.5 py-0.5 rounded-md text-[9px] font-bold border border-rose-100 shadow-sm hover:bg-rose-100 transition-colors flex items-center gap-1 shrink-0">
+                🔥 FIRE
               </button>
             </div>
             {/* 타이틀과 모바일 갱신버튼을 나란히 배치 */}
@@ -2408,7 +2720,7 @@ const AppContent = () => {
                             <div className="flex flex-col gap-0.5 min-w-0 w-full items-center"><span className="text-slate-800 font-black text-[11px] md:text-[12px] truncate">₩{formatNum(s.quantity)}</span></div>
                           ) : (<>
                           <div className="flex flex-col gap-0.5 min-w-0"><span className="text-slate-500 font-bold text-[8px] md:text-[9px] truncate">{isSavings ? `만기: ${s.maturityDate || '-'}` : `${s.isUSD ? '$' : '₩'}${formatNum(s.currentPrice, s.isUSD ? 2 : 0)}`}</span><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate">{isSavings ? `원금 ₩${formatNum(s.investedKRW)}` : `${formatNum(s.quantity)}주 보유`}</span></div>
-                          <div className="flex flex-col items-end gap-0.5 ml-1 text-right min-w-0">{!isSavings ? (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(toPureNumber(s.currentPrice) * toPureNumber(s.quantity) * (s.isUSD ? toPureNumber(exchangeRate) : 1))}</span><span className={`text-[8px] md:text-[9px] font-black ${isP?t.text:'text-blue-500'}`}>{isP?'▲':'▼'}{formatNum(Math.abs(s.stockROI), 1)}%</span></>) : (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(s.quantity)}</span>{s.interestRate && <span className={`${t.altText} font-black text-[8px] md:text-[9px] truncate`}>예상 ₩{formatNum(Math.floor(s.interestType==='복리' ? toPureNumber(s.quantity)*Math.pow(1+toPureNumber(s.interestRate)/100,1) : toPureNumber(s.quantity)*(1+toPureNumber(s.interestRate)/100)))}</span>}</>)}</div>
+                          <div className="flex flex-col items-end gap-0.5 ml-1 text-right min-w-0">{!isSavings ? (()=>{const curVal=toPureNumber(s.currentPrice)*toPureNumber(s.quantity)*(s.isUSD?toPureNumber(exchangeRate):1);const profitAmt=curVal-(s.investedKRW||0);const profitPct=s.stockROI;return(<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(curVal)}</span><span className={`text-[8px] md:text-[9px] font-black ${isP?t.text:'text-blue-500'}`}>{isP?'+':''}{formatNum(profitAmt)} ({isP?'▲':'▼'}{formatNum(Math.abs(profitPct),1)}%)</span></>);})() : (<><span className="text-slate-800 font-black text-[9px] md:text-[10px] truncate w-full">₩{formatNum(s.quantity)}</span>{s.interestRate && <span className={`${t.altText} font-black text-[8px] md:text-[9px] truncate`}>예상 ₩{formatNum(Math.floor(s.interestType==='복리' ? toPureNumber(s.quantity)*Math.pow(1+toPureNumber(s.interestRate)/100,1) : toPureNumber(s.quantity)*(1+toPureNumber(s.interestRate)/100)))}</span>}</>)}</div>
                           </>)}
                         </div>
                         {!isCard && <div className="flex gap-1 h-[20px] md:h-[24px]">
@@ -2822,7 +3134,39 @@ const AppContent = () => {
               <button onClick={() => setAccountbookTab('card')} className={`flex-1 py-2 rounded-lg text-[10px] md:text-[11px] font-black transition-colors ${accountbookTab === 'card' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>💳 카드 내역</button>
             </div>
 
-            <div className="bg-white rounded-2xl p-3 shadow-sm border border-slate-200 mb-3">
+            <div
+              className="bg-white rounded-2xl shadow-sm border border-slate-200 mb-3 overflow-hidden"
+              ref={calendarSwipeRef}
+              onTouchStart={e => { if (calSwipeWheelLock.current) return; calSwipeTouchStart.current = e.touches[0].clientX; setCalSlide({ dragX: 0, animDir: null }); }}
+              onTouchMove={e => {
+                if (calSwipeTouchStart.current === null || calSwipeWheelLock.current) return;
+                const dx = e.touches[0].clientX - calSwipeTouchStart.current;
+                if (Math.abs(dx) > 8) setCalSlide({ dragX: dx, animDir: null });
+              }}
+              onTouchEnd={e => {
+                if (calSwipeTouchStart.current === null || calSwipeWheelLock.current) return;
+                const dx = e.changedTouches[0].clientX - calSwipeTouchStart.current;
+                calSwipeTouchStart.current = null;
+                const w = calendarSwipeRef.current?.offsetWidth || window.innerWidth;
+                if (Math.abs(dx) < w * 0.2) { setCalSlide({ dragX: 0, animDir: null }); return; }
+                const dir = dx < 0 ? 'left' : 'right';
+                calSwipeWheelLock.current = true;
+                setCalSlide({ dragX: 0, animDir: dir });
+                setTimeout(() => {
+                  if (dir === 'left') { setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1)); setSelectedDay(null); }
+                  else { setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1)); setSelectedDay(null); }
+                  setCalSlide({ dragX: 0, animDir: null });
+                  setTimeout(() => { calSwipeWheelLock.current = false; }, 600);
+                }, 330);
+              }}
+            >
+              <div
+                className="p-3"
+                style={{
+                  opacity: calSlide.animDir ? 0 : 1,
+                  transition: calSlide.animDir ? 'opacity 0.15s ease-out' : 'opacity 0.2s ease-in',
+                }}
+              >
               <div className="flex items-center justify-between bg-slate-50 p-2 rounded-xl border border-slate-100 mb-3">
                 <button onClick={() => { setCalendarDate(new Date(calYear, calMonth - 1, 1)); setSelectedDay(null); }} className="px-3 text-slate-400 hover:text-slate-800 text-lg font-black">&lt;</button>
                 <span className="text-sm md:text-base font-black text-slate-800">{calYear}년 {calMonth + 1}월</span>
@@ -2894,67 +3238,74 @@ const AppContent = () => {
                     </div>
                   </div>
 
-                  {/* 월 목표 설정 + 고정비 관리 모달 */}
-                  {showGoalModal && (
-                    <div className="fixed inset-0 z-[100000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowGoalModal(false)}>
-                      <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-2xl animate-in zoom-in duration-200 max-h-[80vh] overflow-y-auto custom-scrollbar" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center mb-4">
-                          <h3 className="font-black text-sm text-slate-800">🎯 {calMonth + 1}월 목표 설정</h3>
-                          <button onClick={() => setShowGoalModal(false)} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
-                        </div>
-                        {/* 생활비 / 고정비 목표 */}
-                        {(() => {
-                          const gk = `${calYear}-${String(calMonth+1).padStart(2,'0')}`;
-                          const handleGoalEnter = (e) => { if (e.key === 'Enter') { setShowGoalModal(false); showToast('✓ 목표 저장 완료'); } };
-                          return (
-                            <div className="flex flex-col gap-2 mb-4">
-                              <div className="flex items-center gap-2 bg-rose-50 rounded-xl p-2.5 border border-rose-100">
-                                <span className="text-[10px] font-black text-rose-600 w-14 shrink-0">생활비</span>
-                                <div className="relative flex-1 flex items-center"><span className="absolute left-2 text-[10px] font-bold text-slate-400">₩</span>
-                                  <input type="text" className="w-full bg-white border border-rose-200 rounded-lg pl-5 pr-2 py-1.5 text-[10px] font-black text-right outline-none focus:border-rose-400" placeholder="목표 금액"
-                                    value={(() => { const v = Number((monthlyGoals[gk] || {}).expenseGoal || 0); return v > 0 ? v.toLocaleString() : ''; })()}
-                                    onChange={e => { const v = e.target.value.replace(/[^0-9]/g,''); setMonthlyGoals(prev => ({...prev, [gk]: {...(prev[gk]||{}), expenseGoal: v}})); }}
-                                    onKeyDown={handleGoalEnter} />
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-2 bg-amber-50 rounded-xl p-2.5 border border-amber-100">
-                                <span className="text-[10px] font-black text-amber-600 w-14 shrink-0">고정비</span>
-                                <div className="relative flex-1 flex items-center"><span className="absolute left-2 text-[10px] font-bold text-slate-400">₩</span>
-                                  <input type="text" className="w-full bg-white border border-amber-200 rounded-lg pl-5 pr-2 py-1.5 text-[10px] font-black text-right outline-none focus:border-amber-400" placeholder="목표 금액"
-                                    value={(() => { const v = Number((monthlyGoals[gk] || {}).fixedGoal || 0); return v > 0 ? v.toLocaleString() : ''; })()}
-                                    onChange={e => { const v = e.target.value.replace(/[^0-9]/g,''); setMonthlyGoals(prev => ({...prev, [gk]: {...(prev[gk]||{}), fixedGoal: v}})); }}
-                                    onKeyDown={handleGoalEnter} />
-                                </div>
-                              </div>
-                              <button onClick={() => { setShowGoalModal(false); showToast('✓ 목표 저장 완료'); }} className="w-full bg-rose-500 text-white py-2 rounded-xl text-[11px] font-black shadow-sm hover:bg-rose-600 transition-colors mt-1">저장</button>
-                            </div>
-                          );
-                        })()}
-                        {/* 고정비 목록 관리 */}
-                        <div className="border-t border-slate-100 pt-3">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-[10px] font-black text-slate-700">📌 등록된 고정비</span>
-                            <span className="text-[8px] font-bold text-slate-400">소비탭 고정비 카테고리로 자동 등록</span>
+                  {/* 월 목표 설정 모달 */}
+                  {showGoalModal && (() => {
+                    const gk = `${calYear}-${String(calMonth+1).padStart(2,'0')}`;
+                    // 전달 실적 계산
+                    const prevY = calMonth === 0 ? calYear - 1 : calYear;
+                    const prevM = calMonth === 0 ? 11 : calMonth - 1;
+                    const prevExpense = (tradeLogs || []).filter(r => {
+                      if (r.type !== 'expense' || r.category === '카드대금' || r.category === '투자/저축' || r.isNbbang) return false;
+                      const d = new Date(r.date || r.timestamp);
+                      return d.getFullYear() === prevY && d.getMonth() === prevM && r.category !== '고정비';
+                    }).reduce((s, r) => s + Number(r.amount || 0), 0);
+                    const prevFixed = (tradeLogs || []).filter(r => {
+                      if (r.type !== 'expense' || r.category !== '고정비') return false;
+                      const d = new Date(r.date || r.timestamp);
+                      return d.getFullYear() === prevY && d.getMonth() === prevM;
+                    }).reduce((s, r) => s + Number(r.amount || 0), 0);
+                    const prevLabel = `${prevM + 1}월`;
+                    const handleGoalEnter = (e) => { if (e.key === 'Enter') { setShowGoalModal(false); showToast('✓ 목표 저장 완료'); } };
+                    return (
+                      <div className="fixed inset-0 z-[100000] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowGoalModal(false)}>
+                        <div className="bg-white rounded-2xl p-5 max-w-xs w-full shadow-xl animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                          {/* 헤더 */}
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-black text-[13px] text-slate-800">🎯 {calMonth + 1}월 목표 설정</h3>
+                            <button onClick={() => setShowGoalModal(false)} className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors text-slate-400"><X size={14}/></button>
                           </div>
-                          {fixedExpenses.length === 0 ? (
-                            <div className="text-center text-[9px] text-slate-400 py-3 bg-slate-50 rounded-lg">등록된 고정비 없음<br/>소비 탭에서 고정비 카테고리로 결제하면 자동 등록됩니다</div>
-                          ) : (
-                            <div className="flex flex-col gap-1.5">
-                              {fixedExpenses.map(fe => (
-                                <div key={fe.id} className="flex items-center gap-2 bg-amber-50 rounded-lg p-2 border border-amber-100">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-[10px] font-black text-slate-800 truncate">{fe.name}</div>
-                                    <div className="text-[8px] font-bold text-slate-400">매월 {fe.day}일 · ₩{Number(fe.amount).toLocaleString()} · {fe.paymentMethod}</div>
-                                  </div>
-                                  <button onClick={() => setFixedExpenses(prev => prev.filter(f => f.id !== fe.id))} className="shrink-0 p-1 text-slate-300 hover:text-rose-500 transition-colors"><X size={12}/></button>
-                                </div>
-                              ))}
+                          {/* 전달 실적 참고 */}
+                          <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 mb-3">
+                            <p className="text-[9px] font-bold text-slate-400 mb-2">{prevLabel} 실적</p>
+                            <div className="flex gap-2">
+                              <div className="flex-1 bg-white rounded-lg p-2 border border-slate-100 text-center">
+                                <p className="text-[8px] font-bold text-rose-400 mb-0.5">생활비</p>
+                                <p className="text-[11px] font-black text-slate-700">₩{formatNum(prevExpense)}</p>
+                              </div>
+                              <div className="flex-1 bg-white rounded-lg p-2 border border-slate-100 text-center">
+                                <p className="text-[8px] font-bold text-amber-500 mb-0.5">고정비</p>
+                                <p className="text-[11px] font-black text-slate-700">₩{formatNum(prevFixed)}</p>
+                              </div>
                             </div>
-                          )}
+                          </div>
+                          {/* 목표 입력 */}
+                          <div className="flex flex-col gap-2 mb-3">
+                            <div className="flex items-center gap-2 bg-white rounded-xl p-2.5 border border-slate-200">
+                              <span className="text-[10px] font-black text-rose-500 w-12 shrink-0">생활비</span>
+                              <div className="relative flex-1 flex items-center">
+                                <span className="absolute left-2 text-[10px] font-bold text-slate-300">₩</span>
+                                <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-5 pr-2 py-1.5 text-[10px] font-black text-right outline-none focus:border-rose-300 focus:bg-white transition-colors" placeholder="목표 금액"
+                                  value={(() => { const v = Number((monthlyGoals[gk] || {}).expenseGoal || 0); return v > 0 ? v.toLocaleString() : ''; })()}
+                                  onChange={e => { const v = e.target.value.replace(/[^0-9]/g,''); setMonthlyGoals(prev => ({...prev, [gk]: {...(prev[gk]||{}), expenseGoal: v}})); }}
+                                  onKeyDown={handleGoalEnter} />
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 bg-white rounded-xl p-2.5 border border-slate-200">
+                              <span className="text-[10px] font-black text-amber-500 w-12 shrink-0">고정비</span>
+                              <div className="relative flex-1 flex items-center">
+                                <span className="absolute left-2 text-[10px] font-bold text-slate-300">₩</span>
+                                <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-5 pr-2 py-1.5 text-[10px] font-black text-right outline-none focus:border-amber-300 focus:bg-white transition-colors" placeholder="목표 금액"
+                                  value={(() => { const v = Number((monthlyGoals[gk] || {}).fixedGoal || 0); return v > 0 ? v.toLocaleString() : ''; })()}
+                                  onChange={e => { const v = e.target.value.replace(/[^0-9]/g,''); setMonthlyGoals(prev => ({...prev, [gk]: {...(prev[gk]||{}), fixedGoal: v}})); }}
+                                  onKeyDown={handleGoalEnter} />
+                              </div>
+                            </div>
+                          </div>
+                          <button onClick={() => { setShowGoalModal(false); showToast('✓ 목표 저장 완료'); }} className="w-full bg-slate-800 text-white py-2.5 rounded-xl text-[11px] font-black shadow-sm hover:bg-slate-700 transition-colors">저장</button>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* 연도 요약 모달 */}
                   {showYearSummary && (
@@ -3560,107 +3911,182 @@ const AppContent = () => {
                   </div>
                 );
               })()}
+              </div>{/* /슬라이드 래퍼 */}
             </div>
 
-            {/* 달력 하단 상세 내역 팝업 */}
+            {/* 달력 그리드 - 3패널 슬라이더 */}
             {accountbookTab === 'calendar' && (
               <>
-                <div className="bg-white rounded-2xl p-2 md:p-3 shadow-sm border border-slate-200 mb-2 cursor-pointer" onClick={() => setSelectedDay(null)}>
-                  <div className="grid grid-cols-7 gap-1 text-center text-[9px] md:text-[10px] font-black text-slate-400 mb-1">
-                    <div className="text-rose-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1 md:gap-1.5">
-                    {blanks.map(b => <div key={`blank-${b}`} className="h-12 md:h-14 rounded-lg bg-slate-50/50"></div>)}
-                    {daysArray.map(day => {
-                      const data = stats.daily[day] || { income: 0, expense: 0, invest: 0, salary: 0 };
-                      const isSelected = selectedDay === day;
-                      const isToday = new Date().getDate() === day && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
-                      
-                      // 🎯 무지출 로직: 과거~오늘이면서 지출(expense)이 0원이면 인정!
-                      const isPastOrToday = new Date(calYear, calMonth, day) <= new Date();
-                      const isZeroExpense = isPastOrToday && data.expense === 0;
-
-                      return (
-                        <div key={day} onClick={(e) => { e.stopPropagation(); setSelectedDay(day); }} className={`h-12 md:h-14 border rounded-lg p-1 flex flex-col cursor-pointer transition-colors overflow-hidden relative ${isSelected ? 'border-slate-800 bg-slate-800 text-white shadow-md' : 'border-slate-100 bg-white hover:bg-slate-50'} ${isToday && !isSelected ? 'ring-1 ring-blue-300' : ''}`}>
-                          <span className={`text-[9px] font-black leading-none mb-0.5 relative z-10 ${isSelected ? 'text-white' : (firstDay + day - 1) % 7 === 0 ? 'text-rose-500' : (firstDay + day - 1) % 7 === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{day}</span>
-                          
-                          {/* 🎯 배경에 깔리는 은은한 무지출 스티커 애니메이션 */}
-                          {isZeroExpense && (
-                            <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none animate-in zoom-in duration-500">
-                               <span className="text-2xl drop-shadow-sm">🌿</span>
+                {(() => {
+                  // 이전달 / 다음달 간단 그리드 렌더러
+                  const renderSimpleGrid = (yr, mo) => {
+                    const fd = new Date(yr, mo, 1).getDay();
+                    const dim = new Date(yr, mo + 1, 0).getDate();
+                    const today = new Date();
+                    return (
+                      <div className="bg-white p-2 md:p-3" style={{ width: '100%', flexShrink: 0 }}>
+                        <div className="grid grid-cols-7 gap-1 text-center text-[9px] md:text-[10px] font-black text-slate-400 mb-1">
+                          <div className="text-rose-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1 md:gap-1.5">
+                          {Array.from({length: fd}, (_, i) => <div key={`b${i}`} className="h-12 md:h-14 rounded-lg bg-slate-50/50" />)}
+                          {Array.from({length: dim}, (_, i) => {
+                            const d = i + 1;
+                            const col = (fd + d - 1) % 7;
+                            const isT = today.getDate() === d && today.getMonth() === mo && today.getFullYear() === yr;
+                            return (
+                              <div key={d} className={`h-12 md:h-14 border rounded-lg p-1 flex flex-col border-slate-100 bg-white ${isT ? 'ring-1 ring-blue-300' : ''}`}>
+                                <span className={`text-[9px] font-black leading-none ${col === 0 ? 'text-rose-400' : col === 6 ? 'text-blue-400' : 'text-slate-400'}`}>{d}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  };
+                  const prevYr = calMonth === 0 ? calYear - 1 : calYear;
+                  const prevMo = calMonth === 0 ? 11 : calMonth - 1;
+                  const nextYr = calMonth === 11 ? calYear + 1 : calYear;
+                  const nextMo = calMonth === 11 ? 0 : calMonth + 1;
+                  // px 기반 translateX — 컨테이너 100% 기준으로 좌우 패널 배치
+                  const trans = calSlide.animDir
+                    ? `translateX(${calSlide.animDir === 'left' ? '-100%' : '100%'})`
+                    : `translateX(${calSlide.dragX}px)`;
+                  const transStyle = {
+                    transform: trans,
+                    transition: calSlide.animDir ? 'transform 0.35s cubic-bezier(0.23,1,0.32,1)' : 'none',
+                    willChange: 'transform',
+                  };
+                  return (
+                    <div
+                      className="overflow-hidden rounded-2xl mb-2 shadow-sm border border-slate-200 bg-white"
+                      ref={calendarGridRef}
+                      style={{ touchAction: 'pan-y', position: 'relative' }}
+                      onTouchStart={e => { if (calSwipeWheelLock.current) return; calSwipeTouchStart.current = e.touches[0].clientX; setCalSlide({ dragX: 0, animDir: null }); }}
+                      onTouchMove={e => {
+                        if (calSwipeTouchStart.current === null || calSwipeWheelLock.current) return;
+                        const dx = e.touches[0].clientX - calSwipeTouchStart.current;
+                        if (Math.abs(dx) > 8) setCalSlide({ dragX: dx, animDir: null });
+                      }}
+                      onTouchEnd={e => {
+                        if (calSwipeTouchStart.current === null || calSwipeWheelLock.current) return;
+                        const dx = e.changedTouches[0].clientX - calSwipeTouchStart.current;
+                        calSwipeTouchStart.current = null;
+                        const w = calendarGridRef.current?.offsetWidth || window.innerWidth;
+                        if (Math.abs(dx) < w * 0.2) { setCalSlide({ dragX: 0, animDir: null }); return; }
+                        const dir = dx < 0 ? 'left' : 'right';
+                        calSwipeWheelLock.current = true;
+                        setCalSlide({ dragX: 0, animDir: dir });
+                        setTimeout(() => {
+                          if (dir === 'left') { setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1)); setSelectedDay(null); }
+                          else { setCalendarDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1)); setSelectedDay(null); }
+                          setCalSlide({ dragX: 0, animDir: null });
+                          setTimeout(() => { calSwipeWheelLock.current = false; }, 600);
+                        }, 330);
+                      }}
+                    >
+                      {/* 이전달 — 현재달 왼쪽에 붙어서 같이 이동 */}
+                      <div className="absolute inset-0 bg-white" style={{ ...transStyle, transform: `translateX(calc(-100% + ${calSlide.animDir === 'left' ? '-100%' : calSlide.animDir === 'right' ? '100%' : `${calSlide.dragX}px`}))`, pointerEvents: 'none' }}>
+                        {renderSimpleGrid(prevYr, prevMo)}
+                      </div>
+                      {/* 현재달 */}
+                      <div style={transStyle} className="bg-white">
+                          <div className="p-2 md:p-3">
+                            <div className="grid grid-cols-7 gap-1 text-center text-[9px] md:text-[10px] font-black text-slate-400 mb-1" onClick={() => setSelectedDay(null)}>
+                              <div className="text-rose-400">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div className="text-blue-400">토</div>
                             </div>
-                          )}
-
-                          <div className="flex flex-col items-end gap-0 mt-auto relative z-10 w-full overflow-visible">
-                            {/* 텍스트 배지 추가 (선택되지 않았을 때만 노출) */}
-                            {isZeroExpense && !isSelected && <span className="text-[6.5px] font-black text-emerald-500 bg-emerald-50 rounded text-center whitespace-nowrap shadow-sm mb-[1px] w-full px-0.5 leading-tight">🌿무지출</span>}
-                            {data.salary > 0 && <span className="text-[6.5px] font-black text-emerald-400 text-right whitespace-nowrap leading-tight">+{formatNum(data.salary)}</span>}
-                            {data.income > 0 && <span className="text-[6.5px] font-black text-blue-400 text-right whitespace-nowrap leading-tight">+{formatNum(data.income)}</span>}
-                            {data.invest > 0 && <span className="text-[6.5px] font-black text-purple-400 text-right whitespace-nowrap leading-tight">-{formatNum(data.invest)}</span>}
-                            {data.expense > 0 && <span className="text-[6.5px] font-black text-rose-400 text-right whitespace-nowrap leading-tight">-{formatNum(data.expense)}</span>}
+                            <div className="grid grid-cols-7 gap-1 md:gap-1.5">
+                              {blanks.map(b => <div key={`blank-${b}`} onClick={() => setSelectedDay(null)} className="h-12 md:h-14 rounded-lg bg-slate-50/50"></div>)}
+                              {daysArray.map(day => {
+                                const data = stats.daily[day] || { income: 0, expense: 0, invest: 0, salary: 0 };
+                                const isSelected = selectedDay === day;
+                                const isToday = new Date().getDate() === day && new Date().getMonth() === calMonth && new Date().getFullYear() === calYear;
+                                const isPastOrToday = new Date(calYear, calMonth, day) <= new Date();
+                                const isZeroExpense = isPastOrToday && data.expense === 0;
+                                return (
+                                  <div key={day} onClick={(e) => { e.stopPropagation(); setSelectedDay(day); setTimeout(() => { calDaySummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 50); }} className={`h-12 md:h-14 border rounded-lg p-1 flex flex-col cursor-pointer transition-colors overflow-hidden relative ${isSelected ? 'border-slate-800 bg-slate-800 text-white shadow-md' : 'border-slate-100 bg-white hover:bg-slate-50'} ${isToday && !isSelected ? 'ring-1 ring-blue-300' : ''}`}>
+                                    <span className={`text-[9px] font-black leading-none mb-0.5 relative z-10 ${isSelected ? 'text-white' : (firstDay + day - 1) % 7 === 0 ? 'text-rose-500' : (firstDay + day - 1) % 7 === 6 ? 'text-blue-500' : 'text-slate-600'}`}>{day}</span>
+                                    {isZeroExpense && (
+                                      <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none animate-in zoom-in duration-500">
+                                        <span className="text-2xl drop-shadow-sm">🌿</span>
+                                      </div>
+                                    )}
+                                    <div className="flex flex-col items-end gap-0 mt-auto relative z-10 w-full overflow-visible">
+                                      {isZeroExpense && !isSelected && <span className="text-[6.5px] font-black text-emerald-500 bg-emerald-50 rounded text-center whitespace-nowrap shadow-sm mb-[1px] w-full px-0.5 leading-tight">🌿무지출</span>}
+                                      {data.salary > 0 && <span className="text-[6.5px] font-black text-emerald-400 text-right whitespace-nowrap leading-tight">+{formatNum(data.salary)}</span>}
+                                      {data.income > 0 && <span className="text-[6.5px] font-black text-blue-400 text-right whitespace-nowrap leading-tight">+{formatNum(data.income)}</span>}
+                                      {data.invest > 0 && <span className="text-[6.5px] font-black text-purple-400 text-right whitespace-nowrap leading-tight">-{formatNum(data.invest)}</span>}
+                                      {data.expense > 0 && <span className="text-[6.5px] font-black text-rose-400 text-right whitespace-nowrap leading-tight">-{formatNum(data.expense)}</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {selectedDay && stats.daily[selectedDay]?.records?.length > 0 && (
-                  <div className="bg-slate-800 text-white rounded-2xl p-3 animate-in slide-in-from-bottom-2 duration-200 shadow-lg flex flex-col gap-3">
-                    {/* 상단 3분할 요약 (수익 / 순수 소비 / 투자·저축) */}
-                    <div className="flex gap-1.5 md:gap-2">
-                      <div className="flex-1 bg-blue-500/10 border border-blue-500/20 rounded-xl p-2 text-center">
-                        <div className="text-[9px] font-black text-blue-400 mb-0.5">수익 합계</div>
-                        <div className="text-[10px] md:text-xs font-black text-blue-300">+₩{formatNum((stats.daily[selectedDay]?.salary || 0) + (stats.daily[selectedDay]?.income || 0))}</div>
-                      </div>
-                      <div className="flex-1 bg-rose-500/10 border border-rose-500/20 rounded-xl p-2 text-center">
-                        <div className="text-[9px] font-black text-rose-400 mb-0.5">순수 소비</div>
-                        <div className="text-[10px] md:text-xs font-black text-rose-300">-₩{formatNum(stats.daily[selectedDay]?.expense || 0)}</div>
-                      </div>
-                      <div className="flex-1 bg-purple-500/10 border border-purple-500/20 rounded-xl p-2 text-center">
-                        <div className="text-[9px] font-black text-purple-400 mb-0.5">투자/저축</div>
-                        <div className="text-[10px] md:text-xs font-black text-purple-300">-₩{formatNum(stats.daily[selectedDay]?.invest || 0)}</div>
+                      {/* 다음달 — 현재달 오른쪽에 붙어서 같이 이동 */}
+                      <div className="absolute inset-0 bg-white" style={{ ...transStyle, transform: `translateX(calc(100% + ${calSlide.animDir === 'left' ? '-100%' : calSlide.animDir === 'right' ? '100%' : `${calSlide.dragX}px`}))`, pointerEvents: 'none' }}>
+                        {renderSimpleGrid(nextYr, nextMo)}
                       </div>
                     </div>
+                  );
+                })()}
 
-                    {/* 하단 2열 내역 리스트 */}
-                    <div className="grid grid-cols-2 gap-3 max-h-[280px] overflow-y-auto custom-scrollbar pr-1" style={{WebkitOverflowScrolling:'touch'}}>
-                      {/* 좌측: 수익 리스트 */}
-                      <div className="space-y-2 border-r border-slate-700/50 pr-2">
-                        {stats.daily[selectedDay].records.filter(r => r?.viewCategory === 'salary' || r?.viewCategory === 'income').map((r, idx) => {
-                          let badgeColor = r?.viewCategory === 'salary' ? "bg-emerald-500/20 text-emerald-300" : "bg-blue-500/20 text-blue-300";
-                          let badgeText = r?.viewCategory === 'salary' ? "급여" : "수익";
-                          let amtColor = r?.viewCategory === 'salary' ? "text-emerald-400" : "text-blue-400";
+                {selectedDay && stats.daily[selectedDay]?.records?.length > 0 && (() => {
+                  const dayData = stats.daily[selectedDay];
+                  const visibleRecords = (dayData.records || []).filter(r =>
+                    r?.category !== '카드대금' && !r?.isNbbang
+                  );
+                  const incRecords = visibleRecords.filter(r => r?.viewCategory === 'salary' || r?.viewCategory === 'income');
+                  const expRecords = visibleRecords.filter(r => r?.viewCategory === 'expense');
+                  const invRecords = visibleRecords.filter(r => r?.viewCategory === 'invest');
+                  const groups = [
+                    incRecords.length > 0 && { key: 'inc', label: '월급/수익', color: 'emerald', records: incRecords, sign: '+' },
+                    expRecords.length > 0 && { key: 'exp', label: '소비', color: 'rose', records: expRecords, sign: '-' },
+                    invRecords.length > 0 && { key: 'inv', label: '투자/저축', color: 'purple', records: invRecords, sign: '-' },
+                  ].filter(Boolean);
+                  if (groups.length === 0) return null;
+                  const colorMap = {
+                    emerald: { bg: 'bg-emerald-50', border: 'border-emerald-100', header: 'bg-emerald-100/70', title: 'text-emerald-700', amt: 'text-emerald-600' },
+                    rose:    { bg: 'bg-rose-50',    border: 'border-rose-100',    header: 'bg-rose-100/70',    title: 'text-rose-700',    amt: 'text-rose-600' },
+                    purple:  { bg: 'bg-purple-50',  border: 'border-purple-100',  header: 'bg-purple-100/70',  title: 'text-purple-700',  amt: 'text-purple-600' },
+                  };
+                  const widthClass = groups.length === 1 ? 'w-full' : groups.length === 2 ? 'w-[calc(50%-3px)]' : 'w-[calc(33.33%-4px)]';
+                  return (
+                    <div ref={calDaySummaryRef} className="rounded-2xl border border-slate-100 bg-white shadow-sm animate-in slide-in-from-bottom-2 duration-200 overflow-hidden mt-2">
+                      <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-100">
+                        <span className="text-[10px] font-black text-slate-600">{calMonth + 1}월 {selectedDay}일</span>
+                        <div className="flex items-center gap-2">
+                          {incRecords.length > 0 && <span className="text-[9px] font-black text-emerald-600">+₩{formatNum(incRecords.reduce((s, r) => s + Number(r?.amount || 0), 0))}</span>}
+                          {expRecords.length > 0 && <span className="text-[9px] font-black text-rose-500">-₩{formatNum(expRecords.reduce((s, r) => s + Number(r?.amount || 0), 0))}</span>}
+                          {invRecords.length > 0 && <span className="text-[9px] font-black text-purple-500">-₩{formatNum(invRecords.reduce((s, r) => s + Number(r?.amount || 0), 0))}</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 p-2">
+                        {groups.map(g => {
+                          const c = colorMap[g.color];
+                          const total = g.records.reduce((s, r) => s + Number(r?.amount || 0), 0);
                           return (
-                            <div key={`inc-${idx}`} className="flex flex-col gap-1 border-b border-slate-700/50 pb-1.5 last:border-0 last:pb-0">
-                              <div className="flex items-center justify-between">
-                                 <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${badgeColor}`}>{badgeText}</span>
-                                 <span className={`text-[9px] md:text-[10px] font-black ${amtColor}`}>+₩{formatNum(Number(r?.amount || r?.total || 0))}</span>
+                            <div key={g.key} className={`${widthClass} ${c.bg} border ${c.border} rounded-xl overflow-hidden`}>
+                              <div className={`flex items-center justify-between px-2.5 py-1.5 ${c.header} border-b ${c.border}`}>
+                                <span className={`text-[9px] font-black ${c.title}`}>{g.label}</span>
+                                <span className={`text-[9px] font-black ${c.amt}`}>{g.sign}₩{formatNum(total)}</span>
                               </div>
-                              <span className="text-[9px] font-bold text-slate-300 truncate">{r?.name || '내역'}</span>
+                              <div className="flex flex-col divide-y divide-white/80">
+                                {g.records.map((r, idx) => (
+                                  <div key={idx} className="flex items-center justify-between px-2.5 py-1.5">
+                                    <span className="text-[9px] font-bold text-slate-600 truncate flex-1 mr-2">{r?.name || '내역'}</span>
+                                    <span className={`text-[9px] font-black shrink-0 ${c.amt}`}>{g.sign}₩{formatNum(Number(r?.amount || 0))}</span>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
-                      {/* 우측: 지출/투자 리스트 */}
-                      <div className="space-y-2 pl-1">
-                        {stats.daily[selectedDay].records.filter(r => r?.viewCategory === 'invest' || r?.viewCategory === 'expense').map((r, idx) => {
-                          let badgeColor = r?.viewCategory === 'invest' ? "bg-purple-500/20 text-purple-300" : "bg-rose-500/20 text-rose-300";
-                          let badgeText = r?.viewCategory === 'invest' ? "투자" : "소비";
-                          let amtColor = r?.viewCategory === 'invest' ? "text-purple-400" : "text-rose-400";
-                          return (
-                            <div key={`exp-${idx}`} className="flex flex-col gap-1 border-b border-slate-700/50 pb-1.5 last:border-0 last:pb-0">
-                              <div className="flex items-center justify-between">
-                                 <span className={`text-[8px] px-1.5 py-0.5 rounded font-black ${badgeColor}`}>{badgeText}</span>
-                                 <span className={`text-[9px] md:text-[10px] font-black ${amtColor}`}>-₩{formatNum(Number(r?.amount || r?.total || 0))}</span>
-                              </div>
-                             <span className="text-[9px] font-bold text-slate-300 truncate">{r?.name || '내역'}</span>                            </div>
-                          );
-                        })}
-                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </>
             )}
           </div>
@@ -3687,10 +4113,30 @@ const AppContent = () => {
                 </div>
               </div>
 
-              {/* 차트(좌) + 자산 목록(우) 2열 레이아웃 */}
-              <div className="bg-slate-50 rounded-2xl p-3 md:p-4 border border-slate-100 mb-5 shadow-inner flex items-center gap-3 md:gap-4">
-                {/* 좌: 파이차트 — 전체 너비의 65% */}
-                <div className="shrink-0 relative" style={{width: '65%', aspectRatio: '1/1'}}>
+              {/* 차트(좌) + 자산 목록(우) 2열 레이아웃 — 드래그 divider */}
+              <div className="bg-slate-50 rounded-2xl p-3 md:p-4 border border-slate-100 mb-5 shadow-inner flex items-stretch gap-0 select-none"
+                onMouseMove={e => {
+                  if (!chartDragState.current) return;
+                  const container = e.currentTarget;
+                  const rect = container.getBoundingClientRect();
+                  const dx = e.clientX - chartDragState.current.startX;
+                  const pct = chartDragState.current.startSplit + (dx / rect.width) * 100;
+                  setChartSplit(Math.min(80, Math.max(30, pct)));
+                }}
+                onMouseUp={() => { chartDragState.current = null; }}
+                onMouseLeave={() => { chartDragState.current = null; }}
+                onTouchMove={e => {
+                  if (!chartDragState.current) return;
+                  const container = e.currentTarget;
+                  const rect = container.getBoundingClientRect();
+                  const dx = e.touches[0].clientX - chartDragState.current.startX;
+                  const pct = chartDragState.current.startSplit + (dx / rect.width) * 100;
+                  setChartSplit(Math.min(80, Math.max(30, pct)));
+                }}
+                onTouchEnd={() => { chartDragState.current = null; }}
+              >
+                {/* 좌: 파이차트 */}
+                <div className="shrink-0 relative" style={{width: `${chartSplit}%`, aspectRatio: '1/1'}}>
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none z-0">
                     <span className="text-[9px] font-bold text-slate-400 mb-0.5">총 자산</span>
                     <span className="text-[13px] md:text-[16px] font-black text-slate-700">₩{formatNum(globalStats.totalAssets)}</span>
@@ -3706,8 +4152,18 @@ const AppContent = () => {
                     </RePieChart>
                   </ResponsiveContainer>
                 </div>
-                {/* 우: 자산 목록 (크기 순) */}
-                <div className="flex-1 flex flex-col gap-1.5 justify-center overflow-hidden">
+                {/* 드래그 divider */}
+                <div
+                  ref={chartDividerRef}
+                  className="flex items-center justify-center shrink-0 cursor-col-resize z-10 px-1"
+                  style={{width: '14px'}}
+                  onMouseDown={e => { chartDragState.current = { startX: e.clientX, startSplit: chartSplit }; e.preventDefault(); }}
+                  onTouchStart={e => { chartDragState.current = { startX: e.touches[0].clientX, startSplit: chartSplit }; }}
+                >
+                  <div className="w-[3px] rounded-full bg-slate-200 hover:bg-slate-300 transition-colors" style={{height: '40%', minHeight: '32px'}}></div>
+                </div>
+                {/* 우: 자산 목록 */}
+                <div className="flex-1 flex flex-col gap-1.5 justify-center overflow-hidden min-w-0">
                   {pieData.map(item => (
                     <div key={item.name} className="flex items-center gap-2">
                       <span className="shrink-0 w-2 h-2 rounded-full" style={{backgroundColor: item.color}}></span>
@@ -3767,7 +4223,7 @@ const AppContent = () => {
             r.type === 'income' && r.category !== '급여' && r.category !== '충전' && r.name !== '지갑 충전'
           );
           const expenseLogs = (tradeLogs || []).filter(r =>
-            r.type === 'expense' && !r.isNbbang && r.category !== '카드대금' && r.category !== '투자/저축'
+            r.type === 'expense' && !r.isNbbang && r.category !== '카드대금' && r.category !== '투자/저축' && r.category !== '고정비'
           );
           const fixedLogs = (tradeLogs || []).filter(r =>
             r.type === 'expense' && r.category === '고정비'
@@ -3816,7 +4272,7 @@ const AppContent = () => {
                       const allDest = [
                         { key: 'wallet', label: '💵 지갑', sub: `₩${formatNum(globalCash)}`, isSalary: false },
                         ...savingsAccs.map(a => ({ key: `acc:${a.id}`, label: `🏦 ${a.name}`, sub: `₩${formatNum(a.cash)}`, isSalary: a.name.includes('월급') })),
-                        ...savingsStocks.map(s => ({ key: `stock:${s.id}`, label: `💳 ${s.name}`, sub: `₩${formatNum(toPureNumber(s.quantity))}`, isSalary: s.name.includes('월급') })),
+                        ...savingsStocks.map(s => ({ key: `stock:${s.id}`, label: `🏦 ${s.name}`, sub: `₩${formatNum(toPureNumber(s.quantity))}`, isSalary: s.name.includes('월급') })),
                       ].sort((a, b) => (b.isSalary ? 1 : 0) - (a.isSalary ? 1 : 0));
                       return (
                         <div className="flex flex-wrap gap-1.5">
@@ -3969,7 +4425,7 @@ const AppContent = () => {
                                 <button key={`stk-${s.id}`} type="button"
                                   onClick={() => setTransferAccId(transferAccId === `stock:${s.id}` ? '' : `stock:${s.id}`)}
                                   className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${transferAccId === `stock:${s.id}` ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'}`}>
-                                  💳 {s.name} <span className="opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
+                                  🏦 {s.name} <span className="opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
                                 </button>
                               ))}
                               {savingsAccounts.length === 0 && savingsStocks.length === 0 && (
@@ -4030,8 +4486,8 @@ const AppContent = () => {
                             const amt = Number(newFixedAmount);
                             const day = Number(newFixedDay);
                             if (!cat || !amt || !day || day < 1 || day > 31) { showToast('대분류, 금액, 날짜(일)를 모두 입력하세요'); return; }
-                            setFixedExpenses([...fixedExpenses, { id: Date.now().toString(), name, amount: amt, day, paymentMethod: newFixedPayment.method, cardName: newFixedPayment.cardName, transferAccId: newFixedPayment.transferAccId }]);
-                            setNewFixedName(''); setNewFixedSub(''); setNewFixedAmount(''); setNewFixedDay(''); setNewFixedPayment({ method: '현금', cardName: '', transferAccId: '' });
+                            setFixedExpenses([...fixedExpenses, { id: Date.now().toString(), name, amount: amt, day, paymentMethod: newFixedPayment.method, cardName: newFixedPayment.cardName, transferAccId: newFixedPayment.transferAccId, isUSD: newFixedIsUSD }]);
+                            setNewFixedName(''); setNewFixedSub(''); setNewFixedAmount(''); setNewFixedDay(''); setNewFixedPayment({ method: '현금', cardName: '', transferAccId: '' }); setNewFixedIsUSD(false);
                             showToast(`📌 ${name} 고정비 등록 완료`);
                           };
                           return (
@@ -4043,8 +4499,9 @@ const AppContent = () => {
                                 </select>
                                 <input type="text" className="flex-1 min-w-0 text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white" placeholder="세부내역 (선택)" value={newFixedSub} onChange={e => setNewFixedSub(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') document.getElementById('fixedAmtInput')?.focus(); }} />
                               </div>
-                              <div className="flex gap-1.5">
-                                <input id="fixedAmtInput" type="text" className="flex-1 min-w-0 text-right text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white" placeholder="금액" value={toCommaString(newFixedAmount)} onChange={e => setNewFixedAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') document.getElementById('fixedDayInput')?.focus(); }} />
+                              <div className="flex gap-1.5 items-center">
+                                <button onClick={() => setNewFixedIsUSD(v => !v)} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 border transition-colors ${newFixedIsUSD ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{newFixedIsUSD ? '$' : '₩'}</button>
+                                <input id="fixedAmtInput" type="text" className="flex-1 min-w-0 text-right text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white" placeholder={newFixedIsUSD ? 'USD 금액' : '금액'} value={toCommaString(newFixedAmount)} onChange={e => setNewFixedAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') document.getElementById('fixedDayInput')?.focus(); }} />
                                 <input id="fixedDayInput" type="text" inputMode="numeric" className="w-[46px] text-center text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white shrink-0" placeholder="일" value={newFixedDay} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); if (Number(v) <= 31) setNewFixedDay(v); }} onKeyDown={e => { if (e.key === 'Enter') doRegister(); }} />
                                 <button onClick={doRegister} className="bg-amber-400 text-white px-3 py-2 rounded-lg text-[10px] font-black shrink-0 shadow-sm hover:bg-amber-500 transition-colors">등록</button>
                                 <button onClick={() => { setShowFixedCatInput(v => !v); setNewFixedCatName(''); }} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 shadow-sm transition-colors border ${showFixedCatInput ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>+분류</button>
@@ -4077,10 +4534,9 @@ const AppContent = () => {
                         {/* 결제수단 선택 */}
                         {(() => {
                           const allPaymentOptions = [
-                            ...myCards.map(c => ({ key: `card-${c.name}`, label: c.name, method: c.type === '신용' ? '신용카드' : '체크카드', cardName: c.name, transferAccId: '' })),
-                            ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'card'; }).map(s => ({ key: `cardacc-${s.id}`, label: s.name, method: s.cardType === '신용' ? '신용카드' : '체크카드', cardName: s.name, transferAccId: '' })),
-                            ...accounts.filter(a => a.type === 'savings').map(a => ({ key: `acc-${a.id}`, label: `🏦 ${a.name}`, method: '현금', cardName: '', transferAccId: `acc:${a.id}` })),
-                            ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings'; }).map(s => ({ key: `savstk-${s.id}`, label: `💳 ${s.name}`, method: '현금', cardName: '', transferAccId: `stock:${s.id}` })),
+                            ...myCards.map(c => ({ key: `card-${c.name}`, label: `💳 ${c.name}`, method: c.type === '신용' ? '신용카드' : '체크카드', cardName: c.name, transferAccId: '' })),
+                            ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'card'; }).map(s => ({ key: `cardacc-${s.id}`, label: `💳 ${s.name}`, method: s.cardType === '신용' ? '신용카드' : '체크카드', cardName: s.name, transferAccId: '' })),
+                            ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings'; }).map(s => ({ key: `savstk-${s.id}`, label: `🏦 ${s.name}`, method: '현금', cardName: '', transferAccId: `stock:${s.id}` })),
                           ];
                           const selectedKey = newFixedPayment.cardName
                             ? (newFixedPayment.transferAccId ? `savstk-${newFixedPayment.transferAccId.replace('stock:','')}` : `card-${newFixedPayment.cardName}`)
@@ -4100,75 +4556,74 @@ const AppContent = () => {
                             </div>
                           );
                         })()}
-                        {/* 고정비 목록 — 대분류별 총합 아코디언 */}
+                        {/* 고정비 목록 — 대분류 카드, 수에 따라 유동 크기 */}
                         {fixedExpenses.length === 0 ? (
                           <div className="text-center text-[9px] text-slate-400 py-4 bg-slate-50/60 rounded-lg border border-dashed border-slate-200 mt-1">
                             📌 등록된 고정비가 없습니다
                           </div>
                         ) : (() => {
-                          const byCat = {};
-                          fixedExpenses.forEach(fe => {
+                          // 대분류명 기반 이모지
+                          const catIconMap = {
+                            '월세/관리비/공과금': '🏠', '관리비': '🏠', '월세': '🏠', '공과금': '🏠',
+                            '구독료/통신비': '📱', '구독료': '📱', '통신비': '📱',
+                            '보험료/교육비/교통비': '🛡️', '보험료': '🛡️', '교육비': '📚', '교통비': '🚌',
+                            '대출상환': '💰', '대출': '💰',
+                          };
+                          const getFeIcon = (fe) => {
                             const dashIdx = fe.name.indexOf('-');
-                            const cat = dashIdx > 0 ? fe.name.slice(0, dashIdx) : fe.name;
-                            if (!byCat[cat]) byCat[cat] = [];
-                            byCat[cat].push(fe);
-                          });
+                            const cat = dashIdx > 0 ? fe.name.slice(0, dashIdx).trim() : fe.name.trim();
+                            return catIconMap[cat] || '📌';
+                          };
+                          const getFeSubLabel = (fe) => {
+                            if (fe.cardName) return fe.cardName;
+                            if (fe.transferAccId) {
+                              if (fe.transferAccId.startsWith('stock:')) {
+                                const stk = stocks.find(s => s.id === fe.transferAccId.replace('stock:', ''));
+                                return stk ? stk.name : '저축';
+                              }
+                              const accId = fe.transferAccId.startsWith('acc:') ? fe.transferAccId.replace('acc:', '') : fe.transferAccId;
+                              const acc = accounts.find(a => a.id === accId);
+                              return acc ? acc.name : '입출금';
+                            }
+                            return '지갑';
+                          };
+                          const totalMonthly = fixedExpenses.reduce((s, fe) => s + (fe.isUSD ? Math.round(Number(fe.amount) * (exchangeRate || 1350)) : Number(fe.amount)), 0);
                           return (
-                            <div className="flex flex-col gap-1.5 mt-1">
-                              {Object.entries(byCat).map(([cat, items]) => {
-                                const catTotal = items.reduce((s, fe) => s + Number(fe.amount), 0);
-                                const catKey = `fixedcat-${cat}`;
-                                const isOpen = !!moneyLogExpanded[catKey];
-                                return (
-                                  <div key={cat} className="rounded-xl border border-amber-100 overflow-hidden">
-                                    <button onClick={() => setMoneyLogExpanded(prev => ({ ...prev, [catKey]: !prev[catKey] }))}
-                                      className="w-full flex items-center justify-between px-3 py-2 bg-amber-50 hover:bg-amber-100 transition-colors">
-                                      <span className="text-[10px] font-black text-amber-700">{cat}</span>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-black text-slate-700">₩{formatNum(catTotal)}</span>
-                                        <span className="text-[9px] text-slate-400">{isOpen ? '▲' : '▼'}</span>
+                            <div className="flex flex-col gap-1.5 mt-2">
+                              <div className="flex items-center justify-between px-0.5 mb-0.5">
+                                <span className="text-[9px] font-bold text-slate-400">총 {fixedExpenses.length}건</span>
+                                <span className="text-[10px] font-black text-slate-700">월 ₩{formatNum(totalMonthly)}</span>
+                              </div>
+                              <div className="bg-white border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                                <div className="flex flex-col divide-y divide-slate-50">
+                                  {fixedExpenses.map(fe => {
+                                    const krwAmt = fe.isUSD ? Math.round(Number(fe.amount) * (exchangeRate || 1350)) : Number(fe.amount);
+                                    const icon = getFeIcon(fe);
+                                    const subLabel = getFeSubLabel(fe);
+                                    return (
+                                      <div key={fe.id}
+                                        onDoubleClick={() => {
+                                          setEditFixedModal({ fe });
+                                          setEditFixedAmount(String(fe.amount));
+                                          setEditFixedDay(String(fe.day));
+                                          setEditFixedPayment({ method: fe.paymentMethod || '현금', cardName: fe.cardName || '', transferAccId: fe.transferAccId || '' });
+                                          setEditFixedIsUSD(!!fe.isUSD);
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-2 hover:bg-slate-50 active:bg-amber-50 cursor-pointer select-none transition-colors">
+                                        <span className="text-[13px] shrink-0">{icon}</span>
+                                        <div className="flex flex-col min-w-0 flex-1">
+                                          <span className="text-[9px] font-bold text-slate-700 truncate">{fe.name}</span>
+                                          <span className="text-[7.5px] text-slate-400">{subLabel} · {fe.day}일</span>
+                                        </div>
+                                        <div className="flex flex-col items-end shrink-0">
+                                          <span className="text-[9px] font-black text-slate-800">{fe.isUSD ? `$${formatNum(fe.amount)}` : `₩${formatNum(krwAmt)}`}</span>
+                                          {fe.isUSD && <span className="text-[7px] text-slate-400">≈₩{formatNum(krwAmt)}</span>}
+                                        </div>
                                       </div>
-                                    </button>
-                                    {isOpen && (
-                                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-1.5 p-2 bg-white">
-                                        {items.map(fe => {
-                                          const feCardId = `fe-${fe.id}`;
-                                          const isFeOpen = moneyLogCardOpen === feCardId;
-                                          const dashIdx = fe.name.indexOf('-');
-                                          const sub = dashIdx > 0 ? fe.name.slice(dashIdx + 1) : null;
-                                          const payLabel = fe.cardName || (fe.transferAccId ? fe.transferAccId.replace('acc:','').replace('stock:','') : '현금');
-                                          return (
-                                            <div key={fe.id} onClick={() => setMoneyLogCardOpen(isFeOpen ? null : feCardId)}
-                                              className={`relative bg-amber-50 border ${isFeOpen ? 'border-amber-300' : 'border-amber-100'} rounded-xl p-2.5 flex flex-col gap-0.5 cursor-pointer select-none`}>
-                                              {sub && <span className="text-[9px] font-black text-slate-500 truncate">{sub}</span>}
-                                              <span className="text-[12px] font-black text-slate-800">₩{formatNum(fe.amount)}</span>
-                                              <span className="text-[8px] text-slate-400 font-bold">매월 {fe.day}일</span>
-                                              <span className="text-[8px] text-slate-400 truncate">{payLabel}</span>
-                                              {isFeOpen && (
-                                                <div className="absolute top-1 right-1 flex gap-0.5" onClick={e => e.stopPropagation()}>
-                                                  <button
-                                                    onClick={() => {
-                                                      const newAmt = prompt('금액을 수정하세요 (숫자만):', String(fe.amount));
-                                                      if (newAmt === null) return;
-                                                      const parsed = Number(newAmt.replace(/[^0-9]/g, ''));
-                                                      if (!parsed) return;
-                                                      setFixedExpenses(fixedExpenses.map(f => f.id === fe.id ? { ...f, amount: parsed } : f));
-                                                      setMoneyLogCardOpen(null);
-                                                    }}
-                                                    className="w-5 h-5 flex items-center justify-center bg-white border border-slate-200 text-slate-500 rounded text-[9px] font-black shadow hover:bg-slate-100 transition-colors">✎</button>
-                                                  <button
-                                                    onClick={() => showConfirm(`"${fe.name}" 고정비를 삭제할까요?`, () => { setFixedExpenses(fixedExpenses.filter(f => f.id !== fe.id)); setMoneyLogCardOpen(null); })}
-                                                    className="w-5 h-5 flex items-center justify-center bg-white border border-red-200 text-red-400 rounded text-[9px] font-black shadow hover:bg-red-50 transition-colors">✕</button>
-                                                </div>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                                    );
+                                  })}
+                                </div>
+                              </div>
                             </div>
                           );
                         })()}
@@ -4213,15 +4668,15 @@ const AppContent = () => {
                       {isCardOpen && (
                         <div className="absolute top-1 right-1 flex gap-0.5" onClick={e => e.stopPropagation()}>
                           <button onClick={() => {
-                            const newAmt = prompt('금액을 수정하세요 (숫자만):', String(r.amount));
-                            if (newAmt === null) return;
-                            const parsed = Number(newAmt.replace(/[^0-9]/g, ''));
-                            if (!parsed) return;
-                            const diff = parsed - r.amount;
-                            setTradeLogs(prev => prev.map(l => l.id === r.id ? { ...l, amount: parsed } : l));
-                            if (r.type === 'income') setGlobalCash(prev => prev + diff); else setGlobalCash(prev => prev - diff);
-                            setMoneyLogCardOpen(null);
-                            showToast('✅ 수정되었습니다.');
+                            showInputModal('금액 수정', '숫자만 입력하세요', String(r.amount), (val) => {
+                              const parsed = Number(val.replace(/[^0-9]/g, ''));
+                              if (!parsed) return;
+                              const diff = parsed - r.amount;
+                              setTradeLogs(prev => prev.map(l => l.id === r.id ? { ...l, amount: parsed } : l));
+                              if (r.type === 'income') setGlobalCash(prev => prev + diff); else setGlobalCash(prev => prev - diff);
+                              setMoneyLogCardOpen(null);
+                              showToast('✅ 수정되었습니다.');
+                            });
                           }} className="w-4 h-4 bg-white border border-slate-200 rounded text-[8px] font-black text-slate-500 hover:text-blue-500 hover:border-blue-300 flex items-center justify-center shadow-sm transition-colors">✎</button>
                           <button onClick={() => showConfirm('이 기록을 삭제하시겠습니까?', () => {
                             setTradeLogs(prev => prev.filter(l => l.id !== r.id));
@@ -4326,15 +4781,15 @@ const AppContent = () => {
                                             {isCardOpen && (
                                               <div className="absolute top-1 right-1 flex gap-0.5" onClick={e => e.stopPropagation()}>
                                                 <button onClick={() => {
-                                                  const newAmt = prompt('금액을 수정하세요 (숫자만):', String(r.amount));
-                                                  if (newAmt === null) return;
-                                                  const parsed = Number(newAmt.replace(/[^0-9]/g, ''));
-                                                  if (!parsed) return;
-                                                  const diff = parsed - r.amount;
-                                                  setTradeLogs(prev => prev.map(l => l.id === r.id ? { ...l, amount: parsed } : l));
-                                                  setGlobalCash(prev => prev - diff);
-                                                  setMoneyLogCardOpen(null);
-                                                  showToast('✅ 수정되었습니다.');
+                                                  showInputModal('금액 수정', '숫자만 입력하세요', String(r.amount), (val) => {
+                                                    const parsed = Number(val.replace(/[^0-9]/g, ''));
+                                                    if (!parsed) return;
+                                                    const diff = parsed - r.amount;
+                                                    setTradeLogs(prev => prev.map(l => l.id === r.id ? { ...l, amount: parsed } : l));
+                                                    setGlobalCash(prev => prev - diff);
+                                                    setMoneyLogCardOpen(null);
+                                                    showToast('✅ 수정되었습니다.');
+                                                  });
                                                 }} className="w-4 h-4 bg-white border border-slate-200 rounded text-[8px] font-black text-slate-500 hover:text-blue-500 hover:border-blue-300 flex items-center justify-center shadow-sm transition-colors">✎</button>
                                                 <button onClick={() => showConfirm('이 기록을 삭제하시겠습니까?', () => {
                                                   setTradeLogs(prev => prev.filter(l => l.id !== r.id));
@@ -4410,15 +4865,38 @@ const AppContent = () => {
                   <p className="text-[13px] font-black text-white">₩{formatNum(Math.max(0, (fireTarget || 1000000000) - globalStats.totalAssets))}</p>
                 </div>
                 <div className="bg-white/5 backdrop-blur-md p-3.5 rounded-2xl border border-white/10 flex flex-col justify-center">
-                  <p className="text-[10px] font-bold text-white/50 mb-1 flex items-center gap-1"><Clock size={10}/> 월 <span className="text-white/80">₩{formatNum(annualLimit || 2000000)}</span> 저축 시</p>
+                  <p className="text-[10px] font-bold text-white/50 mb-1 flex items-center gap-1"><Clock size={10}/> 은퇴까지 남은 시간</p>
                   <p className="text-[13px] font-black text-white flex items-baseline gap-1">
-                    <span className="text-lg text-emerald-400">{(Math.max(0, (fireTarget || 1000000000) - globalStats.totalAssets) / (annualLimit || 2000000) / 12).toFixed(1)}</span>년 뒤 은퇴
+                    {fireYearsCalc === Infinity
+                      ? <span className="text-sm text-rose-400">계산 불가</span>
+                      : <><span className="text-lg text-emerald-400">{fireYearsCalc === 0 ? '0' : fireYearsCalc}</span>년 뒤 은퇴</>
+                    }
                   </p>
                 </div>
               </div>
-              
-              {/* 🎯 FIRE 실시간 설정 컨트롤 패널 */}
-              <div className="mt-5 p-3.5 bg-white/5 rounded-2xl border border-white/10 flex flex-col gap-2.5 backdrop-blur-sm">
+
+              {/* 수익률 정보 섹션 */}
+              <div className="mt-3 p-3 bg-white/5 rounded-2xl border border-white/10 flex flex-col gap-1 backdrop-blur-sm">
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="text-[9px] font-bold text-white/40 flex items-center gap-1">
+                    <TrendingUp size={9}/> 현재까지 수익률 반영
+                  </span>
+                  {fireCAGR !== null
+                    ? <span className="text-[10px] font-black text-emerald-400">{fireCAGR > 0 ? '+' : ''}{fireCAGR}% <span className="text-[8px] font-bold text-white/30">({historyRecords.length}개월 기록)</span></span>
+                    : <span className="text-[9px] text-white/30"> </span>
+                  }
+                </div>
+                <div className="flex items-center justify-between">
+                  <label className="text-[10px] font-bold text-white/60 flex items-center gap-1"><Flame size={10}/> 예상 연 수익률</label>
+                  <div className="flex items-center bg-slate-900/50 rounded-lg border border-white/10 px-2 py-1.5 w-28 focus-within:border-emerald-400 transition-colors">
+                    <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={expectedReturn} onChange={e => setExpectedReturn(e.target.value.replace(/[^0-9.]/g, ''))} />
+                    <span className="text-[9px] font-bold text-slate-400 ml-1">%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* FIRE 설정 컨트롤 패널 */}
+              <div className="mt-3 p-3.5 bg-white/5 rounded-2xl border border-white/10 flex flex-col gap-2.5 backdrop-blur-sm">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-bold text-white/60 flex items-center gap-1"><Target size={10}/> 목표 금액</label>
                   <div className="flex items-center bg-slate-900/50 rounded-lg border border-white/10 px-2 py-1.5 w-36 focus-within:border-rose-400 transition-colors">
@@ -4433,6 +4911,18 @@ const AppContent = () => {
                     <input type="text" className="w-full bg-transparent text-white text-right text-[11px] font-black outline-none" value={toCommaString(annualLimit)} onChange={e => { const val = toPureNumber(e.target.value.replace(/[^0-9]/g, '')); setAnnualLimit(val); }} />
                   </div>
                 </div>
+                {fireAnnualDiv > 0 && (
+                  <div className="flex items-center justify-between pt-1 border-t border-white/5">
+                    <span className="text-[9px] font-bold text-orange-300/70">💰 월 예상 배당</span>
+                    <span className="text-[10px] font-black text-orange-300">+₩{formatNum(Math.round(fireAnnualDiv / 12))}</span>
+                  </div>
+                )}
+                {fireAnnualDiv > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-white/50">= 월 총 현금흐름</span>
+                    <span className="text-[10px] font-black text-white">₩{formatNum((annualLimit || 0) + Math.round(fireAnnualDiv / 12))}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -4531,9 +5021,9 @@ const AppContent = () => {
                 <input type="file" accept="image/*" className="hidden" ref={ocrFileInputRef} onChange={handleScreenshotOcr} />
               </div>
             </div>
-            <form onSubmit={handleEditStockSubmit} className="flex flex-col flex-1 overflow-hidden relative">
-              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5 pb-2">          
-                
+            <form onSubmit={handleEditStockSubmit} className="flex flex-col flex-1 overflow-hidden relative" onClick={e => { if ((showDivMonthPicker || showDivExPicker) && !e.target.closest('[data-picker]')) { setShowDivMonthPicker(false); setShowDivExPicker(false); setTimeout(() => { stockFormScrollRef.current?.scrollTo({ top: stockFormScrollRef.current.scrollHeight, behavior: 'smooth' }); }, 50); } }}>
+              <div ref={stockFormScrollRef} className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5 pb-2">
+
                 {isDropdownOpen && currentAccountStat?.type === 'stock' && (
                   <div className="fixed inset-0 z-[50]" onClick={() => setIsDropdownOpen(false)}></div>
                 )}
@@ -4617,7 +5107,7 @@ const AppContent = () => {
                 </div>
               {currentAccountStat?.type === 'stock' ? (
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재가</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.currentPrice)} onChange={e => handleFormattedChange('currentPrice', e.target.value)} placeholder="0" required /></div></div>
+                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재가 <span className="text-slate-300 font-normal">(빈칸=자동)</span></label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.currentPrice)} onChange={e => { handleFormattedChange('currentPrice', e.target.value); setNewStock(prev => ({...prev, manualPrice: e.target.value.replace(/,/g,'') !== ''})); }} placeholder="빈칸=자동갱신" /></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">평단가</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.buyPrice)} onChange={e => handleFormattedChange('buyPrice', e.target.value)} placeholder="0" required /></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">보유 수량</label><div className="relative flex items-center"><input type="text" className={`w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" required /><span className="absolute right-2.5 text-xs font-bold text-slate-400">주</span></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">목표 비중</label><div className="relative flex items-center"><input type="text" className={`w-full py-2 pl-2.5 pr-6 rounded-xl font-black text-xs outline-none border transition-colors text-right ${isRatioExceededModal ? 'bg-red-50 border-red-500 text-red-500' : `bg-slate-50 focus:${t.border}`}`} value={newStock.targetRatio} onChange={e => handleFormattedChange('targetRatio', e.target.value)} placeholder="자유입력" />{newStock.targetRatio && <span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span>}</div></div>
@@ -4688,18 +5178,128 @@ const AppContent = () => {
                 </div>
                 </>
               )}
-              {currentAccountStat?.type === 'stock' && ( 
-                <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-100">
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl mb-1.5">
-                    <label className="text-[9px] font-black text-slate-500 block mb-1.5 text-center">배당금 / 지급 주기 설정</label>
-                    <div className="flex items-center gap-1.5">
-                      <div className="relative flex items-center w-1/3"><span className="absolute left-2.5 text-[10px] font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-white border rounded-lg py-2 pl-6 pr-2 font-black text-[10px] outline-none focus:${t.border} text-right`} value={toCommaString(newStock.divPerShare)} onChange={e => handleFormattedChange('divPerShare', e.target.value)} placeholder="0"/></div>
-                      <select className="w-1/3 bg-white border rounded-lg p-2 text-[10px] font-black outline-none text-center" value={newStock.divFreq || '월'} onChange={e => setNewStock(p=>({...p, divFreq: e.target.value}))}><option value="월">월</option><option value="분기">분기</option><option value="반기">반기</option><option value="연">연</option></select>
-                      <select className="w-1/3 bg-white border rounded-lg p-2 text-[10px] font-black outline-none text-center" value={newStock.divDay || '15'} onChange={e => setNewStock(p=>({...p, divDay: e.target.value}))}>{Array.from({length: 31}, (_, i) => i + 1).map(d => <option key={d} value={String(d)}>{d}일</option>)}<option value="말">말일</option></select>
+              {currentAccountStat?.type === 'stock' && (() => {
+                const freq = newStock.divFreq || '월';
+                const isMonthly = freq === '월';
+                const maxPay = freq === '분기' ? 4 : freq === '반기' ? 2 : freq === '연' ? 1 : 0;
+                const maxEx  = maxPay;
+                const curPayMonths = newStock.divMonths || [];
+                const curExMonths  = newStock.divExMonths || [];
+                const dayOptions = [...Array.from({length:31},(_,i)=>String(i+1)), '말'];
+
+                const MonthPickerDropdown = ({ label, selected, onToggle, max, isOpen, onOpen, onClose }) => {
+                  const wrapRef = React.useRef(null);
+                  return (
+                  <div ref={wrapRef} className="relative flex-1">
+                    <button type="button" onClick={() => { if (isOpen) { onClose(); } else { onOpen(); setTimeout(() => { wrapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, 50); } }}
+                      className="w-full bg-white border rounded-lg px-2 py-2 text-[10px] font-black outline-none text-center flex items-center justify-between gap-1 min-w-0">
+                      <span className="truncate text-slate-700 flex-1 text-left">
+                        {selected.length === 0 ? <span className="text-slate-400">월 선택</span> : selected.map(m=>`${m}월`).join(', ')}
+                      </span>
+                      <span className="text-slate-400 shrink-0 text-[8px]">▼</span>
+                    </button>
+                    {isOpen && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
+                        <div className="p-1.5 max-h-[160px] overflow-y-auto custom-scrollbar grid grid-cols-3 gap-1">
+                          {Array.from({length:12},(_,i)=>i+1).map(m => {
+                            const sel = selected.includes(m);
+                            const disabled = !sel && selected.length >= max;
+                            return (
+                              <button key={m} type="button" disabled={disabled}
+                                onClick={() => onToggle(m)}
+                                className={`py-1.5 rounded-lg text-[10px] font-black transition-colors ${sel ? `${t.main}` : disabled ? 'bg-slate-50 text-slate-300' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}>
+                                {m}월
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="border-t border-slate-100 px-2 py-1.5 flex justify-between items-center bg-slate-50">
+                          <span className="text-[9px] text-slate-400">{selected.length}/{max}개 선택</span>
+                          <button type="button" onClick={onClose} className="text-[9px] font-black text-slate-600 bg-white border border-slate-200 px-2 py-0.5 rounded-lg">완료</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  );
+                };
+
+                return (
+                  <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-slate-100">
+                    <div ref={divPickerSectionRef} className="bg-slate-50 border border-slate-200 p-3 rounded-xl mb-1.5" onClick={e => { if(!e.target.closest('[data-picker]')) { setShowDivMonthPicker(false); setShowDivExPicker(false); }}} >
+                      <label className="text-[9px] font-black text-slate-500 block mb-2 text-center">배당금 / 지급 주기 설정</label>
+
+                      {/* 1행: 주당 배당금 + 주기 */}
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <div className="relative flex items-center flex-1">
+                          <span className="absolute left-2.5 text-[10px] font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span>
+                          <input type="text" className={`w-full bg-white border rounded-lg py-2 pl-6 pr-2 font-black text-[10px] outline-none focus:${t.border} text-right`} value={toCommaString(newStock.divPerShare)} onChange={e => handleFormattedChange('divPerShare', e.target.value)} placeholder="주당 배당금"/>
+                        </div>
+                        <select className="w-[84px] bg-white border rounded-lg p-2 text-[10px] font-black outline-none text-center shrink-0"
+                          value={freq}
+                          onChange={e => { setNewStock(p => ({ ...p, divFreq: e.target.value, divMonths: [], divExMonths: [] })); setShowDivMonthPicker(false); setShowDivExPicker(false); }}>
+                          <option value="월">월배당</option><option value="분기">분기배당</option><option value="반기">반기배당</option><option value="연">연배당</option>
+                        </select>
+                      </div>
+
+                      {/* 2행: 배당 기준일 + 지급일 한 줄 */}
+                      <div className="grid grid-cols-2 gap-1.5" data-picker>
+                        {/* 기준일 */}
+                        <div>
+                          <p className="text-[8px] font-black text-slate-400 mb-1">📋 기준일 <span className="font-normal text-slate-300">(보유 확인일)</span></p>
+                          <div className="flex items-center gap-1">
+                            {!isMonthly && (
+                              <MonthPickerDropdown
+                                label="기준 월"
+                                selected={curExMonths}
+                                onToggle={m => {
+                                  const s = curExMonths.includes(m) ? curExMonths.filter(x=>x!==m) : [...curExMonths,m].sort((a,b)=>a-b);
+                                  // 지급 월이 비어있으면 동기화
+                                  const paySync = curPayMonths.length === 0 ? s : curPayMonths;
+                                  setNewStock(p=>({...p, divExMonths: s, divMonths: paySync}));
+                                }}
+                                max={maxEx}
+                                isOpen={showDivExPicker}
+                                onOpen={() => { setShowDivExPicker(true); setShowDivMonthPicker(false); }}
+                                onClose={() => { setShowDivExPicker(false); setTimeout(() => { stockFormScrollRef.current?.scrollTo({ top: stockFormScrollRef.current.scrollHeight, behavior: 'smooth' }); }, 50); }}
+                              />
+                            )}
+                            <select className={`bg-white border rounded-lg p-1.5 text-[10px] font-black outline-none text-center ${isMonthly ? 'w-full' : 'w-[60px] shrink-0'}`}
+                              value={newStock.divExDay || '1'} onChange={e => setNewStock(p=>({...p, divExDay: e.target.value}))}>
+                              {dayOptions.map(d => <option key={d} value={d}>{d === '말' ? '말일' : `${d}일`}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        {/* 지급일 */}
+                        <div>
+                          <p className="text-[8px] font-black text-slate-400 mb-1">📅 지급일</p>
+                          <div className="flex items-center gap-1">
+                            {!isMonthly && (
+                              <MonthPickerDropdown
+                                label="지급 월"
+                                selected={curPayMonths}
+                                onToggle={m => {
+                                  const s = curPayMonths.includes(m) ? curPayMonths.filter(x=>x!==m) : [...curPayMonths,m].sort((a,b)=>a-b);
+                                  // 기준 월이 비어있으면 동기화
+                                  const exSync = curExMonths.length === 0 ? s : curExMonths;
+                                  setNewStock(p=>({...p, divMonths: s, divExMonths: exSync}));
+                                }}
+                                max={maxPay}
+                                isOpen={showDivMonthPicker}
+                                onOpen={() => { setShowDivMonthPicker(true); setShowDivExPicker(false); }}
+                                onClose={() => { setShowDivMonthPicker(false); setTimeout(() => { stockFormScrollRef.current?.scrollTo({ top: stockFormScrollRef.current.scrollHeight, behavior: 'smooth' }); }, 50); }}
+                              />
+                            )}
+                            <select className={`bg-white border rounded-lg p-1.5 text-[10px] font-black outline-none text-center ${isMonthly ? 'w-full' : 'w-[60px] shrink-0'}`}
+                              value={newStock.divDay || '15'} onChange={e => setNewStock(p=>({...p, divDay: e.target.value}))}>
+                              {dayOptions.map(d => <option key={d} value={d}>{d === '말' ? '말일' : `${d}일`}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div> 
-              )}
+                );
+              })()}
               </div>
               <div className="pt-3 shrink-0 flex flex-col gap-1.5">
                 {isRatioExceededModal && <div className="text-[9px] text-red-500 font-bold bg-red-50 border border-red-100 p-2 rounded-lg text-center">⚠️ 목표 비중 총합이 100%를 초과할 수 없습니다. ({currentModalTotalRatio}%)</div>}
@@ -5275,93 +5875,426 @@ const AppContent = () => {
           <div className="bg-white w-full max-w-sm md:max-w-md rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl relative flex flex-col min-h-[480px] md:min-h-[500px]">
             <button onClick={() => setIsRebalanceModalOpen(false)} className="absolute top-4 md:top-5 right-4 md:right-5 p-1 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors"><X size={16}/></button>
             <h3 className={`font-black text-sm md:text-base mb-4 md:mb-5 flex justify-center w-full items-center gap-2 text-slate-800 tracking-tighter`}><Scale size={16} className="md:w-[18px] md:h-[18px]"/> 리밸런싱 가이드</h3>
-            <div className="flex gap-1.5 md:gap-2 mb-4 bg-slate-50 p-1 rounded-xl shrink-0"><button onClick={() => setRebalanceTab('sell')} className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-[10px] md:text-[11px] font-black transition-all ${rebalanceTab === 'sell' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500'}`}>매도 리밸런싱</button><button onClick={() => setRebalanceTab('buy')} className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-[10px] md:text-[11px] font-black transition-all ${rebalanceTab === 'buy' ? t.main : 'text-slate-500'}`}>매수 리밸런싱</button>
-            <div className={`px-2 py-1.5 rounded-lg md:rounded-xl text-[9px] md:text-[10px] font-black flex items-center justify-center border bg-white shadow-sm shrink-0 ${currentAccountStat.totalRatio !== 100 ? 'text-rose-500 border-rose-200' : 'text-slate-600 border-slate-200'}`}>총 비중: {currentAccountStat.totalRatio}%</div></div>
+            <div className="flex gap-1 mb-4 bg-slate-50 p-1 rounded-xl shrink-0">
+              <button onClick={() => setRebalanceTab('overview')} className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-[10px] md:text-[11px] font-black transition-all ${rebalanceTab === 'overview' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500'}`}>전체 현황</button>
+              <button onClick={() => setRebalanceTab('sell')} className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-[10px] md:text-[11px] font-black transition-all ${rebalanceTab === 'sell' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500'}`}>매도</button>
+              <button onClick={() => setRebalanceTab('buy')} className={`flex-1 py-2 md:py-2.5 rounded-lg md:rounded-xl text-[10px] md:text-[11px] font-black transition-all ${rebalanceTab === 'buy' ? t.main : 'text-slate-500'}`}>매수</button>
+              <div className={`px-2 py-1.5 rounded-lg md:rounded-xl text-[9px] md:text-[10px] font-black flex items-center justify-center border bg-white shadow-sm shrink-0 ${currentAccountStat.totalRatio !== 100 ? 'text-rose-500 border-rose-200' : 'text-slate-600 border-slate-200'}`}>총 {currentAccountStat.totalRatio}%</div>
+            </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 mb-4 flex flex-col">
               {rebalanceTab === 'buy' && ( <div className="flex items-center gap-2 mb-4 bg-slate-50 p-3 md:p-4 rounded-xl md:rounded-2xl border border-slate-100 shrink-0"><span className="text-[10px] md:text-[11px] font-bold text-slate-500 whitespace-nowrap">추가 투자 금액</span><div className="flex-1 flex items-center gap-1"><span className="text-sm font-black text-slate-400">₩</span><input type="text" className="w-full text-right text-base md:text-lg font-black text-slate-800 outline-none bg-transparent" value={toCommaString(rebalanceInvestAmount)} onChange={e => setRebalanceInvestAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="0"/></div></div> )}
               {rebalanceTab === 'sell' && ( <div className="flex justify-between items-center mb-4 bg-slate-50 p-3 md:p-4 rounded-xl md:rounded-2xl border border-slate-100 shrink-0"><span className="text-[10px] md:text-[11px] font-bold text-slate-500">현재 주식 평가 금액</span><span className="text-base md:text-lg font-black text-slate-800">₩{formatNum(currentAccountStat.stockOnlyTotalValue)}</span></div> )}
-              <div className="grid grid-cols-2 gap-1.5 md:gap-2">
-                {currentAccountStat.rebalanceData.map(s => {
-                  const targetValue = (rebalanceTab === 'buy' ? currentAccountStat.stockOnlyTotalValue + toPureNumber(rebalanceInvestAmount) : currentAccountStat.stockOnlyTotalValue) * (toPureNumber(s.targetRatio) / 100);
-                  const currentValue = toPureNumber(s.currentPrice) * toPureNumber(s.quantity) * (s.isUSD ? toPureNumber(exchangeRate) : 1);
-                  const diff = targetValue - currentValue;
-                  const sharesDiff = Math.floor(diff / (toPureNumber(s.currentPrice) * (s.isUSD ? toPureNumber(exchangeRate) : 1)));
-                  
-                  if (rebalanceTab === 'sell' && sharesDiff >= 0) return null;
-                  if (rebalanceTab === 'buy' && sharesDiff <= 0) return null;
-                  
-                  return (
-                    <div key={s.id} className="bg-white border border-slate-200 p-2 md:p-3 rounded-xl shadow-sm flex flex-col justify-between">
-                      <div className="flex justify-between items-start mb-1.5"><span className="text-[10px] md:text-[11px] font-bold text-slate-800 truncate pr-1">{s.name}</span><span className="text-[8px] md:text-[9px] text-slate-400 font-bold shrink-0">목표 {s.targetRatio}%</span></div>
-                      <div className={`mt-auto text-center py-1.5 rounded-lg text-[9px] md:text-[10px] font-black ${sharesDiff > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
-                        {sharesDiff > 0 ? `+${formatNum(sharesDiff)}주 매수 필요` : `${formatNum(sharesDiff)}주 매도 필요`}
+
+              {/* 전체 현황 탭 */}
+              {rebalanceTab === 'overview' && (
+                <div className="flex flex-col gap-2">
+                  <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-100 shrink-0">
+                    <span className="text-[10px] font-bold text-slate-500">총 평가금액</span>
+                    <span className="text-sm font-black text-slate-800">₩{formatNum(currentAccountStat.stockOnlyTotalValue)}</span>
+                  </div>
+                  {currentAccountStat.rebalanceData.map(s => {
+                    const currentValue = toPureNumber(s.currentPrice) * toPureNumber(s.quantity) * (s.isUSD ? toPureNumber(exchangeRate) : 1);
+                    const currentRatio = currentAccountStat.stockOnlyTotalValue > 0 ? (currentValue / currentAccountStat.stockOnlyTotalValue) * 100 : 0;
+                    const targetRatio = toPureNumber(s.targetRatio);
+                    const ratioDiff = currentRatio - targetRatio;
+                    const targetValue = currentAccountStat.stockOnlyTotalValue * (targetRatio / 100);
+                    const valueDiff = currentValue - targetValue;
+                    const isOver = ratioDiff > 0.5;
+                    const isUnder = ratioDiff < -0.5;
+                    return (
+                      <div key={s.id} className="bg-white border border-slate-100 rounded-2xl p-3 shadow-sm">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[11px] font-black text-slate-800 truncate pr-2">{s.name}</span>
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full shrink-0 ${isOver ? 'bg-rose-50 text-rose-500' : isUnder ? 'bg-blue-50 text-blue-500' : 'bg-emerald-50 text-emerald-600'}`}>
+                            {isOver ? '▲ 초과' : isUnder ? '▼ 부족' : '✓ 적정'}
+                          </span>
+                        </div>
+                        {/* 비중 바 */}
+                        <div className="relative h-2 bg-slate-100 rounded-full mb-2 overflow-visible">
+                          {/* 목표 비중 마커 */}
+                          {targetRatio > 0 && (
+                            <div className="absolute top-1/2 -translate-y-1/2 w-0.5 h-4 bg-slate-400 rounded-full z-10" style={{ left: `${Math.min(targetRatio, 100)}%` }} />
+                          )}
+                          {/* 현재 비중 바 */}
+                          <div className={`h-full rounded-full transition-all ${isOver ? 'bg-rose-400' : isUnder ? 'bg-blue-400' : 'bg-emerald-400'}`} style={{ width: `${Math.min(currentRatio, 100)}%` }} />
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] text-slate-400">현재 <span className="font-black text-slate-700">{currentRatio.toFixed(1)}%</span></span>
+                            <span className="text-[9px] text-slate-300">|</span>
+                            <span className="text-[9px] text-slate-400">목표 <span className="font-black text-slate-500">{targetRatio}%</span></span>
+                          </div>
+                          <span className={`text-[9px] font-black ${valueDiff > 0 ? 'text-rose-400' : valueDiff < 0 ? 'text-blue-400' : 'text-slate-400'}`}>
+                            {valueDiff > 0 ? '+' : ''}{valueDiff !== 0 ? `₩${formatNum(Math.abs(Math.round(valueDiff)))}` : '균형'}
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-center mt-1 text-[8px] md:text-[9px] font-bold text-slate-400">오차 ₩{formatNum(Math.abs(diff))}</div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 매도/매수 탭 */}
+              {(rebalanceTab === 'sell' || rebalanceTab === 'buy') && (
+                <div className="grid grid-cols-2 gap-1.5 md:gap-2">
+                  {currentAccountStat.rebalanceData.map(s => {
+                    const targetValue = (rebalanceTab === 'buy' ? currentAccountStat.stockOnlyTotalValue + toPureNumber(rebalanceInvestAmount) : currentAccountStat.stockOnlyTotalValue) * (toPureNumber(s.targetRatio) / 100);
+                    const currentValue = toPureNumber(s.currentPrice) * toPureNumber(s.quantity) * (s.isUSD ? toPureNumber(exchangeRate) : 1);
+                    const diff = targetValue - currentValue;
+                    const sharesDiff = Math.floor(diff / (toPureNumber(s.currentPrice) * (s.isUSD ? toPureNumber(exchangeRate) : 1)));
+                    if (rebalanceTab === 'sell' && sharesDiff >= 0) return null;
+                    if (rebalanceTab === 'buy' && sharesDiff <= 0) return null;
+                    return (
+                      <div key={s.id} className="bg-white border border-slate-200 p-2 md:p-3 rounded-xl shadow-sm flex flex-col justify-between">
+                        <div className="flex justify-between items-start mb-1.5"><span className="text-[10px] md:text-[11px] font-bold text-slate-800 truncate pr-1">{s.name}</span><span className="text-[8px] md:text-[9px] text-slate-400 font-bold shrink-0">목표 {s.targetRatio}%</span></div>
+                        <div className={`mt-auto text-center py-1.5 rounded-lg text-[9px] md:text-[10px] font-black ${sharesDiff > 0 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                          {sharesDiff > 0 ? `+${formatNum(sharesDiff)}주 매수 필요` : `${formatNum(sharesDiff)}주 매도 필요`}
+                        </div>
+                        <div className="text-center mt-1 text-[8px] md:text-[9px] font-bold text-slate-400">오차 ₩{formatNum(Math.abs(diff))}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             {rebalanceTab === 'buy' ? ( <button onClick={handleRebalanceBuyBatch} disabled={currentAccountStat.totalRatio !== 100 || toPureNumber(rebalanceInvestAmount) <= 0} className={`w-full text-white py-3 md:py-4 rounded-xl text-xs md:text-sm font-black shadow-lg ${t.main} transition-colors disabled:bg-slate-300 disabled:shadow-none mt-auto shrink-0`}>안내 수량 자동 매수 (주문가능금액 차감)</button> ) : ( <button onClick={() => setIsRebalanceModalOpen(false)} className={`w-full bg-slate-800 text-white py-3 md:py-4 rounded-xl text-xs md:text-sm font-black shadow-lg hover:bg-slate-900 transition-colors mt-auto shrink-0`}>확인 완료</button> )}
           </div>
         </div>
       )}
 
-      {isGlobalDivModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-[1.5rem] md:rounded-[2rem] w-full max-w-sm md:max-w-md p-5 md:p-7 shadow-2xl flex flex-col max-h-[85vh] relative">
-             <button onClick={() => setIsGlobalDivModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={16}/></button>
-             <div className="flex justify-between items-center mb-4"><h3 className="font-black text-sm md:text-base flex justify-center w-full items-center gap-1.5 text-slate-800"><PiggyBank className="text-orange-500" size={16}/> 누적 배당 기록 관리</h3></div>
-             <div className="flex gap-1.5 mb-4 bg-slate-50 p-1 rounded-xl shrink-0"><button onClick={() => setDivInputView('batch')} className={`flex-1 py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${divInputView === 'batch' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>월별 일괄 기록</button><button onClick={() => setDivInputView('byStock')} className={`flex-1 py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${divInputView === 'byStock' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>개별 타임라인</button></div>
-             
-             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
-               {divInputView === 'batch' ? ( 
-                 <div className="flex flex-col h-full">
-                   <div className="flex gap-1.5 md:gap-2 mb-3 shrink-0"><select className="flex-1 p-2 border border-slate-200 rounded-lg text-[10px] md:text-xs font-bold bg-slate-50 outline-none text-center" value={batchYear} onChange={e=>setBatchYear(Number(e.target.value))}>{yearOptions.map(y=><option key={y} value={y}>{y}년</option>)}</select><select className="flex-1 p-2 border border-slate-200 rounded-lg text-[10px] md:text-xs font-bold bg-slate-50 outline-none text-center" value={batchMonth} onChange={e=>setBatchMonth(Number(e.target.value))}>{monthOptions.map(m=><option key={m} value={m}>{m}월</option>)}</select></div>
-                   {/* 🎯 모바일 2열(grid-cols-2) 병렬 배치 적용 */}
-                   <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 md:gap-2 pb-2">
-                     {stocks.filter(s => accounts.find(a=>a.id===(s.accountId||'default'))?.type!=='savings').map(s => {
-                       const mId = `${batchYear}-${String(batchMonth).padStart(2, '0')}`;
-                       return (
-                         <div key={s.id} className="flex flex-col justify-between bg-slate-50 p-2 md:p-3 rounded-xl border border-slate-100 min-h-[70px] shadow-sm">
-                           <span className="text-[10px] md:text-[11px] font-bold truncate text-slate-800 mb-2">{s.name}</span>
-                           <div className="flex items-center gap-1 bg-white border border-slate-200 px-1.5 py-1 rounded-md shadow-sm mt-auto">
-                             <span className="text-[9px] font-bold text-slate-400 shrink-0">₩</span>
-                             <input type="text" className="w-full text-right text-[10px] md:text-[11px] font-black outline-none bg-transparent min-w-0" value={toCommaString(tempTimelines[s.id]?.[mId] || '')} onChange={e => setTempTimelines(prev=>({...prev,[s.id]:{...(prev[s.id]||{}),[mId]:e.target.value.replace(/[^0-9]/g,'')}}))} placeholder="0" />
-                           </div>
-                         </div>
-                       );
-                     })}
-                   </div>
-                 </div> 
-               ) : ( 
-                 /* 🎯 모바일 2열(grid-cols-2) 병렬 배치 적용 */
-                 <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 md:gap-2 pb-2">
-                   {stocks.filter(s => accounts.find(a=>a.id===(s.accountId||'default'))?.type!=='savings').map(s => (
-                     <div key={s.id} className="flex flex-col justify-between bg-slate-50 p-2 md:p-3 rounded-xl border border-slate-100 min-h-[70px] shadow-sm">
-                       <span className="text-[10px] md:text-[11px] font-bold truncate text-slate-800 mb-2">{s.name}</span>
-                       <button onClick={() => { setSelectedDivStock(s.id); setTempTimelines({[s.id]: {...(s.dividendTimeline||{})}}); setIsSubDivModalOpen(true); }} className="w-full text-[9px] md:text-[10px] bg-white border border-slate-200 text-slate-600 py-1.5 rounded-md font-bold shadow-sm hover:bg-slate-100 mt-auto transition-colors">상세 편집</button>
-                     </div>
-                   ))}
-                 </div> 
-               )}
-             </div>
-             {divInputView === 'batch' && ( <button onClick={handleGlobalDivSave} className="w-full bg-slate-800 text-white py-3 md:py-4 mt-4 rounded-xl text-xs md:text-sm font-bold shadow-md shrink-0 transition-colors hover:bg-slate-900">저장 (기록에만 반영됨)</button> )}
+      {isGlobalDivModalOpen && (() => {
+        const today = new Date();
+        const todayYear = today.getFullYear();
+        const todayMonth = today.getMonth() + 1;
+        const viewYear = batchYear || todayYear;
+        const viewMonth = batchMonth || todayMonth;
+        const mId = `${viewYear}-${String(viewMonth).padStart(2, '0')}`;
+        const rate = toPureNumber(exchangeRate) || 1392;
+
+        // 배당일기: 현재 보유 종목 + 과거에 배당 기록이 있는 종목(매도했어도 기록 유지)
+        // 과거 기록이 있는 종목 id 집합 (timeline에 데이터 있는 것)
+        const allStocksWithDiv = stocks.filter(s =>
+          accounts.find(a => a.id === (s.accountId || 'default'))?.type !== 'savings' &&
+          toPureNumber(s.divPerShare) > 0
+        );
+        // 이 달에 표시할 항목: 현재 보유 중이고 이 달 배당 예정인 것 OR 이미 timeline 기록이 있는 것
+        const isPast = viewYear < todayYear || (viewYear === todayYear && viewMonth < todayMonth);
+        const isCurrent = viewYear === todayYear && viewMonth === todayMonth;
+
+        let scheduleItems;
+        if (isPast) {
+          // 과거: timeline에 실제 기록이 있는 종목만 (매도 종목 포함)
+          // tradeLogs에서 해당 월 배당 기록으로 찾기 (timeline이 없어도 로그 있으면 표시)
+          const paidInMonth = tradeLogs.filter(r => r.type === 'dividend' && r.date?.startsWith(mId));
+          const paidNames = [...new Set(paidInMonth.map(r => r.name))];
+          // timeline 기반 항목
+          const timelineItems = allStocksWithDiv.filter(s => s.dividendTimeline?.[mId]);
+          // tradeLogs에만 있는 항목 (이미 매도된 종목)
+          const soldItems = paidNames
+            .filter(name => !timelineItems.find(s => s.name === name))
+            .map(name => {
+              const logs = paidInMonth.filter(r => r.name === name);
+              const total = logs.reduce((s,r) => s + toPureNumber(r.amount), 0);
+              return { id: `sold_${name}`, name, isSold: true, amount: total };
+            });
+          scheduleItems = [
+            ...timelineItems.map(s => ({ ...s, isSold: false })),
+            ...soldItems,
+          ];
+        } else {
+          // 현재/미래: 배당 예정인 종목
+          scheduleItems = allStocksWithDiv.filter(s => isDivMonth(s, viewMonth)).map(s => ({ ...s, isSold: false }));
+        }
+
+        // 이번달 총합
+        const totalExpected = scheduleItems.reduce((sum, s) => {
+          if (s.isSold) return sum + s.amount;
+          const qty = toPureNumber(s.quantity);
+          const divPer = toPureNumber(s.divPerShare);
+          const mult = s.isUSD ? rate : 1;
+          const paid = toPureNumber(s.dividendTimeline?.[mId]);
+          return sum + (paid || Math.round(qty * divPer * mult));
+        }, 0);
+
+        // 기록수정 탭용 종목목록 (현재 보유 divPerShare > 0)
+        const divStocks = allStocksWithDiv;
+
+        // 월 네비게이션 — 이전/다음 월
+        const goPrev = () => { let y=viewYear,m=viewMonth-1; if(m<1){m=12;y--;} setBatchYear(y);setBatchMonth(m); };
+        const goNext = () => { let y=viewYear,m=viewMonth+1; if(m>12){m=1;y++;} setBatchYear(y);setBatchMonth(m); };
+
+        return (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsGlobalDivModalOpen(false)}>
+          <div className="bg-white rounded-[1.5rem] md:rounded-[2rem] w-full max-w-sm md:max-w-md p-5 md:p-6 shadow-2xl flex flex-col max-h-[88vh] relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setIsGlobalDivModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={16}/></button>
+
+            <div className="flex justify-center items-center gap-1.5 mb-3">
+              <PiggyBank className="text-orange-500" size={16}/>
+              <h3 className="font-black text-sm md:text-base text-slate-800">배당 관리</h3>
+            </div>
+
+            {/* 탭 */}
+            <div className="flex gap-1.5 mb-3 bg-slate-50 p-1 rounded-xl shrink-0">
+              <button onClick={() => setDivInputView('schedule')} className={`flex-1 py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${divInputView === 'schedule' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>📔 배당일기</button>
+              <button onClick={() => setDivInputView('byStock')} className={`flex-1 py-2 rounded-lg text-[10px] md:text-xs font-bold transition-all ${divInputView === 'byStock' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-200'}`}>✏️ 기록 수정</button>
+            </div>
+
+            {/* 배당일기 탭 */}
+            {divInputView === 'schedule' && (
+              <>
+                {/* 월 네비게이션 (스와이프 영역) */}
+                <div
+                  ref={divDiarySwipeRef}
+                  className="flex items-center justify-between mb-2 shrink-0 touch-pan-y select-none"
+                  onTouchStart={e => { if (divDiaryWheelLock.current) return; divDiaryTouchStart.current = e.touches[0].clientX; setDivDiarySlide({ dragX: 0, animDir: null }); }}
+                  onTouchMove={e => { if (divDiaryTouchStart.current === null || divDiaryWheelLock.current) return; const dx = e.touches[0].clientX - divDiaryTouchStart.current; if (Math.abs(dx) > 8) setDivDiarySlide({ dragX: dx, animDir: null }); }}
+                  onTouchEnd={e => {
+                    if (divDiaryTouchStart.current === null || divDiaryWheelLock.current) return;
+                    const dx = e.changedTouches[0].clientX - divDiaryTouchStart.current;
+                    divDiaryTouchStart.current = null;
+                    if (Math.abs(dx) < 40) { setDivDiarySlide({ dragX: 0, animDir: null }); return; }
+                    const dir = dx < 0 ? 'left' : 'right';
+                    divDiaryWheelLock.current = true;
+                    setDivDiarySlide({ dragX: 0, animDir: dir });
+                    setTimeout(() => { if (dir === 'left') goNext(); else goPrev(); setDivDiarySlide({ dragX: 0, animDir: null }); setTimeout(() => { divDiaryWheelLock.current = false; }, 400); }, 200);
+                  }}
+                >
+                  <button onClick={goPrev} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 font-black text-lg">‹</button>
+                  <div className="text-center">
+                    <p className="text-[12px] font-black text-slate-800">{viewYear}년 {viewMonth}월</p>
+                    <p className="text-[9px] text-slate-400">{isPast ? '받았던 배당' : isCurrent ? '이번달 예정' : '예정 배당'}</p>
+                  </div>
+                  <button onClick={goNext} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 font-black text-lg">›</button>
+                </div>
+
+                {/* 총합 요약 */}
+                {totalExpected > 0 && (
+                  <div className="bg-orange-50 border border-orange-100 rounded-2xl px-4 py-2.5 mb-3 flex justify-between items-center shrink-0">
+                    <span className="text-[10px] font-bold text-orange-500">{viewMonth}월 {isPast ? '수령 합계' : '예상 합계'}</span>
+                    <span className="text-[14px] font-black text-orange-600">₩{formatNum(totalExpected)}</span>
+                  </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1"
+                  style={{ opacity: divDiarySlide.animDir ? 0 : 1, transition: divDiarySlide.animDir ? 'opacity 0.15s ease-out' : 'opacity 0.2s ease-in' }}>
+                  <div className="flex flex-col gap-2">
+                    {scheduleItems.length === 0 ? (
+                      <div className="text-center py-8 text-slate-400 text-[11px] font-bold">
+                        {isPast ? `${viewMonth}월 배당 기록이 없습니다.` : `${viewMonth}월에 배당 예정인 종목이 없습니다.`}
+                      </div>
+                    ) : scheduleItems.map(s => {
+                      if (s.isSold) {
+                        // 매도된 종목 — 기록만 표시
+                        return (
+                          <div key={s.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="text-[11px] font-black text-slate-600 truncate">{s.name}</p>
+                                <p className="text-[9px] text-slate-400">매도 종목 · 과거 기록</p>
+                              </div>
+                              <span className="text-[10px] font-black text-slate-500">₩{formatNum(Math.round(s.amount))}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      const qty = toPureNumber(s.quantity);
+                      const divPer = toPureNumber(s.divPerShare);
+                      const mult = s.isUSD ? rate : 1;
+                      const expected = Math.round(qty * divPer * mult);
+                      const alreadyPaid = !!s.dividendTimeline?.[mId];
+                      const paidAmt = toPureNumber(s.dividendTimeline?.[mId] || 0);
+                      const payDay = s.divDay === '말' ? '말일' : `${s.divDay}일`;
+                      return (
+                        <div key={s.id} className={`rounded-2xl border p-3 ${alreadyPaid ? 'bg-emerald-50 border-emerald-100' : 'bg-white border-slate-100 shadow-sm'}`}>
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-[11px] font-black text-slate-800 truncate">{s.name}</p>
+                              <p className="text-[9px] text-slate-400">{viewMonth}월 {payDay} · {s.divFreq}배당</p>
+                            </div>
+                            {alreadyPaid
+                              ? <span className="text-[9px] font-black text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full shrink-0">✓ 완료</span>
+                              : <span className="text-[9px] font-black text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full shrink-0">{isPast ? '미기록' : '예정'}</span>
+                            }
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-500">
+                              {alreadyPaid ? '수령액' : (isPast ? '예상' : '예상')} <span className="font-black text-slate-700">₩{formatNum(alreadyPaid ? paidAmt : expected)}</span>
+                            </span>
+                            {alreadyPaid ? (
+                              <div className="flex items-center gap-1">
+                                <div className="flex items-center bg-white border border-slate-200 rounded-lg px-2 py-1">
+                                  <span className="text-[9px] text-slate-400 mr-1">₩</span>
+                                  <input type="text" className="w-16 text-right text-[10px] font-black outline-none bg-transparent"
+                                    value={toCommaString(tempTimelines[s.id]?.[mId] ?? String(paidAmt))}
+                                    onChange={e => setTempTimelines(prev => ({ ...prev, [s.id]: { ...(prev[s.id] || s.dividendTimeline || {}), [mId]: e.target.value.replace(/[^0-9]/g,'') } }))} />
+                                </div>
+                                <button onClick={() => { saveStateToHistory(); setStocks(prev => prev.map(st => st.id === s.id ? { ...st, dividendTimeline: { ...(st.dividendTimeline||{}), [mId]: tempTimelines[s.id]?.[mId] ?? String(paidAmt) } } : st)); showToast('✅ 수정됐습니다.'); }} className="bg-slate-700 text-white text-[9px] font-black px-2 py-1 rounded-lg">저장</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => {
+                                saveStateToHistory();
+                                const updatedStocks = stocks.map(st => st.id === s.id ? { ...st, dividendTimeline: { ...(st.dividendTimeline||{}), [mId]: String(expected) } } : st);
+                                const accId = s.accountId || 'default';
+                                const updatedAccs = accounts.map(a => a.id === accId ? { ...a, cash: String(toPureNumber(a.cash) + expected) } : a);
+                                setStocks(updatedStocks); setAccounts(updatedAccs);
+                                setTradeLogs(prev => [{ id: `div_m_${Date.now()}`, date: `${viewYear}-${String(viewMonth).padStart(2,'0')}-${String(s.divDay==='말'?new Date(viewYear,viewMonth,0).getDate():Number(s.divDay||15)).padStart(2,'0')}`, timestamp: Date.now(), type: 'dividend', name: s.name, amount: expected }, ...prev]);
+                                showToast('💰 배당금이 입금됐습니다!');
+                              }} className={`${t.main} text-white text-[9px] font-black px-3 py-1.5 rounded-xl shadow-sm`}>수동 입금</button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* 기록 수정 탭 */}
+            {divInputView === 'byStock' && (
+              <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                <div className="flex flex-col gap-2 pb-2">
+                  {divStocks.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400 text-[11px] font-bold">배당 설정된 종목이 없습니다.</div>
+                  ) : divStocks.map(s => {
+                    const totalDiv = Object.values(s.dividendTimeline || {}).reduce((sum, v) => sum + toPureNumber(v), 0);
+                    return (
+                      <div key={s.id} className="bg-white border border-slate-100 rounded-2xl p-3 shadow-sm flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors"
+                        onClick={() => { setSelectedDivStock(s.id); setSubDivYear(new Date().getFullYear()); setTempTimelines({ [s.id]: { ...(s.dividendTimeline || {}) } }); setIsSubDivModalOpen(true); }}>
+                        <div>
+                          <p className="text-[11px] font-black text-slate-800">{s.name}</p>
+                          <p className="text-[9px] text-slate-400 mt-0.5">누적 ₩{formatNum(Math.round(totalDiv))}</p>
+                        </div>
+                        <span className="text-slate-300 text-sm">›</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
-      {isSubDivModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[999999] flex items-center justify-center p-4 animate-in zoom-in duration-200">
-          <div className="bg-white w-full max-w-xs md:max-w-sm rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl flex flex-col max-h-[80vh] relative">
+      {isSubDivModalOpen && (() => {
+        const selStock = stocks.find(s => s.id === selectedDivStock);
+        const timeline = tempTimelines[selectedDivStock] || {};
+        // 이 종목에 기록된 연도 목록 + 현재 연도 포함
+        const recordedYears = [...new Set(Object.keys(timeline).map(k => Number(k.slice(0,4))))];
+        const allYears = [...new Set([...recordedYears, new Date().getFullYear()])].sort((a,b)=>b-a);
+        const yearTotal = Object.entries(timeline)
+          .filter(([k]) => Number(k.slice(0,4)) === subDivYear)
+          .reduce((s,[,v]) => s + toPureNumber(v), 0);
+        const todayMId = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+        const originalTimeline = selStock?.dividendTimeline || {};
+        const handleSubDivSave = () => {
+          saveStateToHistory();
+          const edited = tempTimelines[selectedDivStock] || {};
+          // 최종 타임라인 계산: 빈 문자열이면 원본 유지, '0'이면 키 삭제
+          const newTimeline = { ...originalTimeline };
+          Object.entries(edited).forEach(([k, v]) => {
+            if (v === '' || v === undefined) {
+              // 수정 없음 → 원본 유지 (아무 것도 안 함)
+            } else if (v === '0' || v === 0) {
+              delete newTimeline[k]; // 0원 입력 → 기록 삭제
+            } else {
+              newTimeline[k] = String(v);
+            }
+          });
+          // 오늘 날짜 배당이 새로 생겼으면 계좌에도 입금
+          const prevAmt = toPureNumber(originalTimeline[todayMId] || 0);
+          const newAmt = toPureNumber(newTimeline[todayMId] || 0);
+          const diff = newAmt - prevAmt;
+          let updatedAccounts = accounts;
+          if (diff !== 0 && selStock) {
+            const accountId = selStock.accountId || 'default';
+            updatedAccounts = accounts.map(a => a.id === accountId ? { ...a, cash: String(toPureNumber(a.cash) + diff) } : a);
+            setAccounts(updatedAccounts);
+          }
+          setStocks(stocks.map(s => s.id === selectedDivStock ? { ...s, dividendTimeline: newTimeline } : s));
+          setIsSubDivModalOpen(false);
+          showToast('✅ 배당 기록이 수정됐습니다.');
+        };
+        return (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[999999] flex items-center justify-center p-4 animate-in zoom-in duration-200" onClick={() => setIsSubDivModalOpen(false)}>
+          <div className="bg-white w-full max-w-xs md:max-w-sm rounded-[1.5rem] md:rounded-[2rem] p-5 shadow-2xl flex flex-col max-h-[85vh] relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setIsSubDivModalOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={16}/></button>
-            <h3 className="font-black mb-5 text-sm md:text-base text-slate-800 border-b border-slate-100 pb-3 flex justify-center w-full">상세 배당 기록 수정</h3>
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2 mb-5">
-              {Object.keys(tempTimelines[selectedDivStock] || {}).sort((a,b)=>b.localeCompare(a)).map(mId => (
-                <div key={mId} className="flex justify-between items-center bg-slate-50 p-2 md:p-3 rounded-xl border border-slate-100 shadow-sm"><span className="text-[10px] md:text-[11px] font-bold text-slate-600 pl-2">{mId}</span><div className="relative flex items-center"><span className="absolute left-2 text-[9px] font-bold text-slate-400">₩</span><input type="text" className="w-24 md:w-28 text-right bg-white border border-slate-200 rounded-lg p-2 pl-4 text-[10px] md:text-[11px] font-black outline-none shadow-sm focus:border-blue-400" value={toCommaString(tempTimelines[selectedDivStock][mId])} onChange={e => { const val = e.target.value.replace(/[^0-9]/g, ''); setTempTimelines(prev => ({...prev, [selectedDivStock]: {...prev[selectedDivStock], [mId]: val}})); }} /></div></div>
+            <h3 className="font-black mb-1 text-sm text-slate-800 text-center">{selStock?.name}</h3>
+            <p className="text-[9px] text-slate-400 text-center mb-3">배당 기록 수정 · 0원 입력 시 기록 삭제</p>
+
+            {/* 연도 탭 스크롤 */}
+            <div className="flex gap-1 mb-3 overflow-x-auto custom-scrollbar pb-0.5 shrink-0">
+              {allYears.map(y => (
+                <button key={y} type="button" onClick={() => setSubDivYear(y)}
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-black shrink-0 transition-colors ${subDivYear === y ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                  {y}년
+                </button>
               ))}
             </div>
-            <button onClick={() => { saveStateToHistory(); setStocks(stocks.map(s => s.id === selectedDivStock ? {...s, dividendTimeline: tempTimelines[selectedDivStock]} : s)); setIsSubDivModalOpen(false); }} className="w-full bg-slate-800 text-white py-3 md:py-4 rounded-xl font-bold text-xs md:text-sm shadow-md hover:bg-slate-900 transition-colors">수정 사항 반영하기</button>
+
+            {/* 연간 합계 */}
+            <div className="flex justify-between items-center bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 mb-3 shrink-0">
+              <span className="text-[9px] font-bold text-orange-500">{subDivYear}년 배당 합계</span>
+              <span className="text-[12px] font-black text-orange-600">₩{formatNum(Math.round(yearTotal))}</span>
+            </div>
+
+            {/* 3열 4행 그리드 (1~12월) */}
+            <div className="grid grid-cols-3 gap-1.5 flex-1 overflow-y-auto custom-scrollbar pb-1">
+              {Array.from({length:12},(_,i)=>i+1).map(month => {
+                const mId = `${subDivYear}-${String(month).padStart(2,'0')}`;
+                const originalVal = toPureNumber(originalTimeline[mId] || 0);
+                const tempVal = tempTimelines[selectedDivStock]?.[mId];
+                // tempVal이 undefined면 아직 손 안 댄 것 → 원본값 표시
+                const displayVal = tempVal !== undefined ? tempVal : (originalVal > 0 ? String(originalVal) : '');
+                const isModified = tempVal !== undefined;
+                return (
+                  <div key={mId} className="bg-slate-50 border border-slate-100 rounded-xl p-2 flex flex-col gap-1">
+                    <span className="text-[9px] font-black text-slate-500 text-center">{month}월</span>
+                    <div className={`flex items-center bg-white border rounded-lg px-1.5 py-1 ${isModified ? 'border-orange-300' : 'border-slate-200'}`}>
+                      <span className="text-[8px] text-slate-400 shrink-0">₩</span>
+                      <input type="text"
+                        className="w-full text-right text-[10px] font-black outline-none bg-transparent min-w-0"
+                        value={isModified ? toCommaString(displayVal) : ''}
+                        placeholder={originalVal > 0 ? formatNum(originalVal) : '0'}
+                        style={{ color: isModified ? '#1e293b' : undefined }}
+                        onChange={e => {
+                          const v = e.target.value.replace(/[^0-9]/g,'');
+                          setTempTimelines(prev => ({...prev, [selectedDivStock]: {...(prev[selectedDivStock]||{}), [mId]: v}}));
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <button onClick={handleSubDivSave} className="w-full bg-slate-800 text-white py-3 rounded-xl font-bold text-xs shadow-md hover:bg-slate-900 transition-colors mt-3 shrink-0">수정 사항 반영하기</button>
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* 자동 배당 입금 요약 팝업 */}
+      {isAutoDivModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[9999999] flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-xs rounded-[2rem] p-6 shadow-2xl flex flex-col items-center">
+            <div className="text-3xl mb-3">💰</div>
+            <h3 className="font-black text-base text-slate-800 mb-1">오늘의 배당금 입금 완료</h3>
+            <p className="text-[10px] text-slate-400 mb-4">{new Date().getMonth()+1}월 {new Date().getDate()}일 자동 입금</p>
+            <div className="w-full bg-slate-50 rounded-2xl p-3 mb-4 flex flex-col gap-1.5">
+              {autoDivSummary.map((item, i) => (
+                <div key={i} className="flex justify-between items-center">
+                  <span className="text-[11px] font-bold text-slate-700 truncate pr-2">{item.name}</span>
+                  <span className="text-[11px] font-black text-emerald-600 shrink-0">+₩{formatNum(Math.round(item.amount))}</span>
+                </div>
+              ))}
+              <div className="border-t border-slate-200 pt-1.5 mt-0.5 flex justify-between items-center">
+                <span className="text-[10px] font-black text-slate-500">합계</span>
+                <span className="text-[13px] font-black text-emerald-600">+₩{formatNum(Math.round(autoDivSummary.reduce((s,i)=>s+i.amount,0)))}</span>
+              </div>
+            </div>
+            <button onClick={() => setIsAutoDivModalOpen(false)} className="w-full bg-slate-800 text-white py-3 rounded-xl font-black text-sm shadow-md hover:bg-slate-900 transition-colors">확인</button>
           </div>
         </div>
       )}
