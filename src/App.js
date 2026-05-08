@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Flame, LogOut, Target, Clock, Plus, Trash2, Search, TrendingUp, 
   ShoppingCart, X, Star, Sparkles, Heart, 
-  PiggyBank, CalendarDays, Database, Edit2, Wallet, Briefcase, Camera, AlertCircle, Menu, Download, UploadCloud, ChevronRight, ChevronDown, Landmark, PieChart, Scale, Settings, RefreshCw, Upload, CreditCard
+  PiggyBank, CalendarDays, Database, Edit2, CircleDollarSign, Briefcase, Camera, AlertCircle, Menu, Download, UploadCloud, ChevronRight, ChevronDown, Landmark, PieChart, Scale, Settings, RefreshCw, Upload, CreditCard
 } from 'lucide-react';
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 // Kongeramo 'Upload' muri lucide-react kugira ngo dukemure ikibazo cya ReferenceError
@@ -254,7 +254,7 @@ const AppContent = () => {
   const [inputModal, setInputModal] = useState({ isOpen: false, title: '', placeholder: '', defaultValue: '', onConfirm: null });
   const [inputModalValue, setInputModalValue] = useState('');
   const [inlineConsume, setInlineConsume] = useState({ isOpen: false, amount: '' });
-  const [savingsWithdrawModal, setSavingsWithdrawModal] = useState({ isOpen: false, amount: '', targetAccId: 'wallet' });
+  const [savingsWithdrawModal, setSavingsWithdrawModal] = useState({ isOpen: false, amount: '', targetAccId: '' });
   const [savingsMaturityModal, setSavingsMaturityModal] = useState({ isOpen: false, targetId: null, finalAmount: '' });
   
   const [itemWithdrawModal, setItemWithdrawModal] = useState({ isOpen: false, targetId: null, amount: '', toAccId: 'wallet' });
@@ -327,7 +327,7 @@ const AppContent = () => {
   
   const [activeDepositId, setActiveDepositId] = useState(null);
   const [depositAmount, setDepositAmount] = useState('');
-  const [depositSourceId, setDepositSourceId] = useState('wallet');
+  const [depositSourceId, setDepositSourceId] = useState('');
   
   const [sellAmount, setSellAmount] = useState('');
   const [buyAmount, setBuyAmount] = useState('');
@@ -356,7 +356,7 @@ const AppContent = () => {
   const [expenseMemo, setExpenseMemo] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('현금');
   const [selectedCard, setSelectedCard] = useState('');
-  const [cashSource, setCashSource] = useState(''); // '' = 지갑, accId = 소비계좌, 'transfer' = 계좌이체
+  const [cashSource, setCashSource] = useState(''); // '' = 소비계좌 없음, accId = 소비계좌, 'transfer' = 계좌이체
   const [transferAccId, setTransferAccId] = useState('');
   const [spendingItem, setSpendingItem] = useState(''); // 소비계좌 내 선택된 항목 stock id
   const [myCards, setMyCards] = useState([]); 
@@ -390,7 +390,7 @@ const AppContent = () => {
   const [batchNameInput, setBatchNameInput] = useState('');
   const [newCardType, setNewCardType] = useState('신용'); // 🎯 등록 카드 종류 (신용/체크)
   // --- 통합된 FIRE 및 계좌 변수 선언 ---
-  const [newCardLinkedAcc, setNewCardLinkedAcc] = useState('wallet');
+  const [newCardLinkedAcc, setNewCardLinkedAcc] = useState('');
   const [isTaxAccount, setIsTaxAccount] = useState(false);
   // --- 은퇴 목표 및 저축액 상태 (설정 복구 로직 포함) ---
   const [fireTarget, setFireTarget] = useState(1000000000);
@@ -736,7 +736,7 @@ const AppContent = () => {
   const [selectedDay, setSelectedDay] = useState(null); // 🎯 가계부 선택된 날짜
   const [touchStartX, setTouchStartX] = useState(0); // 🎯 스와이프 감지용 State
   const [investInput, setInvestInput] = useState(''); 
-  const [transferFromId, setTransferFromId] = useState('wallet');
+  const [transferFromId, setTransferFromId] = useState('');
   const [transferToId, setTransferToId] = useState('');
   // 🎯 스마트 이체 모달 열기 전용 함수 (출발/도착 계좌 자동 셋팅)
   const openTransferModal = (fromId, toId) => {
@@ -1149,8 +1149,8 @@ const AppContent = () => {
         globalProfit += (tValue - tInvested) + tDiv; accountCashSum += toPureNumber(acc.cash);
       }
     });
-    const totalAssets = globalValue + accountCashSum + globalCash - cardNonNbbangTotal;
-    const totalPrincipal = globalInvested + accountCashSum + globalCash;
+    const totalAssets = globalValue + accountCashSum - cardNonNbbangTotal;
+    const totalPrincipal = globalInvested + accountCashSum;
     return { globalInvested, globalValue, globalProfit, accountCashSum, globalReceivedDiv, totalAssets, totalPrincipal, totalROI: globalInvested > 0 ? (globalProfit / globalInvested) * 100 : 0 };
   }, [accounts, stocks, exchangeRate, globalCash, tradeLogs]);
 
@@ -1424,20 +1424,15 @@ const AppContent = () => {
             updatedAccs = updatedAccs.map(a => a.id === accId ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
           }
         } else {
-          updatedGlobalCash -= myShare;
-          if (updatedGlobalCash < 0) { showToast("⚠️ 지갑 잔액이 부족합니다."); return; }
+          isPaidNow = true;
         }
         isPaidNow = true;
       } else {
         const selectedCardInfo = myCards.find(c => c.name === selectedCard)
           || stocks.find(s => s.name === selectedCard && accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'card');
         const linkedAccId = selectedCardInfo?.linkedAcc || selectedCardInfo?.cardLinkedAcc || '';
-        const deductFrom = linkedAccId || (paymentMethod === '체크카드' ? 'wallet' : '');
-        if (deductFrom === 'wallet') {
-          updatedGlobalCash -= myShare;
-          if (updatedGlobalCash < 0) { showToast("⚠️ 지갑 잔액이 부족합니다."); return; }
-          isPaidNow = true;
-        } else if (deductFrom.startsWith('stock:')) {
+        const deductFrom = linkedAccId || '';
+        if (deductFrom.startsWith('stock:')) {
           const stockId = deductFrom.replace('stock:', '');
           const targetStock = updatedStocks.find(s => String(s.id) === stockId);
           if (!targetStock || toPureNumber(targetStock.quantity) < myShare) { showToast("⚠️ 연동된 통장 잔액이 부족합니다."); return; }
@@ -1715,18 +1710,16 @@ const AppContent = () => {
     let newGlobalCash = globalCash;
     let updatedAccs = [...accounts];
 
-    if (itemWithdrawModal.toAccId === 'wallet') {
-      newGlobalCash += amount;
-      showToast(`💸 ₩${formatNum(amount)} 지갑으로 이동 완료!`);
-    } else {
-      updatedAccs = updatedAccs.map(a => a.id === itemWithdrawModal.toAccId ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a);
-      const targetName = accounts.find(a => a.id === itemWithdrawModal.toAccId)?.name;
+    const toAccId = itemWithdrawModal.toAccId || accounts[0]?.id || '';
+    if (toAccId) {
+      updatedAccs = updatedAccs.map(a => a.id === toAccId ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a);
+      const targetName = accounts.find(a => a.id === toAccId)?.name;
       showToast(`💸 ₩${formatNum(amount)} '${targetName}'(으)로 이동 완료!`);
     }
 
     logTrade({ type: 'sell', name: target.name, shares: amount, sellPrice: 1, isUSD: false, profit: 0, roi: 0, notes: '저축 출금' });
 
-    setItemWithdrawModal({ isOpen: false, targetId: null, amount: '', toAccId: 'wallet' });
+    setItemWithdrawModal({ isOpen: false, targetId: null, amount: '', toAccId: accounts[0]?.id || '' });
     
     if (newQty === 0) {
       showConfirm("저축액을 전액 출금하였습니다.\n해당 항목을 삭제할까요?", () => {
@@ -1760,11 +1753,8 @@ const AppContent = () => {
     let updatedAccs = accounts.map(a => a.id === selectedAccountId ? { ...a, cash: String(toPureNumber(a.cash) - amount) } : a);
     let newGlobalCash = globalCash; 
 
-    const targetId = savingsWithdrawModal.targetAccId || 'wallet';
-    if (targetId === 'wallet') {
-      newGlobalCash += amount;
-      showToast(`💸 ₩${formatNum(amount)} 지갑으로 이동 완료!`);
-    } else {
+    const targetId = savingsWithdrawModal.targetAccId || accounts.find(a => a.id !== selectedAccountId)?.id || '';
+    if (targetId) {
       updatedAccs = updatedAccs.map(a => a.id === targetId ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a);
       const targetName = accounts.find(a => a.id === targetId)?.name;
       showToast(`💸 ₩${formatNum(amount)} '${targetName}'(으)로 이동 완료!`);
@@ -1772,7 +1762,7 @@ const AppContent = () => {
 
     setGlobalCash(newGlobalCash);
     setAccounts(updatedAccs);
-    setSavingsWithdrawModal({ isOpen: false, amount: '', targetAccId: 'wallet' });
+    setSavingsWithdrawModal({ isOpen: false, amount: '', targetAccId: '' });
     saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newGlobalCash);
   };
 
@@ -1943,32 +1933,39 @@ const AppContent = () => {
     const income = sellQty * toPureNumber(target.currentPrice) * mult;
     const newQty = toPureNumber(target.quantity) - sellQty;
     const updatedStock = { ...target, quantity: String(newQty) };
-    const newCash = globalCash + income;
-    
+
+    const targetAcc = accounts.find(a => a.id === target.accountId);
+    let updatedAccs = targetAcc
+      ? accounts.map(a => a.id === targetAcc.id ? { ...a, cash: String(toPureNumber(a.cash) + income) } : a)
+      : accounts;
+
     let updatedStocks = stocks.map(s => s.id === id ? updatedStock : s);
     setStocks(updatedStocks);
-    setGlobalCash(newCash);
+    setAccounts(updatedAccs);
     setPendingSells(p => ({...p, [id]: false}));
     setSellAmount('');
-    
+
     const profit = income - (sellQty * toPureNumber(target.buyPrice) * mult);
     const roi = toPureNumber(target.buyPrice) > 0 ? ((toPureNumber(target.currentPrice) - toPureNumber(target.buyPrice)) / toPureNumber(target.buyPrice)) * 100 : 0;
     logTrade({ type: 'sell', name: target.name, shares: sellQty, sellPrice: target.currentPrice, isUSD: target.isUSD, profit, roi });
-    showToast(`💰 지갑으로 입금되었습니다.`);
+    showToast(`💰 ${targetAcc ? `'${targetAcc.name}'으로` : ''} 입금되었습니다.`);
 
     if (newQty === 0) {
       showConfirm("남은 주식을 전부 매도하였습니다.\n해당 카드를 삭제할까요?", () => {
         saveStateToHistory();
         const finalStocks = updatedStocks.filter(s => s.id !== id);
         setStocks(finalStocks);
-        setGlobalCash(newCash);
+        setAccounts(updatedAccs);
+        saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
       }, () => {
         setStocks(updatedStocks);
-        setGlobalCash(newCash);
+        setAccounts(updatedAccs);
+        saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
       });
     } else {
       setStocks(updatedStocks);
-      setGlobalCash(newCash);
+      setAccounts(updatedAccs);
+      saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
     }
   };
 
@@ -2015,10 +2012,7 @@ const AppContent = () => {
     let updatedAccs = [...accounts];
     let updatedGlobalCash = globalCash;
 
-    if (depositSourceId === 'wallet') {
-      if (amount > globalCash) return showToast("⚠️ 지갑 잔액이 부족합니다.");
-      updatedGlobalCash -= amount;
-    } else {
+    if (depositSourceId) {
       const sourceAcc = accounts.find(a => a.id === depositSourceId);
       if (!sourceAcc || toPureNumber(sourceAcc.cash) < amount) return showToast("⚠️ 선택 계좌의 잔액이 부족합니다.");
       updatedAccs = updatedAccs.map(a => a.id === depositSourceId ? { ...a, cash: String(toPureNumber(a.cash) - amount) } : a);
@@ -2035,7 +2029,7 @@ const AppContent = () => {
     setAccounts(updatedAccs);
     setActiveDepositId(null);
     setDepositAmount('');
-    setDepositSourceId('wallet');
+    setDepositSourceId('');
     logTrade({ type: 'buy', name: target.name, total: amount, isSavings: true });
     showToast(`✅ 저축액이 추가되었습니다!`);
     
@@ -2049,17 +2043,23 @@ const AppContent = () => {
     if (!target || finalAmt <= 0) return;
 
     saveStateToHistory();
-    const newCash = globalCash + finalAmt;
     const newStocks = stocks.filter(s => s.id !== target.id);
     const principal = toPureNumber(target.quantity);
     const profit = finalAmt - principal;
     const roi = principal > 0 ? (profit / principal) * 100 : 0;
 
+    const destAcc = accounts.find(a => a.type === 'savings' && a.id !== (target.accountId || 'default')) || accounts[0];
+    let updatedAccs = accounts;
+    if (destAcc) {
+      updatedAccs = accounts.map(a => a.id === destAcc.id ? { ...a, cash: String(toPureNumber(a.cash) + finalAmt) } : a);
+    }
+
     logTrade({ type: 'maturity', name: target.name, principal, finalAmount: finalAmt, profit, roi });
     setStocks(newStocks);
-    setGlobalCash(newCash);
+    setAccounts(updatedAccs);
     setSavingsMaturityModal({ isOpen: false, targetId: null, finalAmount: '' });
-    showToast(`🎉 축하합니다!\n노력의 결실 ₩${formatNum(finalAmt)} 입금 완료! 🥳`);
+    showToast(`🎉 축하합니다!\n노력의 결실 ₩${formatNum(finalAmt)} ${destAcc ? `'${destAcc.name}'에 ` : ''}입금 완료! 🥳`);
+    saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
 
   };
 
@@ -2319,7 +2319,7 @@ const AppContent = () => {
         const fe = editFixedModal.fe;
         const isConfirmingDelete = !!editFixedModal.confirmDelete;
         const allPayOpts = [
-          { key: '__cash__', label: '💵 현금(지갑)', method: '현금', cardName: '', transferAccId: '' },
+          { key: '__cash__', label: '💵 현금', method: '현금', cardName: '', transferAccId: '' },
           ...myCards.map(c => ({ key: `card-${c.name}`, label: `💳 ${c.name}`, method: c.type === '신용' ? '신용카드' : '체크카드', cardName: c.name, transferAccId: '' })),
           ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'card'; }).map(s => ({ key: `cardacc-${s.id}`, label: `💳 ${s.name}`, method: s.cardType === '신용' ? '신용카드' : '체크카드', cardName: s.name, transferAccId: '' })),
           ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings'; }).map(s => ({ key: `savstk-${s.id}`, label: `🏦 ${s.name}`, method: '현금', cardName: '', transferAccId: `stock:${s.id}` })),
@@ -2426,9 +2426,8 @@ const AppContent = () => {
               </div>
               {/* 모바일 액션 그룹 */}
               <div className="md:hidden flex flex-col items-end gap-1 shrink-0 ml-2">
-                {/* 🎯 지갑 버튼을 갱신 버튼 위로 이동 (모든 탭 노출) */}
-                <div onClick={() => { setInvestTab('wallet'); setIsInvestModalOpen(true); }} className="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[9px] font-black flex items-center gap-1 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors">
-                  <Wallet size={10} /> ₩{formatNum(globalCash)}
+                <div onClick={() => { setInvestTab('transfer'); setIsInvestModalOpen(true); }} className="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded-full text-[9px] font-black flex items-center gap-1 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors">
+                  <CircleDollarSign size={10} /> 머니로그
                 </div>
                 <div className="flex items-center gap-1 bg-white/60 p-1 rounded-full border border-slate-200 shadow-sm h-[28px]">
                   <button onClick={handleUpdateStockPrices} disabled={isFetchingStocks} className={`px-2 h-full rounded-full text-[9px] font-black transition-all flex items-center gap-1 text-slate-500 hover:bg-slate-200 ${isFetchingStocks ? 'opacity-50' : ''}`}><RefreshCw size={10} className={isFetchingStocks ? 'animate-spin' : ''}/>갱신</button>
@@ -2452,9 +2451,8 @@ const AppContent = () => {
           </div>
           {/* PC 액션 그룹 */}
           <div className="hidden md:flex flex-col items-end gap-1 w-full relative z-20">
-            {/* 🎯 지갑 버튼 상단 노출 */}
-            <div onClick={() => { setInvestTab('wallet'); setIsInvestModalOpen(true); }} className="bg-slate-800 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black flex items-center gap-1.5 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors">
-              <Wallet size={12} /> 지갑: ₩{formatNum(globalCash)}
+            <div onClick={() => { setInvestTab('transfer'); setIsInvestModalOpen(true); }} className="bg-slate-800 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-black flex items-center gap-1.5 shadow-sm cursor-pointer hover:bg-slate-700 transition-colors">
+              <CircleDollarSign size={12} /> 머니로그
             </div>
             <div className="flex items-center justify-end gap-1.5 h-[32px]">
               <div className="flex items-center gap-1 shrink-0 bg-white/60 p-1.5 rounded-full border border-slate-200 shadow-sm h-full">
@@ -2590,7 +2588,7 @@ const AppContent = () => {
                    {['savings','spending'].includes(currentAccountStat?.type) && !inlineConsume.isOpen && (
                      <div className="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0 relative -top-0.5">
                        <button onClick={(e) => { e.stopPropagation(); setInlineConsume({isOpen: true, amount: ''}) }} className={`${t.light} px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black transition-colors`}>🛍️ 소비</button>
-                       <button onClick={(e) => { e.stopPropagation(); setSavingsWithdrawModal({ isOpen: true, amount: '', targetAccId: 'wallet' }) }} className="bg-slate-100 text-slate-600 px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black hover:bg-slate-200 transition-colors">💸 출금</button>
+                       <button onClick={(e) => { e.stopPropagation(); setSavingsWithdrawModal({ isOpen: true, amount: '', targetAccId: '' }) }} className="bg-slate-100 text-slate-600 px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black hover:bg-slate-200 transition-colors">💸 출금</button>
                      </div>
                    )}
                    {['savings','spending'].includes(currentAccountStat?.type) && inlineConsume.isOpen && (
@@ -2669,7 +2667,6 @@ const AppContent = () => {
                     const divAmount = toPureNumber(s.quantity) * toPureNumber(s.divPerShare) * (s.isUSD ? toPureNumber(exchangeRate) : 1);
                     
                     const availableSources = [];
-                    if (globalCash > 0) availableSources.push({ id: 'wallet', name: '지갑', cash: globalCash });
                     accounts.filter(a => toPureNumber(a.cash) > 0 && a.id !== selectedAccountId).forEach(a => availableSources.push({ id: a.id, name: a.name, cash: toPureNumber(a.cash) }));
                     if (isSavings && currentAccountStat.cash > 0) {
                       if (!availableSources.some(src => src.id === selectedAccountId)) {
@@ -2811,17 +2808,6 @@ const AppContent = () => {
             
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-4">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                <div className="bg-slate-800 text-white rounded-xl p-3.5 shadow-sm border border-slate-700 flex flex-col justify-between relative overflow-hidden">
-                  <div className="flex justify-between items-center mb-1.5">
-                    <h4 className="font-bold text-[12px] truncate flex items-center gap-1.5"><Wallet size={12} className="text-emerald-400"/> 지갑</h4>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px]"><span className="text-slate-400 font-bold whitespace-nowrap">금액</span><span className="font-black text-white truncate ml-1 text-right">₩{formatNum(globalCash)}</span></div>
-                    <div className="w-full border-t border-dashed border-slate-600 my-0.5"></div>
-                    <div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold">유형</span><span className="font-black text-emerald-400">현금</span></div>
-                  </div>
-                </div>
-
                 {accountStatsList.map(acc => (
                 <div key={acc.id} className="bg-white rounded-xl p-3.5 shadow-sm border border-slate-100 flex flex-col justify-between relative group overflow-hidden">
                   <div className="flex justify-between items-center mb-2.5"><h4 className="font-bold text-slate-800 text-[12px] truncate flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${acc.type === 'stock' ? t.main.split(' ')[0] : t.altMain.split(' ')[0]}`}></div> {acc.name}</h4></div>
@@ -3410,7 +3396,7 @@ const AppContent = () => {
                    setTradeLogs(updatedLogs);
                    setSelectedPersonsToSettle([]); 
                    saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
-                   showToast(`🎉 정산 완료! 지갑에 ₩${formatNum(amtToSettle)} 합산되었습니다.`);
+                   showToast(`🎉 정산 완료! ₩${formatNum(amtToSettle)} 처리되었습니다.`);
                 };
 
                 const togglePersonSelection = (person) => {
@@ -3613,10 +3599,9 @@ const AppContent = () => {
                      if (!tgt || toPureNumber(tgt.quantity) < totalAmt) return showToast('⚠️ 연동된 통장 잔액이 부족합니다.');
                      setStocks(prev => prev.map(s => String(s.id) === stockId ? { ...s, quantity: String(toPureNumber(s.quantity) - totalAmt) } : s));
                    } else {
-                     if (globalCash < totalAmt) return showToast('⚠️ 지갑 잔액이 부족합니다.');
-                     setGlobalCash(globalCash - totalAmt);
+                     return showToast('⚠️ 연동된 계좌가 없습니다. 카드에 계좌를 연동해주세요.');
                    }
-                   const newCash = linkedId.startsWith('stock:') ? globalCash : globalCash - totalAmt;
+                   const newCash = globalCash;
                    
                    // 🎯 문자열(String) 형변환을 통한 엄격한 비교로 선결제 누락 버그 픽스
                    const updatedLogs = tradeLogs.map(r => {
@@ -3647,9 +3632,7 @@ const AppContent = () => {
                      if (!tgt || toPureNumber(tgt.quantity) < amount) return showToast('⚠️ 연동된 통장 잔액이 부족합니다.');
                      setStocks(prev => prev.map(s => String(s.id) === stockId ? { ...s, quantity: String(toPureNumber(s.quantity) - amount) } : s));
                    } else {
-                     if (globalCash < amount) return showToast('⚠️ 지갑 잔액이 부족합니다. 지갑을 먼저 채워주세요.');
-                     newCash = globalCash - amount;
-                     setGlobalCash(newCash);
+                     return showToast('⚠️ 연동된 계좌가 없습니다. 카드에 계좌를 연동해주세요.');
                    }
                    const updatedLogs = tradeLogs.map(r => (r.cardName === cardName && r.paymentMethod === '신용카드' && !r.isPaid) ? { ...r, isPaid: true } : r);
                    const paymentLog = { id: Date.now().toString(), type: 'expense', name: `${cardName} 대금결제`, category: '카드대금', amount, totalAmount: amount, date: new Date().toISOString().substring(0, 10), timestamp: Date.now() };
@@ -4173,9 +4156,8 @@ const AppContent = () => {
           // 🎯 세련된 파스텔/네온톤 팔레트로 전면 교체
           const pieColors = ['#fb7185', '#38bdf8', '#34d399', '#a78bfa', '#fbbf24', '#f472b6', '#2dd4bf', '#818cf8', '#fb923c', '#60a5fa', '#94a3b8', '#ec4899'];
           const pieData = [
-            { name: '지갑 (현금)', value: Number(globalCash), color: pieColors[0] },
-            ...accounts.filter(a => a.type === 'savings').map((a, i) => ({ name: a.name, value: Number(a.cash), color: pieColors[(i + 1) % pieColors.length] })),
-            ...stocks.map((s, i) => ({ name: s.name, value: Number(s.quantity) * Number(s.currentPrice) * (s.isUSD ? toPureNumber(exchangeRate) : 1), color: pieColors[(i + 1 + accounts.filter(a=>a.type==='savings').length) % pieColors.length] }))
+            ...accounts.filter(a => a.type === 'savings').map((a, i) => ({ name: a.name, value: Number(a.cash), color: pieColors[i % pieColors.length] })),
+            ...stocks.map((s, i) => ({ name: s.name, value: Number(s.quantity) * Number(s.currentPrice) * (s.isUSD ? toPureNumber(exchangeRate) : 1), color: pieColors[(i + accounts.filter(a=>a.type==='savings').length) % pieColors.length] }))
           ].filter(d => d.value > 0).sort((a,b) => b.value - a.value);
 
           return (
@@ -4344,7 +4326,6 @@ const AppContent = () => {
                       const savingsAccs = accounts.filter(a => a.type === 'savings');
                       const savingsStocks = stocks.filter(s => accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'savings');
                       const allDest = [
-                        { key: 'wallet', label: '💵 지갑', sub: `₩${formatNum(globalCash)}`, isSalary: false },
                         ...savingsAccs.map(a => ({ key: `acc:${a.id}`, label: `🏦 ${a.name}`, sub: `₩${formatNum(a.cash)}`, isSalary: a.name.includes('월급') })),
                         ...savingsStocks.map(s => ({ key: `stock:${s.id}`, label: `🏦 ${s.name}`, sub: `₩${formatNum(toPureNumber(s.quantity))}`, isSalary: s.name.includes('월급') })),
                       ].sort((a, b) => (b.isSalary ? 1 : 0) - (a.isSalary ? 1 : 0));
@@ -4381,10 +4362,6 @@ const AppContent = () => {
                         )}
                         {/* 입금 계좌 선택 */}
                         <div className="flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => setBonusDestAccId(bonusDestAccId === 'wallet' ? '' : 'wallet')}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === 'wallet' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
-                            💵 지갑 <span className="opacity-70">₩{formatNum(globalCash)}</span>
-                          </button>
                           {accounts.filter(a => a.type === 'savings').map(a => (
                             <button key={a.id} type="button" onClick={() => setBonusDestAccId(bonusDestAccId === `acc:${a.id}` ? '' : `acc:${a.id}`)}
                               className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `acc:${a.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
@@ -4649,7 +4626,7 @@ const AppContent = () => {
                             <div className="flex flex-wrap gap-1.5">
                               <button onClick={() => setNewFixedPayment({ method: '현금', cardName: '', transferAccId: '' })}
                                 className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${newFixedPayment.method === '현금' && !newFixedPayment.transferAccId ? 'bg-amber-400 text-white border-amber-400' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-                                💵 현금(지갑)
+                                💵 현금
                               </button>
                               {allPaymentOptions.map(opt => (
                                 <button key={opt.key} onClick={() => setNewFixedPayment({ method: opt.method, cardName: opt.cardName, transferAccId: opt.transferAccId })}
@@ -4689,7 +4666,7 @@ const AppContent = () => {
                               const acc = accounts.find(a => a.id === accId);
                               return acc ? acc.name : '입출금';
                             }
-                            return '지갑';
+                            return '현금';
                           };
                           const totalMonthly = fixedExpenses.reduce((s, fe) => s + (fe.isUSD ? Math.round(Number(fe.amount) * (exchangeRate || 1350)) : Number(fe.amount)), 0);
                           return (
@@ -4924,8 +4901,7 @@ const AppContent = () => {
       </main>
 
       {/* --- Modals (High Z-Index) --- */}
-      {/* 🎯 전역 지갑 잔액 수정 모달 */}
-      
+
       {/* 🔥 FIRE 조기 은퇴 대시보드 팝업 모달 */}
       {isFireModalOpen && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md z-[9999999] flex items-center justify-center p-4 animate-in fade-in duration-300" onClick={() => setIsFireModalOpen(false)}>
@@ -5447,7 +5423,6 @@ const AppContent = () => {
               {(newCardType === '체크' || newCardType === '신용') && (
                 <select className="w-full p-2.5 rounded-xl text-[10px] font-black outline-none border focus:border-blue-400 bg-slate-50 text-center" value={newCardLinkedAcc} onChange={e=>setNewCardLinkedAcc(e.target.value)}>
                   {newCardType === '신용' && <option value="">연동 없음 (나중에 결제)</option>}
-                  <option value="wallet">내 지갑에서 출금</option>
                   {accounts.filter(a => a.type === 'savings').flatMap(a =>
                     stocks.filter(s => (s.accountId || 'default') === a.id).map(s => (
                       <option key={`stock-${s.id}`} value={`stock:${s.id}`}>{s.name} (출금)</option>
@@ -5499,7 +5474,6 @@ const AppContent = () => {
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] font-black text-slate-400 text-center">받는 대상</label>
                 <select className="w-full p-2.5 rounded-xl bg-slate-50 border outline-none font-black text-xs text-center" value={itemWithdrawModal.toAccId} onChange={e=>setItemWithdrawModal({...itemWithdrawModal, toAccId: e.target.value})}>
-                  <option value="wallet">👛 지갑</option>
                   {accounts.map(a=><option key={a.id} value={a.id}>{a.type === 'savings' ? '🏦 ' : a.type === 'spending' ? '🛍️ ' : '📈 '}{a.name}</option>)}
                 </select>
               </div>
@@ -5530,7 +5504,7 @@ const AppContent = () => {
                 <input type="text" className="w-full p-2.5 pl-6 pr-2.5 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right text-emerald-600" value={toCommaString(savingsMaturityModal.finalAmount)} onChange={e=>setSavingsMaturityModal({...savingsMaturityModal, finalAmount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus />
               </div>
             </div>
-            <button onClick={handleSavingsMaturitySubmit} className={`w-full py-2.5 rounded-xl font-black text-white text-xs shadow-md ${t.main}`}>지갑으로 입금</button>
+            <button onClick={handleSavingsMaturitySubmit} className={`w-full py-2.5 rounded-xl font-black text-white text-xs shadow-md ${t.main}`}>만기 수령</button>
           </div>
         </div>
       )}
@@ -5539,48 +5513,36 @@ const AppContent = () => {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={(e) => { if(e.target === e.currentTarget) setIsInvestModalOpen(false); }}>
           <div className="bg-white w-full max-w-sm md:max-w-md rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl relative flex flex-col min-h-[460px] md:min-h-[500px]">
             <button onClick={() => setIsInvestModalOpen(false)} className="absolute top-4 md:top-5 right-4 md:right-5 p-1 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={16}/></button>
-            <h3 className="font-black text-sm md:text-base mb-4 flex justify-center w-full items-center gap-2 text-slate-800 tracking-tighter"><Wallet size={16} className="md:w-[18px] md:h-[18px]"/> 자금 관리</h3>
-            
+            <h3 className="font-black text-sm md:text-base mb-4 flex justify-center w-full items-center gap-2 text-slate-800 tracking-tighter"><CircleDollarSign size={16} className="md:w-[18px] md:h-[18px]"/> 머니로그</h3>
+
             <div className="flex gap-1.5 mb-4 bg-slate-50 p-1 rounded-xl shrink-0">
-              <button onClick={() => setInvestTab('wallet')} className={`flex-1 py-2 md:py-2.5 rounded-lg text-[10px] md:text-xs font-black transition-all ${investTab === 'wallet' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500'}`}>지갑</button>
-              <button onClick={() => openTransferModal('wallet', accounts.find(a => a.type === 'savings')?.id || '')} className={`flex-1 py-2 md:py-2.5 rounded-lg text-[10px] md:text-xs font-black transition-all ${investTab === 'transfer' ? t.main : 'text-slate-500'}`}>계좌 이체</button>
+              <button onClick={() => { setIncomeMode('salary'); setInvestTab('moneylog'); }} className={`flex-1 py-2 md:py-2.5 rounded-lg text-[10px] md:text-xs font-black transition-all ${investTab === 'moneylog' && incomeMode === 'salary' ? 'bg-emerald-500 text-white shadow-md' : 'text-slate-500'}`}>월급 💵</button>
+              <button onClick={() => { setIncomeMode('bonus'); setInvestTab('moneylog'); }} className={`flex-1 py-2 md:py-2.5 rounded-lg text-[10px] md:text-xs font-black transition-all ${investTab === 'moneylog' && incomeMode === 'bonus' ? 'bg-blue-500 text-white shadow-md' : 'text-slate-500'}`}>수익 🧧</button>
+              <button onClick={() => { setIncomeMode('expense'); setInvestTab('moneylog'); setIsNbbang(false); setIsNbbangConfirmed(false); setNbbangList([{id:Date.now(), name:''}]); }} className={`flex-1 py-2 md:py-2.5 rounded-lg text-[10px] md:text-xs font-black transition-all ${investTab === 'moneylog' && incomeMode === 'expense' ? 'bg-rose-500 text-white shadow-md' : 'text-slate-500'}`}>소비 💳</button>
+              <button onClick={() => { setInvestTab('transfer'); }} className={`flex-1 py-2 md:py-2.5 rounded-lg text-[10px] md:text-xs font-black transition-all ${investTab === 'transfer' ? t.main : 'text-slate-500'}`}>이체 🏦</button>
             </div>
             
             <div className="mb-4 flex flex-col justify-center flex-1 overflow-y-auto custom-scrollbar pr-1">
-              {investTab === 'wallet' ? ( 
+              {investTab === 'moneylog' ? (
                 <div className="flex flex-col gap-3">
-                  <div className="bg-slate-50 p-3 rounded-xl flex justify-between items-center border border-slate-100">
-                    <span className="text-[10px] md:text-xs font-black text-slate-500">현재 지갑 잔액</span>
-                    <span className="text-lg md:text-xl font-black text-slate-800">₩{formatNum(globalCash)}</span>
-                  </div>
-                  
-                  {/* 외부 자금 충전 영역 */}
-                  <div className="flex items-stretch gap-1.5">
-                    <input type="text" placeholder="충전할 금액 입력" className={`flex-1 p-2.5 rounded-xl font-black text-[11px] md:text-xs outline-none border-2 focus:${t.border} text-right min-w-0 bg-slate-50 focus:bg-white transition-colors`} value={toCommaString(investInput)} onChange={e=>setInvestInput(e.target.value.replace(/[^0-9]/g, ''))} />
-                    <button onClick={() => {
-                      const amount = toPureNumber(investInput);
-                      if (amount <= 0) return showToast("⚠️ 금액을 입력해주세요.");
-                      saveStateToHistory();
-                      const newCash = globalCash + amount;
-                      setGlobalCash(newCash);
-                      setInvestInput('');
-                      logTrade({ type: 'income', name: '지갑 충전', category: '충전', amount: amount });
-                      showToast(`✅ ₩${formatNum(amount)} 충전되었습니다.`);
-                      saveConfig(accounts, exchangeRate, appTitle, appSubtitle, characterName, appTheme, newCash);
-                    }} className="bg-slate-800 text-white px-4 rounded-xl font-black text-[10px] md:text-xs whitespace-nowrap shadow-sm hover:bg-slate-900 transition-colors">충전</button>
-                  </div>
-
-                  {/* 🎯 가계부 연동을 위한 수익/소비 버튼 */}
-                  <div className="flex justify-between items-center mt-2 mb-1">
-                    <div className="flex gap-1.5 flex-1">
-                      <button onClick={() => { setIncomeMode('salary'); setIncomeAmount(''); setIsNbbang(false); setExpenseDateInput(''); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'salary' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>월급 💵</button>
-                      <button onClick={() => { setIncomeMode('bonus'); setIncomeAmount(''); setIsNbbang(false); setExpenseDateInput(''); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'bonus' ? 'bg-blue-100 text-blue-700 border border-blue-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>수익 🧧</button>
-                      <button onClick={() => { setIncomeMode('expense'); setIncomeAmount(''); setIsNbbang(false); setIsNbbangConfirmed(false); setNbbangList([{id:Date.now(), name:''}]); setExpenseDateInput(''); }} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${incomeMode === 'expense' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}`}>소비 💳</button>
-                    </div>
-                  </div>
-                  
                   {incomeMode && (
                     <div className="flex flex-col gap-2 animate-in slide-in-from-top-2 duration-200 bg-slate-50 p-2.5 rounded-xl border border-slate-200 mt-2">
+                      {(incomeMode === 'salary' || incomeMode === 'bonus') && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {accounts.filter(a => a.type === 'savings').map(a => (
+                            <button key={a.id} type="button" onClick={() => setBonusDestAccId(bonusDestAccId === `acc:${a.id}` ? '' : `acc:${a.id}`)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `acc:${a.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
+                              🏦 {a.name} <span className="opacity-70">₩{formatNum(a.cash)}</span>
+                            </button>
+                          ))}
+                          {stocks.filter(s => accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'savings').map(s => (
+                            <button key={s.id} type="button" onClick={() => setBonusDestAccId(bonusDestAccId === `stock:${s.id}` ? '' : `stock:${s.id}`)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `stock:${s.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
+                              💰 {s.name} <span className="opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       {incomeMode === 'bonus' && (
                         <select className="w-full text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={incomeCategory} onChange={e => setIncomeCategory(e.target.value)}>
                           <option value="출장비">출장비</option><option value="성과급">성과급</option><option value="복지비">복지비</option><option value="자기계발비">자기계발</option><option value="기타 수익">기타</option>
@@ -5761,7 +5723,15 @@ const AppContent = () => {
                           let isPaidNow = false;
 
                           if (!isExpense) {
-                            updatedGlobalCash += amt;
+                            if (bonusDestAccId && bonusDestAccId !== 'wallet') {
+                              if (bonusDestAccId.startsWith('stock:')) {
+                                const stockId = bonusDestAccId.replace('stock:', '');
+                                updatedStocks = updatedStocks.map(s => String(s.id) === stockId ? { ...s, quantity: String(toPureNumber(s.quantity) + amt) } : s);
+                              } else {
+                                const accId = bonusDestAccId.replace('acc:', '');
+                                updatedAccs = updatedAccs.map(a => a.id === accId ? { ...a, cash: String(toPureNumber(a.cash) + amt) } : a);
+                              }
+                            }
                             isPaidNow = true;
                           } else {
                             if (paymentMethod === '현금') {
@@ -5783,20 +5753,15 @@ const AppContent = () => {
                                   if (!srcAcc || toPureNumber(srcAcc.cash) < myShare) return showToast("⚠️ 계좌 잔액이 부족합니다.");
                                   updatedAccs = updatedAccs.map(a => a.id === transferAccId ? { ...a, cash: String(toPureNumber(a.cash) - myShare) } : a);
                                } else {
-                                  updatedGlobalCash -= myShare;
-                                  if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
+                                  isPaidNow = true;
                                }
                                isPaidNow = true;
                             } else {
                                const selectedCardInfo = myCards.find(c => c.name === selectedCard)
                                  || stocks.find(s => s.name === selectedCard && accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'card');
                                const linkedAccId = selectedCardInfo?.linkedAcc || selectedCardInfo?.cardLinkedAcc || '';
-                               const deductFrom = linkedAccId || (paymentMethod === '체크카드' ? 'wallet' : '');
-                               if (deductFrom === 'wallet') {
-                                  updatedGlobalCash -= myShare;
-                                  if (updatedGlobalCash < 0) return showToast("⚠️ 지갑 잔액이 부족합니다.");
-                                  isPaidNow = true;
-                               } else if (deductFrom.startsWith('stock:')) {
+                               const deductFrom = linkedAccId || '';
+                               if (deductFrom.startsWith('stock:')) {
                                   const stockId = deductFrom.replace('stock:', '');
                                   const targetStock = updatedStocks.find(s => String(s.id) === stockId);
                                   if (!targetStock || toPureNumber(targetStock.quantity) < myShare) return showToast("⚠️ 연동된 통장 잔액이 부족합니다.");
@@ -5892,53 +5857,43 @@ const AppContent = () => {
                     </div>
                   )}
                 </div> 
-              ) : ( 
+              ) : (
                 <div className="space-y-3">
-                  <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-slate-400 text-center">보내는 대상 (출금)
-                  </label>
+                  <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-slate-400 text-center">보내는 대상 (출금)</label>
                     <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={transferFromId} onChange={e=>setTransferFromId(e.target.value)}>
-                      <option value="wallet">👛 지갑 (₩{formatNum(globalCash)})</option>
                       {accounts.map(a=><option key={`from-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name} (₩{formatNum(a.cash)})</option>)}
                     </select>
                   </div>
                   <div className="flex justify-center -my-1 text-slate-300 text-[10px]">▼</div>
                   <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-slate-400 text-center">받는 대상 (입금)</label>
                     <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={transferToId} onChange={e=>setTransferToId(e.target.value)}>
-                      <option value="wallet">👛 지갑</option>
                       {accounts.map(a=><option key={`to-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name}</option>)}
                     </select>
                   </div>
                   <div className="flex items-stretch gap-1.5 mt-2">
                     <input type="text" placeholder="이체 금액 입력" className={`flex-1 p-2.5 rounded-xl font-black text-xs outline-none border-2 focus:${t.border} text-right min-w-0`} value={toCommaString(investInput)} onChange={e=>setInvestInput(e.target.value.replace(/[^0-9]/g, ''))} />
                     <button onClick={() => {
-                      const maxAmount = transferFromId === 'wallet' ? globalCash : toPureNumber(accounts.find(a => a.id === transferFromId)?.cash || 0);
-                      setInvestInput(String(maxAmount));
+                      const fromAcc = accounts.find(a => a.id === (transferFromId || accounts[0]?.id));
+                      setInvestInput(String(toPureNumber(fromAcc?.cash || 0)));
                     }} className="shrink-0 bg-slate-100 text-slate-600 px-3 rounded-xl font-black text-[10px] border border-slate-200 shadow-sm hover:bg-slate-200">전액</button>
                     <button onClick={(e) => {
                        const amount = toPureNumber(investInput);
                        if (amount <= 0) return showToast("⚠️ 금액을 입력해주세요.");
                        saveStateToHistory();
                        let updatedAccs = [...accounts];
-                       let updatedGlobalCash = globalCash;
-                       const activeFromId = transferFromId || 'wallet';
-                       const activeToId = transferToId || (accounts[0] ? accounts[0].id : '');
+                       const activeFromId = transferFromId || (accounts[0] ? accounts[0].id : '');
+                       const activeToId = transferToId || (accounts[1] ? accounts[1].id : accounts[0]?.id || '');
                        if (activeFromId === activeToId) return showToast("⚠️ 출발지와 도착지가 같습니다.");
-                       if (activeFromId === 'wallet') {
-                         if (updatedGlobalCash < amount) return showToast("⚠️ 지갑 잔액이 부족합니다.");
-                         updatedGlobalCash -= amount;
-                       } else {
-                         const fromAcc = updatedAccs.find(a => a.id === activeFromId);
-                         if (!fromAcc || toPureNumber(fromAcc.cash) < amount) return showToast("⚠️ 출금 잔액이 부족합니다.");
-                         updatedAccs = updatedAccs.map(a => a.id === activeFromId ? { ...a, cash: String(toPureNumber(a.cash) - amount) } : a);
-                       }
-                       if (activeToId === 'wallet') { updatedGlobalCash += amount; } 
-                       else { updatedAccs = updatedAccs.map(a => a.id === activeToId ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a); }
-                       setGlobalCash(updatedGlobalCash); setAccounts(updatedAccs); setInvestInput('');
+                       const fromAcc = updatedAccs.find(a => a.id === activeFromId);
+                       if (!fromAcc || toPureNumber(fromAcc.cash) < amount) return showToast("⚠️ 출금 잔액이 부족합니다.");
+                       updatedAccs = updatedAccs.map(a => a.id === activeFromId ? { ...a, cash: String(toPureNumber(a.cash) - amount) } : a);
+                       updatedAccs = updatedAccs.map(a => a.id === activeToId ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a);
+                       setAccounts(updatedAccs); setInvestInput('');
                        showToast(`✅ ₩${formatNum(amount)} 이체 완료!`);
-                       saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, updatedGlobalCash);
+                       saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
                     }} className="bg-blue-500 text-white px-4 rounded-xl font-black text-[10px] md:text-xs shadow-sm hover:bg-blue-600">이체</button>
                   </div>
-                </div> 
+                </div>
               )}
             </div>
             {/* 🎯 바뀐 하단 확인 버튼 (클릭 시 모달 닫힘) */}
