@@ -772,6 +772,8 @@ const AppContent = () => {
   const [newLoanRate, setNewLoanRate] = useState('');
   const [newLoanPayDay, setNewLoanPayDay] = useState('');
   const [newLoanPeriod, setNewLoanPeriod] = useState('');
+  const [loanItemModal, setLoanItemModal] = useState({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' });
+  const [spendingChargeModal, setSpendingChargeModal] = useState({ isOpen: false, stockId: null, amount: '', fromAccId: '' });
   const [isEditAccountOpen, setIsEditAccountOpen] = useState(false);
   const [editAccountName, setEditAccountName] = useState('');
 
@@ -811,6 +813,9 @@ const AppContent = () => {
   const [editFixedPayment, setEditFixedPayment] = useState({ method: '현금', cardName: '', transferAccId: '' });
   const [editFixedIsUSD, setEditFixedIsUSD] = useState(false);
   const [bonusDestAccId, setBonusDestAccId] = useState(''); // 수익 입금 계좌 ('wallet' | 'acc:{id}' | 'stock:{id}')
+  const [salaryDestAccId, setSalaryDestAccId] = useState(''); // 월급 입금 계좌
+  const [salaryAmount, setSalaryAmount] = useState('');
+  const [bonusAmount, setBonusAmount] = useState('');
 
   const [draggedAccIdx, setDraggedAccIdx] = useState(null); 
 
@@ -2750,9 +2755,9 @@ const AppContent = () => {
                         </div>
                         {!isCard && <div className="flex gap-1 h-[20px] md:h-[24px]">
                           {isSpending ? (
-                            <div className="flex gap-1 w-full">{activeDepositId === s.id ? ( <div className="flex gap-1 w-full">{availableSources.length > 1 ? ( <select className={`w-[35%] text-[8px] md:text-[9px] px-1 border rounded outline-none font-black bg-rose-50 shrink-0 text-right`} value={depositSourceId} onChange={e=>setDepositSourceId(e.target.value)} onClick={e=>e.stopPropagation()}>{availableSources.map(src => <option key={src.id} value={src.id}>{src.name}</option>)}</select> ) : ( <div className={`w-[35%] text-[8px] md:text-[9px] px-1 border rounded font-black bg-rose-50 flex items-center justify-center truncate shrink-0`}>{availableSources[0]?.name || '지갑'}</div> )}<input type="text" className="flex-1 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black text-rose-600 py-0.5 md:py-1 min-w-0" placeholder="금액" value={toCommaString(depositAmount)} onChange={e => setDepositAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => handleSavingsDeposit(e, s.id)} className="bg-rose-500 text-white rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 px-1 md:px-1.5 shadow-sm shrink-0">확인</button><button onClick={(e)=>{e.stopPropagation();setActiveDepositId(null);}} className="bg-slate-200 text-slate-600 rounded px-1 md:px-1.5 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : (
-                              <button onClick={(e)=>{e.stopPropagation(); if(!canDeposit){ showToast("⚠️ 지갑이나 입출금 계좌에 잔액이 없습니다."); return; } setActiveDepositId(s.id);setDepositAmount('');setDepositSourceId(availableSources.find(a=>a.id === selectedAccountId)?.id || availableSources[0]?.id || 'wallet');}} className="flex-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[9px] md:text-[10px] font-black shadow-sm flex items-center justify-center gap-1 w-full whitespace-nowrap py-0.5 md:py-1">💳 충전</button>
-                            )}</div>
+                            <div className="flex gap-1 w-full">
+                              <button onClick={(e)=>{e.stopPropagation(); const savAccs = accounts.filter(a=>a.type==='savings'); const defaultFrom = s.linkedAccId || savAccs[0]?.id || ''; setSpendingChargeModal({ isOpen: true, stockId: s.id, amount: '', fromAccId: defaultFrom }); }} className="flex-1 bg-rose-50 text-rose-600 border border-rose-200 rounded text-[9px] md:text-[10px] font-black shadow-sm flex items-center justify-center gap-1 w-full whitespace-nowrap py-0.5 md:py-1">💳 충전</button>
+                            </div>
                           ) : !isSavings ? ( <>
                             {pendingBuys[s.id] ? ( <div className="flex gap-1 flex-1"><input type="text" className={`w-8 md:w-10 flex-1 min-w-0 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black ${t.text} py-0.5 md:py-1`} placeholder="수량" value={buyAmount} onChange={e => setBuyAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => handleBuyStock(e, s.id, buyAmount)} className={`flex-[0.8] ${t.main} rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shadow-sm px-1.5 md:px-2`}>확인</button><button onClick={(e)=>{e.stopPropagation();setPendingBuys(p=>({...p,[s.id]:false}));}} className="bg-slate-200 text-slate-600 rounded px-1.5 md:px-2 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : 
                              pendingSells[s.id] ? ( <div className="flex gap-1 flex-1"><input type="text" className={`w-8 md:w-10 flex-1 min-w-0 text-[9px] md:text-[10px] px-1 border rounded text-right outline-none font-black text-slate-600 py-0.5 md:py-1`} placeholder="수량" value={sellAmount} onChange={e => setSellAmount(e.target.value.replace(/[^0-9]/g, ''))} onClick={e => e.stopPropagation()} autoFocus /><button onClick={(e) => { e.stopPropagation(); setSellAmount(s.quantity); }} className="px-1 md:px-1.5 bg-slate-200 text-slate-600 rounded text-[8px] md:text-[9px] font-black py-0.5 md:py-1 shrink-0 hover:bg-slate-300">전체</button><button onClick={(e) => handleSellStock(e, s.id, sellAmount)} className="flex-[0.8] bg-slate-500 text-white rounded text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shadow-sm px-1.5 md:px-2 hover:bg-slate-600">확인</button><button onClick={(e)=>{e.stopPropagation();setPendingSells(p=>({...p,[s.id]:false}));}} className="bg-slate-200 text-slate-600 rounded px-1.5 md:px-2 text-[9px] md:text-[10px] font-black py-0.5 md:py-1 shrink-0">X</button></div> ) : (
@@ -2834,6 +2839,7 @@ const AppContent = () => {
                     <div className="w-full border-t border-dashed border-orange-200 my-0.5"></div>
                     <div className="flex justify-between text-[10px]"><span className="text-orange-500 font-bold">유형</span><span className="font-black text-orange-600">대출</span></div>
                   </div>
+                  <button onClick={() => setLoanItemModal({ isOpen: true, loanId: loan.id, amount: loan.amount ? String(loan.amount) : '', rate: loan.rate || '', payDay: loan.payDay || '', period: loan.period || '', linkedAccId: loan.linkedAccId || '' })} className="mt-2 w-full bg-orange-100 text-orange-600 border border-orange-200 rounded-lg py-1 text-[9px] font-black hover:bg-orange-200 transition-colors flex items-center justify-center gap-1"><Plus size={9}/> 항목 추가</button>
                 </div>
               ))}
               </div>
@@ -5216,9 +5222,20 @@ const AppContent = () => {
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">목표 비중</label><div className="relative flex items-center"><input type="text" className={`w-full py-2 pl-2.5 pr-6 rounded-xl font-black text-xs outline-none border transition-colors text-right ${isRatioExceededModal ? 'bg-red-50 border-red-500 text-red-500' : `bg-slate-50 focus:${t.border}`}`} value={newStock.targetRatio} onChange={e => handleFormattedChange('targetRatio', e.target.value)} placeholder="자유입력" />{newStock.targetRatio && <span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span>}</div></div>
                 </div>
               ) : currentAccountStat?.type === 'spending' ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재금액</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">₩</span><input type="text" className="w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" /></div></div>
-                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">혜택</label><div className="relative flex items-center"><input type="text" className="w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={newStock.benefit} onChange={e => handleFormattedChange('benefit', e.target.value)} placeholder="0" /><span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span></div></div>
+                <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재금액</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">₩</span><input type="text" className="w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" /></div></div>
+                    <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">혜택</label><div className="relative flex items-center"><input type="text" className="w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={newStock.benefit} onChange={e => handleFormattedChange('benefit', e.target.value)} placeholder="0" /><span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span></div></div>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 block text-center">충전 출금 계좌 (저축계좌)</label>
+                    <select className="w-full bg-slate-50 py-2 px-2 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-center" value={newStock.linkedAccId || ''} onChange={e => setNewStock({...newStock, linkedAccId: e.target.value})}>
+                      <option value="">선택 안 함</option>
+                      {accounts.filter(a => a.type === 'savings').map(a => (
+                        <option key={a.id} value={a.id}>🏦 {a.name} (₩{formatNum(a.cash)})</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               ) : currentAccountStat?.type === 'card' ? (
                 <>
@@ -5487,31 +5504,14 @@ const AppContent = () => {
             </div>
             {newAccountType === 'loan' ? (
               <div className="flex flex-col gap-2.5">
+                <p className="text-[10px] text-slate-400 text-center font-bold">대출명만 입력하고 등록하세요.<br/>상세 정보는 대출 카드에서 항목 추가로 입력합니다.</p>
                 <input type="text" placeholder="대출명 (예: 전세대출)" autoFocus className="w-full p-2.5 rounded-xl text-sm font-bold outline-none border focus:border-orange-400 text-center" value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} />
-                <div className="relative flex items-center">
-                  <span className="absolute left-3 text-xs font-bold text-slate-400">₩</span>
-                  <input type="text" placeholder="대출 잔액 (원금)" className="w-full p-2.5 pl-7 rounded-xl text-sm font-bold outline-none border focus:border-orange-400 text-right" value={toCommaString(newLoanAmount)} onChange={e=>setNewLoanAmount(e.target.value.replace(/[^0-9]/g,''))} />
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1 relative flex items-center">
-                    <input type="text" placeholder="이자율" className="w-full p-2.5 pr-7 rounded-xl text-sm font-bold outline-none border focus:border-orange-400 text-right" value={newLoanRate} onChange={e=>setNewLoanRate(e.target.value.replace(/[^0-9.]/g,''))} />
-                    <span className="absolute right-3 text-xs font-bold text-slate-400">%</span>
-                  </div>
-                  <div className="flex-1 relative flex items-center">
-                    <input type="text" placeholder="납입일" className="w-full p-2.5 pr-6 rounded-xl text-sm font-bold outline-none border focus:border-orange-400 text-right" value={newLoanPayDay} onChange={e=>setNewLoanPayDay(e.target.value.replace(/[^0-9]/g,''))} />
-                    <span className="absolute right-3 text-xs font-bold text-slate-400">일</span>
-                  </div>
-                </div>
-                <div className="relative flex items-center">
-                  <input type="text" placeholder="계약기간 (개월)" className="w-full p-2.5 pr-10 rounded-xl text-sm font-bold outline-none border focus:border-orange-400 text-right" value={newLoanPeriod} onChange={e=>setNewLoanPeriod(e.target.value.replace(/[^0-9]/g,''))} />
-                  <span className="absolute right-3 text-xs font-bold text-slate-400">개월</span>
-                </div>
                 <button onClick={() => {
-                  if (!newAccountName.trim() || !newLoanAmount) return showToast('⚠️ 대출명과 금액을 입력해주세요.');
-                  const newLoan = { id: 'loan_' + Date.now(), name: newAccountName, amount: toPureNumber(newLoanAmount), rate: newLoanRate, payDay: newLoanPayDay, period: newLoanPeriod };
+                  if (!newAccountName.trim()) return showToast('⚠️ 대출명을 입력해주세요.');
+                  const newLoan = { id: 'loan_' + Date.now(), name: newAccountName, amount: 0, rate: '', payDay: '', period: '', linkedAccId: '' };
                   setLoans(prev => [...prev, newLoan]);
-                  setIsAddAccountOpen(false); setNewAccountName(''); setNewLoanAmount(''); setNewLoanRate(''); setNewLoanPayDay(''); setNewLoanPeriod('');
-                  showToast('✅ 대출이 등록되었습니다.');
+                  setIsAddAccountOpen(false); setNewAccountName('');
+                  showToast('✅ 대출이 등록되었습니다. 카드에서 항목 추가를 눌러 상세 정보를 입력하세요.');
                 }} className="w-full bg-orange-500 text-white py-2.5 rounded-xl text-xs font-black shadow-md hover:bg-orange-600 transition-colors">대출 등록하기</button>
               </div>
             ) : (
@@ -5557,6 +5557,98 @@ const AppContent = () => {
         </div>
       )}
 
+      {/* 소비계좌 항목 충전 모달 */}
+      {spendingChargeModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative">
+            <button onClick={() => setSpendingChargeModal({ isOpen: false, stockId: null, amount: '', fromAccId: '' })} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
+            <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">💳 충전하기</h3>
+            <div className="mb-4 space-y-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-black text-slate-400 text-center">출금 저축 계좌</label>
+                <select className="w-full p-2.5 rounded-xl bg-slate-50 border outline-none font-black text-xs text-center" value={spendingChargeModal.fromAccId} onChange={e=>setSpendingChargeModal({...spendingChargeModal, fromAccId: e.target.value})}>
+                  <option value="">선택 안 함 (잔액 차감 없음)</option>
+                  {accounts.filter(a => a.type === 'savings').map(a => (
+                    <option key={a.id} value={a.id}>🏦 {a.name} (₩{formatNum(a.cash)})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative flex items-center">
+                <span className="absolute left-3 text-xs font-bold text-slate-400">₩</span>
+                <input type="text" placeholder="충전 금액" className="w-full p-2.5 pl-7 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right text-rose-600" value={toCommaString(spendingChargeModal.amount)} onChange={e=>setSpendingChargeModal({...spendingChargeModal, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setSpendingChargeModal({ isOpen: false, stockId: null, amount: '', fromAccId: '' })} className="flex-1 py-2.5 rounded-xl font-black text-slate-600 text-xs bg-slate-100 hover:bg-slate-200 transition-colors">취소</button>
+              <button onClick={() => {
+                const amt = toPureNumber(spendingChargeModal.amount);
+                if (amt <= 0) return showToast('⚠️ 금액을 입력해주세요.');
+                saveStateToHistory();
+                let updatedStocks = stocks.map(s => s.id === spendingChargeModal.stockId ? { ...s, quantity: String(toPureNumber(s.quantity) + amt) } : s);
+                let updatedAccs = [...accounts];
+                if (spendingChargeModal.fromAccId) {
+                  const fromAcc = updatedAccs.find(a => a.id === spendingChargeModal.fromAccId);
+                  if (!fromAcc || toPureNumber(fromAcc.cash) < amt) return showToast('⚠️ 저축 계좌 잔액이 부족합니다.');
+                  updatedAccs = updatedAccs.map(a => a.id === spendingChargeModal.fromAccId ? { ...a, cash: String(toPureNumber(a.cash) - amt) } : a);
+                }
+                setStocks(updatedStocks);
+                setAccounts(updatedAccs);
+                setSpendingChargeModal({ isOpen: false, stockId: null, amount: '', fromAccId: '' });
+                showToast(`✅ ₩${formatNum(amt)} 충전 완료!`);
+              }} className="flex-1 py-2.5 rounded-xl font-black text-white text-xs bg-rose-500 hover:bg-rose-600 shadow-md transition-colors">충전</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 대출 세부 항목 추가 모달 */}
+      {loanItemModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative">
+            <button onClick={() => setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' })} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
+            <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">🏦 대출 상세 입력</h3>
+            <div className="flex flex-col gap-2.5 mb-4">
+              <div className="relative flex items-center">
+                <span className="absolute left-3 text-xs font-bold text-slate-400">₩</span>
+                <input type="text" placeholder="대출 잔액 (원금)" className="w-full p-2.5 pl-7 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right focus:border-orange-400" value={toCommaString(loanItemModal.amount)} onChange={e=>setLoanItemModal({...loanItemModal, amount: e.target.value.replace(/[^0-9]/g,'')})} autoFocus />
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 relative flex items-center">
+                  <input type="text" placeholder="이자율" className="w-full p-2.5 pr-7 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right focus:border-orange-400" value={loanItemModal.rate} onChange={e=>setLoanItemModal({...loanItemModal, rate: e.target.value.replace(/[^0-9.]/g,'')})} />
+                  <span className="absolute right-3 text-xs font-bold text-slate-400">%</span>
+                </div>
+                <div className="flex-1 relative flex items-center">
+                  <input type="text" placeholder="납입일" className="w-full p-2.5 pr-6 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right focus:border-orange-400" value={loanItemModal.payDay} onChange={e=>setLoanItemModal({...loanItemModal, payDay: e.target.value.replace(/[^0-9]/g,'')})} />
+                  <span className="absolute right-3 text-xs font-bold text-slate-400">일</span>
+                </div>
+              </div>
+              <div className="relative flex items-center">
+                <input type="text" placeholder="계약기간 (개월)" className="w-full p-2.5 pr-10 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right focus:border-orange-400" value={loanItemModal.period} onChange={e=>setLoanItemModal({...loanItemModal, period: e.target.value.replace(/[^0-9]/g,'')})} />
+                <span className="absolute right-3 text-xs font-bold text-slate-400">개월</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-black text-slate-400 text-center">출금 저축 계좌 (이자 납입용)</label>
+                <select className="w-full p-2.5 rounded-xl bg-slate-50 border outline-none font-black text-xs text-center focus:border-orange-400" value={loanItemModal.linkedAccId} onChange={e=>setLoanItemModal({...loanItemModal, linkedAccId: e.target.value})}>
+                  <option value="">선택 안 함</option>
+                  {accounts.filter(a => a.type === 'savings').map(a => (
+                    <option key={a.id} value={a.id}>🏦 {a.name} (₩{formatNum(a.cash)})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' })} className="flex-1 py-2.5 rounded-xl font-black text-slate-600 text-xs bg-slate-100 hover:bg-slate-200 transition-colors">취소</button>
+              <button onClick={() => {
+                if (!loanItemModal.amount) return showToast('⚠️ 대출 잔액을 입력해주세요.');
+                setLoans(prev => prev.map(l => l.id === loanItemModal.loanId ? { ...l, amount: toPureNumber(loanItemModal.amount), rate: loanItemModal.rate, payDay: loanItemModal.payDay, period: loanItemModal.period, linkedAccId: loanItemModal.linkedAccId } : l));
+                setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' });
+                showToast('✅ 대출 정보가 저장되었습니다.');
+              }} className="flex-1 py-2.5 rounded-xl font-black text-white text-xs bg-orange-500 hover:bg-orange-600 shadow-md transition-colors">저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 저축 만기 입력 모달 */}
       {savingsMaturityModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -5590,57 +5682,79 @@ const AppContent = () => {
             <div className="mb-4 flex flex-col justify-center flex-1 overflow-y-auto custom-scrollbar pr-1">
               {investTab === 'income' ? (
                 <div className="flex flex-col gap-3">
-                  {/* 월급 / 수익 서브탭 */}
-                  <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
-                    <button onClick={() => setIncomeMode('salary')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all ${incomeMode === 'salary' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-400'}`}>월급 💵</button>
-                    <button onClick={() => setIncomeMode('bonus')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-all ${incomeMode === 'bonus' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-400'}`}>수익 🧧</button>
+                  {/* 월급 섹션 */}
+                  <div className="flex flex-col gap-2 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                    <span className="text-[10px] font-black text-emerald-700">💵 월급</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {accounts.filter(a => a.type === 'savings').map(a => (
+                        <button key={a.id} type="button" onClick={() => setSalaryDestAccId(salaryDestAccId === `acc:${a.id}` ? '' : `acc:${a.id}`)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${salaryDestAccId === `acc:${a.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
+                          🏦 {a.name} <span className="opacity-70">₩{formatNum(a.cash)}</span>
+                        </button>
+                      ))}
+                      {stocks.filter(s => accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'savings').map(s => (
+                        <button key={s.id} type="button" onClick={() => setSalaryDestAccId(salaryDestAccId === `stock:${s.id}` ? '' : `stock:${s.id}`)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${salaryDestAccId === `stock:${s.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
+                          💰 {s.name} <span className="opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-emerald-200 rounded-lg p-2 outline-none focus:border-emerald-400 bg-white min-w-0" placeholder="월급 금액" value={toCommaString(salaryAmount)} onChange={e => setSalaryAmount(e.target.value.replace(/[^0-9]/g, ''))} />
+                      <button onClick={() => {
+                        const amt = toPureNumber(salaryAmount);
+                        if (amt <= 0) return showToast('⚠️ 금액을 입력해주세요.');
+                        saveStateToHistory();
+                        let updatedAccs = [...accounts]; let updatedStocks = [...stocks];
+                        if (salaryDestAccId) {
+                          if (salaryDestAccId.startsWith('stock:')) { const sid = salaryDestAccId.replace('stock:', ''); updatedStocks = updatedStocks.map(s => String(s.id) === sid ? { ...s, quantity: String(toPureNumber(s.quantity) + amt) } : s); }
+                          else { const aid = salaryDestAccId.replace('acc:', ''); updatedAccs = updatedAccs.map(a => a.id === aid ? { ...a, cash: String(toPureNumber(a.cash) + amt) } : a); }
+                        }
+                        setAccounts(updatedAccs); setStocks(updatedStocks);
+                        logTrade({ type: 'income', name: '월급 입금', category: '급여', amount: amt });
+                        setSalaryAmount('');
+                        showToast('🎉 월급 처리 완료!');
+                        saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
+                      }} className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-emerald-600">확인</button>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                    {/* 입금 계좌 선택 */}
+                  {/* 수익 섹션 */}
+                  <div className="flex flex-col gap-2 bg-blue-50 p-2.5 rounded-xl border border-blue-200">
+                    <span className="text-[10px] font-black text-blue-700">🧧 수익</span>
                     <div className="flex flex-wrap gap-1.5">
                       {accounts.filter(a => a.type === 'savings').map(a => (
                         <button key={a.id} type="button" onClick={() => setBonusDestAccId(bonusDestAccId === `acc:${a.id}` ? '' : `acc:${a.id}`)}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `acc:${a.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `acc:${a.id}` ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-100'}`}>
                           🏦 {a.name} <span className="opacity-70">₩{formatNum(a.cash)}</span>
                         </button>
                       ))}
                       {stocks.filter(s => accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'savings').map(s => (
                         <button key={s.id} type="button" onClick={() => setBonusDestAccId(bonusDestAccId === `stock:${s.id}` ? '' : `stock:${s.id}`)}
-                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `stock:${s.id}` ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100'}`}>
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${bonusDestAccId === `stock:${s.id}` ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-100'}`}>
                           💰 {s.name} <span className="opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
                         </button>
                       ))}
                     </div>
-                    {incomeMode === 'bonus' && (
-                      <select className="w-full text-[10px] font-black text-slate-700 border border-slate-200 rounded-lg p-2 outline-none bg-white" value={incomeCategory} onChange={e => setIncomeCategory(e.target.value)}>
-                        <option value="출장비">출장비</option><option value="성과급">성과급</option><option value="복지비">복지비</option><option value="자기계발비">자기계발</option><option value="기타 수익">기타</option>
-                      </select>
-                    )}
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-emerald-400 min-w-0" placeholder="금액 입력" value={toCommaString(incomeAmount)} onChange={e => setIncomeAmount(e.target.value.replace(/[^0-9]/g, ''))} autoFocus />
+                    <select className="w-full text-[10px] font-black text-slate-700 border border-blue-200 rounded-lg p-2 outline-none bg-white" value={incomeCategory} onChange={e => setIncomeCategory(e.target.value)}>
+                      <option value="출장비">출장비</option><option value="성과급">성과급</option><option value="복지비">복지비</option><option value="자기계발비">자기계발</option><option value="기타 수익">기타</option>
+                    </select>
+                    <div className="flex items-center gap-1.5">
+                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-blue-200 rounded-lg p-2 outline-none focus:border-blue-400 bg-white min-w-0" placeholder="수익 금액" value={toCommaString(bonusAmount)} onChange={e => setBonusAmount(e.target.value.replace(/[^0-9]/g, ''))} />
                       <button onClick={() => {
-                        const amt = toPureNumber(incomeAmount);
-                        if (amt <= 0) return;
+                        const amt = toPureNumber(bonusAmount);
+                        if (amt <= 0) return showToast('⚠️ 금액을 입력해주세요.');
                         saveStateToHistory();
-                        let updatedAccs = [...accounts];
-                        let updatedStocks = [...stocks];
-                        if (bonusDestAccId && bonusDestAccId !== 'wallet') {
-                          if (bonusDestAccId.startsWith('stock:')) {
-                            const sid = bonusDestAccId.replace('stock:', '');
-                            updatedStocks = updatedStocks.map(s => String(s.id) === sid ? { ...s, quantity: String(toPureNumber(s.quantity) + amt) } : s);
-                          } else {
-                            const aid = bonusDestAccId.replace('acc:', '');
-                            updatedAccs = updatedAccs.map(a => a.id === aid ? { ...a, cash: String(toPureNumber(a.cash) + amt) } : a);
-                          }
+                        let updatedAccs = [...accounts]; let updatedStocks = [...stocks];
+                        if (bonusDestAccId) {
+                          if (bonusDestAccId.startsWith('stock:')) { const sid = bonusDestAccId.replace('stock:', ''); updatedStocks = updatedStocks.map(s => String(s.id) === sid ? { ...s, quantity: String(toPureNumber(s.quantity) + amt) } : s); }
+                          else { const aid = bonusDestAccId.replace('acc:', ''); updatedAccs = updatedAccs.map(a => a.id === aid ? { ...a, cash: String(toPureNumber(a.cash) + amt) } : a); }
                         }
                         setAccounts(updatedAccs); setStocks(updatedStocks);
-                        const logCat = incomeMode === 'salary' ? '급여' : incomeCategory;
-                        const logName = incomeMode === 'salary' ? '월급 입금' : `${incomeCategory} 입금`;
-                        logTrade({ type: 'income', name: logName, category: logCat, amount: amt });
-                        setIncomeAmount(''); setBonusDestAccId('');
-                        showToast(`🎉 ${logCat} 처리 완료!`);
+                        logTrade({ type: 'income', name: `${incomeCategory} 입금`, category: incomeCategory, amount: amt });
+                        setBonusAmount(''); setBonusDestAccId('');
+                        showToast(`🎉 ${incomeCategory} 처리 완료!`);
                         saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
-                      }} className="bg-emerald-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-emerald-600">확인</button>
+                      }} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-blue-600">확인</button>
                     </div>
                   </div>
                 </div>
@@ -5963,44 +6077,63 @@ const AppContent = () => {
                     </div>
                   )}
                 </div> 
-              ) : (
+              ) : (() => {
+                // 이체 가능한 항목 목록 구성 (계좌 cash + 저축/소비 계좌 안의 stock.quantity)
+                const transferOptions = [
+                  ...accounts.map(a => ({ key: `acc:${a.id}`, label: `${a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : a.type === 'card' ? '💳' : '📈'} ${a.name}`, balance: toPureNumber(a.cash) })),
+                  ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings' || acc?.type === 'spending'; }).map(s => ({ key: `stock:${s.id}`, label: `  └ ${s.name}`, balance: toPureNumber(s.quantity) }))
+                ];
+                const activeFromKey = transferFromId || transferOptions[0]?.key || '';
+                const activeToKey = transferToId || transferOptions[1]?.key || transferOptions[0]?.key || '';
+                const fromOption = transferOptions.find(o => o.key === activeFromKey);
+                return (
                 <div className="space-y-3">
                   <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-slate-400 text-center">보내는 대상 (출금)</label>
-                    <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={transferFromId} onChange={e=>setTransferFromId(e.target.value)}>
-                      {accounts.map(a=><option key={`from-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name} (₩{formatNum(a.cash)})</option>)}
+                    <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={activeFromKey} onChange={e=>setTransferFromId(e.target.value)}>
+                      {transferOptions.map(o=><option key={`from-${o.key}`} value={o.key}>{o.label} (₩{formatNum(o.balance)})</option>)}
                     </select>
                   </div>
                   <div className="flex justify-center -my-1 text-slate-300 text-[10px]">▼</div>
                   <div className="flex flex-col gap-1"><label className="text-[9px] font-black text-slate-400 text-center">받는 대상 (입금)</label>
-                    <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={transferToId} onChange={e=>setTransferToId(e.target.value)}>
-                      {accounts.filter(a => a.id !== (transferFromId || accounts[0]?.id)).map(a=><option key={`to-${a.id}`} value={a.id}>{a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : '📈'} {a.name}</option>)}
+                    <select className="w-full p-3 rounded-xl bg-slate-50 border outline-none font-black text-[10px] md:text-xs text-center" value={activeToKey} onChange={e=>setTransferToId(e.target.value)}>
+                      {transferOptions.filter(o => o.key !== activeFromKey).map(o=><option key={`to-${o.key}`} value={o.key}>{o.label}</option>)}
                     </select>
                   </div>
                   <div className="flex items-stretch gap-1.5 mt-2">
                     <input type="text" placeholder="이체 금액 입력" className={`flex-1 p-2.5 rounded-xl font-black text-xs outline-none border-2 focus:${t.border} text-right min-w-0`} value={toCommaString(investInput)} onChange={e=>setInvestInput(e.target.value.replace(/[^0-9]/g, ''))} />
-                    <button onClick={() => {
-                      const fromAcc = accounts.find(a => a.id === (transferFromId || accounts[0]?.id));
-                      setInvestInput(String(toPureNumber(fromAcc?.cash || 0)));
-                    }} className="shrink-0 bg-slate-100 text-slate-600 px-3 rounded-xl font-black text-[10px] border border-slate-200 shadow-sm hover:bg-slate-200">전액</button>
+                    <button onClick={() => { setInvestInput(String(fromOption?.balance || 0)); }} className="shrink-0 bg-slate-100 text-slate-600 px-3 rounded-xl font-black text-[10px] border border-slate-200 shadow-sm hover:bg-slate-200">전액</button>
                     <button onClick={(e) => {
                        const amount = toPureNumber(investInput);
                        if (amount <= 0) return showToast("⚠️ 금액을 입력해주세요.");
+                       if (activeFromKey === activeToKey) return showToast("⚠️ 출발지와 도착지가 같습니다.");
+                       if (!fromOption || fromOption.balance < amount) return showToast("⚠️ 출금 잔액이 부족합니다.");
                        saveStateToHistory();
                        let updatedAccs = [...accounts];
-                       const activeFromId = transferFromId || (accounts[0] ? accounts[0].id : '');
-                       const activeToId = transferToId || (accounts[1] ? accounts[1].id : accounts[0]?.id || '');
-                       if (activeFromId === activeToId) return showToast("⚠️ 출발지와 도착지가 같습니다.");
-                       const fromAcc = updatedAccs.find(a => a.id === activeFromId);
-                       if (!fromAcc || toPureNumber(fromAcc.cash) < amount) return showToast("⚠️ 출금 잔액이 부족합니다.");
-                       updatedAccs = updatedAccs.map(a => a.id === activeFromId ? { ...a, cash: String(toPureNumber(a.cash) - amount) } : a);
-                       updatedAccs = updatedAccs.map(a => a.id === activeToId ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a);
-                       setAccounts(updatedAccs); setInvestInput('');
+                       let updatedStocks = [...stocks];
+                       // 출금
+                       if (activeFromKey.startsWith('stock:')) {
+                         const sid = activeFromKey.replace('stock:', '');
+                         updatedStocks = updatedStocks.map(s => s.id === sid ? { ...s, quantity: String(toPureNumber(s.quantity) - amount) } : s);
+                       } else {
+                         const aid = activeFromKey.replace('acc:', '');
+                         updatedAccs = updatedAccs.map(a => a.id === aid ? { ...a, cash: String(toPureNumber(a.cash) - amount) } : a);
+                       }
+                       // 입금
+                       if (activeToKey.startsWith('stock:')) {
+                         const sid = activeToKey.replace('stock:', '');
+                         updatedStocks = updatedStocks.map(s => s.id === sid ? { ...s, quantity: String(toPureNumber(s.quantity) + amount) } : s);
+                       } else {
+                         const aid = activeToKey.replace('acc:', '');
+                         updatedAccs = updatedAccs.map(a => a.id === aid ? { ...a, cash: String(toPureNumber(a.cash) + amount) } : a);
+                       }
+                       setAccounts(updatedAccs); setStocks(updatedStocks); setInvestInput('');
                        showToast(`✅ ₩${formatNum(amount)} 이체 완료!`);
                        saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
                     }} className="bg-blue-500 text-white px-4 rounded-xl font-black text-[10px] md:text-xs shadow-sm hover:bg-blue-600">이체</button>
                   </div>
                 </div>
-              )}
+                );
+              })()}
             </div>
             {/* 🎯 바뀐 하단 확인 버튼 (클릭 시 모달 닫힘) */}
             <button onClick={() => setIsInvestModalOpen(false)} className="w-full bg-slate-800 text-white py-3 md:py-4 rounded-xl text-xs md:text-sm font-black shadow-lg hover:bg-slate-900 mt-auto shrink-0 transition-colors">확인</button>
