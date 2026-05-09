@@ -1337,13 +1337,11 @@ const AppContent = () => {
     });
   }, [globalStats, currentYearNum, currentMonthNum]);
 
-  // 포트폴리오 탭 타입 동기화: selectedAccountId가 바뀌면 portfolioTypeTab도 맞춤
+  // 포트폴리오 탭 타입 동기화
   useEffect(() => {
     if (!selectedAccountId || selectedAccountId.startsWith('__all__')) return;
     const acc = accounts.find(a => a.id === selectedAccountId);
-    if (acc && acc.type !== portfolioTypeTab) {
-      setPortfolioTypeTab(acc.type || 'stock');
-    }
+    if (acc) setPortfolioTypeTab(acc.type || 'stock');
   }, [selectedAccountId, accounts]);
 
   // --- Handlers ---
@@ -2561,54 +2559,44 @@ const AppContent = () => {
         </div>
       )}
 
-      {/* Account Tabs & Wallet (2단 계층형) */}
+      {/* 계좌 선택 바 (포트폴리오 탭) */}
       {activeTab === 'portfolio' && (() => {
         const typeOrder = ['stock','savings','spending','card','loan'];
-        const typeLabel = { stock: '📈 주식', savings: '🏦 저축', spending: '🛍️ 소비', card: '💳 카드', loan: '💸 대출' };
-        const typeColor = {
-          stock: { active: t.accStock, tab: 'border-b-2 ' + t.text + ' font-black', dot: t.main.split(' ')[0] },
-          savings: { active: t.accSavings, tab: 'border-b-2 text-emerald-600 font-black', dot: 'bg-emerald-500' },
-          spending: { active: 'bg-rose-500 text-white shadow-md', tab: 'border-b-2 text-rose-500 font-black', dot: 'bg-rose-500' },
-          card: { active: 'bg-purple-500 text-white shadow-md', tab: 'border-b-2 text-purple-500 font-black', dot: 'bg-purple-500' },
-          loan: { active: 'bg-orange-500 text-white shadow-md', tab: 'border-b-2 text-orange-500 font-black', dot: 'bg-orange-500' },
+        const typeDot = { stock: t.main.split(' ')[0], savings: 'bg-emerald-400', spending: 'bg-rose-400', card: 'bg-purple-400', loan: 'bg-orange-400' };
+        const typeActive = {
+          stock: t.accStock,
+          savings: 'bg-emerald-500 text-white shadow-sm',
+          spending: 'bg-rose-500 text-white shadow-sm',
+          card: 'bg-purple-500 text-white shadow-sm',
+          loan: 'bg-orange-500 text-white shadow-sm',
         };
-        const existingTypes = typeOrder.filter(type => accounts.some(a => a.type === type));
         const accsOfType = accounts.filter(a => a.type === portfolioTypeTab);
-        const activeTypeColor = typeColor[portfolioTypeTab] || typeColor.stock;
+        const isAll = selectedAccountId === '__all__' + portfolioTypeTab;
         return (
           <div className="max-w-5xl mx-auto px-4 mb-3 mt-2 animate-in fade-in zoom-in duration-300 relative z-20" onClick={(e) => e.stopPropagation()}>
-            {/* 1단: 타입 메뉴 탭 */}
-            <div className="flex items-center gap-0 bg-white rounded-t-[1.25rem] border border-slate-200 border-b-0 px-2 pt-1.5 overflow-x-auto custom-scrollbar">
-              {existingTypes.map(type => (
-                <button key={type} onClick={() => {
-                  setPortfolioTypeTab(type);
-                  const first = accounts.find(a => a.type === type);
-                  if (first) setSelectedAccountId(first.id);
-                }} className={`px-3 py-1.5 text-[11px] sm:text-xs whitespace-nowrap transition-all duration-200 rounded-t-lg mr-0.5 ${portfolioTypeTab === type ? typeColor[type].tab + ' bg-slate-50 border-slate-200 border border-b-white -mb-px z-10' : 'text-slate-400 hover:text-slate-600'}`}>
-                  {typeLabel[type]}
-                </button>
-              ))}
-              <div className="ml-auto shrink-0 pb-1">
-                <button type="button" onClick={() => setIsAddAccountOpen(true)} className={`${t.light} w-6 h-6 flex items-center justify-center rounded-full font-black shadow-sm transition-transform hover:scale-110`}><Plus size={12} strokeWidth={3}/></button>
-              </div>
-            </div>
-            {/* 2단: 해당 타입의 계좌 버튼들 */}
-            <div className="flex flex-wrap items-center gap-1.5 bg-white px-2 py-2 rounded-b-[1.25rem] border border-slate-200 border-t-0 shadow-sm">
+            <div className="flex items-center gap-1.5 bg-white px-2.5 py-2 rounded-2xl border border-slate-100 shadow-sm overflow-x-auto custom-scrollbar">
               {/* 전체 버튼 */}
-              <button onClick={() => setSelectedAccountId('__all__' + portfolioTypeTab)} className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 shrink-0 flex items-center gap-1 ${selectedAccountId === '__all__' + portfolioTypeTab ? activeTypeColor.active : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+              <button
+                onClick={() => setSelectedAccountId('__all__' + portfolioTypeTab)}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 shrink-0 whitespace-nowrap ${isAll ? typeActive[portfolioTypeTab] || typeActive.stock : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+              >
                 전체
               </button>
-              {accsOfType.map((acc, index) => {
+              <div className="w-px h-4 bg-slate-100 shrink-0" />
+              {/* 해당 타입 계좌들 */}
+              {accsOfType.map((acc) => {
                 const globalIndex = accounts.findIndex(a => a.id === acc.id);
+                const isSelected = selectedAccountId === acc.id;
                 return (
-                  <div key={acc.id} className="account-card-area relative group flex items-center">
+                  <div key={acc.id} className="account-card-area relative flex items-center shrink-0">
                     <button
                       draggable onDragStart={(e) => handleDragStart(e, globalIndex)} onDragEnter={(e) => handleDragEnter(e, globalIndex)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, globalIndex)} onDragEnd={handleDragEnd}
                       onClick={() => setSelectedAccountId(acc.id)}
                       onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
-                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[130px] overflow-hidden ${selectedAccountId === acc.id ? activeTypeColor.active : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === globalIndex ? 'opacity-30 scale-95' : ''} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 cursor-grab active:cursor-grabbing max-w-[140px] overflow-hidden ${isSelected ? typeActive[portfolioTypeTab] || typeActive.stock : 'text-slate-500 hover:bg-slate-50'} ${draggedAccIdx === globalIndex ? 'opacity-30 scale-95' : ''} ${activeCardId === acc.id ? 'ring-2 ring-inset ring-white/50' : ''}`}
                     >
-                      <span className="truncate block leading-tight">{acc.name}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isSelected ? 'bg-white/70' : typeDot[portfolioTypeTab] || typeDot.stock}`} />
+                      <span className="truncate">{acc.name}</span>
                     </button>
                     {activeCardId === acc.id && (
                       <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-lg p-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-200 after:content-[''] after:absolute after:-bottom-1 after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
@@ -2624,10 +2612,56 @@ const AppContent = () => {
         );
       })()}
 
+      {/* 하단 플로팅 타입 탭 (포트폴리오 탭) */}
+      {activeTab === 'portfolio' && (() => {
+        const typeOrder = ['stock','savings','spending','card','loan'];
+        const typeLabel = { stock: '주식', savings: '저축', spending: '소비', card: '카드', loan: '대출' };
+        const typeEmoji = { stock: '📈', savings: '🏦', spending: '🛍️', card: '💳', loan: '💸' };
+        const typeActive = {
+          stock: t.main,
+          savings: 'bg-emerald-500 text-white',
+          spending: 'bg-rose-500 text-white',
+          card: 'bg-purple-500 text-white',
+          loan: 'bg-orange-500 text-white',
+        };
+        const existingTypes = typeOrder.filter(type => accounts.some(a => a.type === type));
+        return (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-md px-2 py-2 rounded-2xl shadow-lg border border-slate-200/80">
+              {existingTypes.map(type => {
+                const isActive = portfolioTypeTab === type;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => {
+                      setPortfolioTypeTab(type);
+                      const first = accounts.find(a => a.type === type);
+                      if (first) setSelectedAccountId(first.id);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 whitespace-nowrap ${isActive ? typeActive[type] + ' shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <span className="text-[13px] leading-none">{typeEmoji[type]}</span>
+                    <span>{typeLabel[type]}</span>
+                  </button>
+                );
+              })}
+              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
+              <button
+                type="button"
+                onClick={() => setIsAddAccountOpen(true)}
+                className="w-7 h-7 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all font-black shrink-0"
+              >
+                <Plus size={14} strokeWidth={2.5}/>
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       <main className="max-w-5xl mx-auto px-4 mt-2">
         {/* --- PORTFOLIO TAB --- */}
         {activeTab === 'portfolio' && (
-          <div className="animate-in fade-in duration-500">
+          <div className="animate-in fade-in duration-500 pb-28">
             {currentAccountStat?.type === 'loan' && (() => {
               const loanAccs = selectedAccountId.startsWith('__all__')
                 ? accountStatsList.filter(a => a.type === 'loan')
