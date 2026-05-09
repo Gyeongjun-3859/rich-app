@@ -5502,24 +5502,21 @@ const AppContent = () => {
                 <button key={type} type="button" onClick={()=>setNewAccountType(type)} className={`flex-1 py-2 rounded-lg text-[9px] font-black transition-all ${newAccountType === type ? active : 'text-slate-400'}`}>{icon}<br/>{label}</button>
               ))}
             </div>
-            {newAccountType === 'loan' ? (
-              <div className="flex flex-col gap-2.5">
-                <p className="text-[10px] text-slate-400 text-center font-bold">대출명만 입력하고 등록하세요.<br/>상세 정보는 대출 카드에서 항목 추가로 입력합니다.</p>
-                <input type="text" placeholder="대출명 (예: 전세대출)" autoFocus className="w-full p-2.5 rounded-xl text-sm font-bold outline-none border focus:border-orange-400 text-center" value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} />
-                <button onClick={() => {
-                  if (!newAccountName.trim()) return showToast('⚠️ 대출명을 입력해주세요.');
-                  const newLoan = { id: 'loan_' + Date.now(), name: newAccountName, amount: 0, rate: '', payDay: '', period: '', linkedAccId: '' };
-                  setLoans(prev => [...prev, newLoan]);
-                  setIsAddAccountOpen(false); setNewAccountName('');
-                  showToast('✅ 대출이 등록되었습니다. 카드에서 항목 추가를 눌러 상세 정보를 입력하세요.');
-                }} className="w-full bg-orange-500 text-white py-2.5 rounded-xl text-xs font-black shadow-md hover:bg-orange-600 transition-colors">대출 등록하기</button>
-              </div>
-            ) : (
-              <form onSubmit={handleAddAccountSubmit} className="flex flex-col gap-3">
-                <input type="text" placeholder={newAccountType === 'card' ? '카드 별칭 (예: 신한카드)' : '계좌 별칭 (예: 생활비 통장)'} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border focus:${t.border} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} required />
-                <button type="submit" className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${newAccountType === 'stock' ? `${t.main}` : newAccountType === 'spending' ? 'bg-rose-500 hover:bg-rose-600' : newAccountType === 'card' ? 'bg-slate-700 hover:bg-slate-800' : 'bg-emerald-500 hover:bg-emerald-600'}`}>계좌 생성하기</button>
-              </form>
-            )}
+            <form onSubmit={e => {
+              e.preventDefault();
+              if (newAccountType === 'loan') {
+                if (!newAccountName.trim()) return showToast('⚠️ 대출명을 입력해주세요.');
+                const newLoan = { id: 'loan_' + Date.now(), name: newAccountName, amount: 0, rate: '', payDay: '', period: '', linkedAccId: '' };
+                setLoans(prev => [...prev, newLoan]);
+                setIsAddAccountOpen(false); setNewAccountName('');
+                showToast('✅ 대출이 등록되었습니다.');
+              } else {
+                handleAddAccountSubmit(e);
+              }
+            }} className="flex flex-col gap-3">
+              <input type="text" placeholder={newAccountType === 'card' ? '카드 별칭 (예: 신한카드)' : newAccountType === 'loan' ? '대출명 (예: 전세대출)' : '계좌 별칭 (예: 생활비 통장)'} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border ${newAccountType === 'loan' ? 'focus:border-orange-400' : `focus:${t.border}`} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} required />
+              <button type="submit" className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${newAccountType === 'stock' ? `${t.main}` : newAccountType === 'spending' ? 'bg-rose-500 hover:bg-rose-600' : newAccountType === 'card' ? 'bg-slate-700 hover:bg-slate-800' : newAccountType === 'loan' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>{newAccountType === 'loan' ? '대출 등록하기' : '계좌 생성하기'}</button>
+            </form>
           </div>
         </div>
       )}
@@ -6078,10 +6075,12 @@ const AppContent = () => {
                   )}
                 </div> 
               ) : (() => {
-                // 이체 가능한 항목 목록 구성 (계좌 cash + 저축/소비 계좌 안의 stock.quantity)
+                // 이체 가능한 항목 목록 구성:
+                // - 주식계좌: 계좌 자체(cash)
+                // - 저축/소비 계좌: 그 안의 항목(stocks)만, 계좌 자체는 제외
                 const transferOptions = [
-                  ...accounts.map(a => ({ key: `acc:${a.id}`, label: `${a.type === 'savings' ? '🏦' : a.type === 'spending' ? '🛍️' : a.type === 'card' ? '💳' : '📈'} ${a.name}`, balance: toPureNumber(a.cash) })),
-                  ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings' || acc?.type === 'spending'; }).map(s => ({ key: `stock:${s.id}`, label: `  └ ${s.name}`, balance: toPureNumber(s.quantity) }))
+                  ...accounts.filter(a => a.type !== 'savings' && a.type !== 'spending' && a.type !== 'card').map(a => ({ key: `acc:${a.id}`, label: `📈 ${a.name}`, balance: toPureNumber(a.cash) })),
+                  ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings' || acc?.type === 'spending'; }).map(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return { key: `stock:${s.id}`, label: `${acc?.type === 'spending' ? '🛍️' : '🏦'} ${s.name}`, balance: toPureNumber(s.quantity) }; })
                 ];
                 const activeFromKey = transferFromId || transferOptions[0]?.key || '';
                 const activeToKey = transferToId || transferOptions[1]?.key || transferOptions[0]?.key || '';
