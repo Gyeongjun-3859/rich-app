@@ -766,6 +766,8 @@ const AppContent = () => {
   const [subDivYear, setSubDivYear] = useState(new Date().getFullYear());
   
   const [portfolioTypeTab, setPortfolioTypeTab] = useState('stock');
+  const [dashboardTypeTab, setDashboardTypeTab] = useState(null);
+  const [activeTypePopup, setActiveTypePopup] = useState(null); // 하단 탭 더블클릭 팝업용 type key
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountType, setNewAccountType] = useState('stock');
@@ -1337,12 +1339,13 @@ const AppContent = () => {
     });
   }, [globalStats, currentYearNum, currentMonthNum]);
 
-  // 포트폴리오 탭 타입 동기화
+  // 포트폴리오 탭 타입 동기화 (전체 모드는 건드리지 않음)
   useEffect(() => {
     if (!selectedAccountId || selectedAccountId.startsWith('__all__')) return;
     const acc = accounts.find(a => a.id === selectedAccountId);
     if (acc) setPortfolioTypeTab(acc.type || 'stock');
-  }, [selectedAccountId, accounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId]);
 
   // --- Handlers ---
   const showToast = (text) => {
@@ -2625,34 +2628,44 @@ const AppContent = () => {
           loan: 'bg-orange-500 text-white',
         };
         const existingTypes = typeOrder.filter(type => accounts.some(a => a.type === type));
+        const allTypesAdded = existingTypes.length >= typeOrder.length;
         return (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-            <div className="flex items-center gap-1 bg-white/80 backdrop-blur-md px-2 py-2 rounded-2xl shadow-lg border border-slate-200/80">
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300" onClick={() => setActiveTypePopup(null)}>
+            <div className="flex items-center gap-1 bg-white/85 backdrop-blur-md px-2 py-2 rounded-2xl shadow-lg border border-slate-200/80" onClick={e => e.stopPropagation()}>
               {existingTypes.map(type => {
                 const isActive = portfolioTypeTab === type;
+                const isPopupOpen = activeTypePopup === type;
                 return (
-                  <button
-                    key={type}
-                    onClick={() => {
-                      setPortfolioTypeTab(type);
-                      const first = accounts.find(a => a.type === type);
-                      if (first) setSelectedAccountId(first.id);
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 whitespace-nowrap ${isActive ? typeActive[type] + ' shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    <span className="text-[13px] leading-none">{typeEmoji[type]}</span>
-                    <span>{typeLabel[type]}</span>
-                  </button>
+                  <div key={type} className="relative">
+                    {/* 더블클릭 팝업 */}
+                    {isPopupOpen && (
+                      <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-xl px-1 py-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-150 whitespace-nowrap after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
+                        <button onClick={(e) => { e.stopPropagation(); setNewAccountType(type); setNewAccountName(''); setIsAddAccountOpen(true); setActiveTypePopup(null); }} className="px-2 py-1 text-[10px] font-black hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1"><Plus size={10}/> 계좌추가</button>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { setActiveTypePopup(null); setPortfolioTypeTab(type); const first = accounts.find(a => a.type === type); if (first) setSelectedAccountId(first.id); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); setActiveTypePopup(isPopupOpen ? null : type); }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 whitespace-nowrap select-none ${isActive ? typeActive[type] + ' shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      <span className="text-[13px] leading-none">{typeEmoji[type]}</span>
+                      <span>{typeLabel[type]}</span>
+                    </button>
+                  </div>
                 );
               })}
-              <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />
-              <button
-                type="button"
-                onClick={() => setIsAddAccountOpen(true)}
-                className="w-7 h-7 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all font-black shrink-0"
-              >
-                <Plus size={14} strokeWidth={2.5}/>
-              </button>
+              {!allTypesAdded && (
+                <>
+                  {existingTypes.length > 0 && <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />}
+                  <button
+                    type="button"
+                    onClick={() => setIsAddAccountOpen(true)}
+                    className="w-7 h-7 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all font-black shrink-0"
+                  >
+                    <Plus size={14} strokeWidth={2.5}/>
+                  </button>
+                </>
+              )}
             </div>
           </div>
         );
@@ -2921,26 +2934,64 @@ const AppContent = () => {
         )}
 
         {/* --- DASHBOARD TAB --- */}
-        {activeTab === 'dashboard' && (
+        {activeTab === 'dashboard' && (() => {
+          const typeOrder = ['stock','savings','spending','card','loan'];
+          const typeLabel = { stock: '주식', savings: '저축', spending: '소비', card: '카드', loan: '대출' };
+          const typeEmoji = { stock: '📈', savings: '🏦', spending: '🛍️', card: '💳', loan: '💸' };
+          const typeColor = {
+            stock:   { bg: 'bg-white', border: 'border-slate-100', dot: t.main.split(' ')[0], val: 'text-slate-800', sub: 'text-slate-400', activeBg: t.light, activeBorder: t.border, activeVal: t.text },
+            savings: { bg: 'bg-white', border: 'border-slate-100', dot: 'bg-emerald-400', val: 'text-slate-800', sub: 'text-slate-400', activeBg: 'bg-emerald-50', activeBorder: 'border-emerald-200', activeVal: 'text-emerald-700' },
+            spending:{ bg: 'bg-white', border: 'border-slate-100', dot: 'bg-rose-400', val: 'text-slate-800', sub: 'text-slate-400', activeBg: 'bg-rose-50', activeBorder: 'border-rose-200', activeVal: 'text-rose-700' },
+            card:    { bg: 'bg-white', border: 'border-slate-100', dot: 'bg-purple-400', val: 'text-slate-800', sub: 'text-slate-400', activeBg: 'bg-purple-50', activeBorder: 'border-purple-200', activeVal: 'text-purple-700' },
+            loan:    { bg: 'bg-white', border: 'border-slate-100', dot: 'bg-orange-400', val: 'text-slate-800', sub: 'text-slate-400', activeBg: 'bg-orange-50', activeBorder: 'border-orange-200', activeVal: 'text-orange-700' },
+          };
+          const existingTypes = typeOrder.filter(type => accounts.some(a => a.type === type));
+
+          // 타입별 합산
+          const typeSummary = {};
+          typeOrder.forEach(type => {
+            const typeStats = accountStatsList.filter(a => a.type === type);
+            if (type === 'loan') {
+              typeSummary[type] = { total: -typeStats.reduce((s,a) => s + (a.loanAmount||0), 0), count: typeStats.length };
+            } else if (type === 'card') {
+              typeSummary[type] = { total: -typeStats.reduce((s,a) => s + (a.cardItemsNonNbbang||0), 0), count: typeStats.length };
+            } else if (type === 'spending') {
+              typeSummary[type] = { total: typeStats.reduce((s,a) => s + (a.spendingItemsTotal||0), 0), count: typeStats.length };
+            } else {
+              typeSummary[type] = { total: typeStats.reduce((s,a) => s + a.totalValue + a.cash, 0), count: typeStats.length };
+            }
+          });
+
+          // 선택된 타입의 계좌 리스트
+          const detailAccs = dashboardTypeTab ? accountStatsList.filter(a => a.type === dashboardTypeTab) : [];
+
+          return (
           <div className="animate-in fade-in duration-500 flex flex-col mt-2">
-            <div className="flex flex-row gap-2 mb-3 items-stretch min-h-[85px] w-full shrink-0">
+            {/* 상단 총자산 카드 */}
+            <div className="flex flex-row gap-2 mb-4 items-stretch min-h-[85px] w-full shrink-0">
               <div className="bg-slate-800 rounded-xl p-3 text-white shadow-md flex flex-row flex-1 items-center gap-3 min-w-0">
                 <div className="flex flex-col justify-center shrink-0 w-[40%] sm:w-[35%] border-r border-slate-600/50 pr-2 h-full">
-                   <span className="text-slate-300 font-bold text-[9px] mb-1 flex items-center gap-1"><Briefcase size={10}/> 전체 총 자산</span>
-                   <span className="text-[17px] sm:text-xl font-black break-words leading-tight mb-1">₩{formatNum(globalStats.totalAssets)}</span>
-                   <div className="flex gap-2 text-[8px]">
-                    <span className="text-slate-400">수익률 <span className={globalStats.totalROI >=0 ? t.text : 'text-blue-400'}>{formatNum(globalStats.totalROI, 1)}%</span></span>
+                  <span className="text-slate-300 font-bold text-[9px] mb-1 flex items-center gap-1"><Briefcase size={10}/> 전체 총 자산</span>
+                  <span className="text-[17px] sm:text-xl font-black break-words leading-tight mb-1">₩{formatNum(globalStats.totalAssets)}</span>
+                  <div className="flex gap-2 text-[8px]">
+                    <span className="text-slate-400">수익률 <span className={globalStats.totalROI >= 0 ? t.text : 'text-blue-400'}>{formatNum(globalStats.totalROI, 1)}%</span></span>
                     <span className="text-slate-400 hidden sm:inline">원금 ₩{formatNum(globalStats.totalPrincipal)}</span>
                   </div>
                 </div>
                 <div className="flex-1 h-full flex flex-col justify-end relative min-w-0 pb-0.5">
                   <div className="absolute top-0 right-0 flex gap-1 z-10">
-                      <button onClick={() => setChartViewMode('month')} className={`text-[8px] px-1.5 py-0.5 rounded ${chartViewMode === 'month' ? 'bg-slate-500 text-white shadow-sm' : 'text-slate-400'}`}>월별</button>
-                      <button onClick={() => setChartViewMode('year')} className={`text-[8px] px-1.5 py-0.5 rounded ${chartViewMode === 'year' ? 'bg-slate-500 text-white shadow-sm' : 'text-slate-400'}`}>연별</button>
+                    <button onClick={() => setChartViewMode('month')} className={`text-[8px] px-1.5 py-0.5 rounded ${chartViewMode === 'month' ? 'bg-slate-500 text-white shadow-sm' : 'text-slate-400'}`}>월별</button>
+                    <button onClick={() => setChartViewMode('year')} className={`text-[8px] px-1.5 py-0.5 rounded ${chartViewMode === 'year' ? 'bg-slate-500 text-white shadow-sm' : 'text-slate-400'}`}>연별</button>
                   </div>
-                  {chartDataFinal.length > 0 ? ( <div className="w-full h-[45px] relative"><svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none"><path d={`M ${chartPointsFinal}`} fill="none" stroke="#94a3b8" strokeWidth="3" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  {chartDataFinal.length > 0 ? (
+                    <div className="w-full h-[45px] relative">
+                      <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        <path d={`M ${chartPointsFinal}`} fill="none" stroke="#94a3b8" strokeWidth="3" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
                     </div>
-                  ) : ( <div className="text-[9px] font-bold text-slate-500 opacity-60 flex items-center justify-center h-full w-full">데이터 없음</div> )}
+                  ) : (
+                    <div className="text-[9px] font-bold text-slate-500 opacity-60 flex items-center justify-center h-full w-full">데이터 없음</div>
+                  )}
                 </div>
               </div>
               <div className="bg-white border border-slate-200 shadow-sm rounded-xl w-[70px] sm:w-[90px] flex flex-col items-center justify-center shrink-0 p-1.5">
@@ -2948,34 +2999,68 @@ const AppContent = () => {
                 <span className="text-[8px] font-black text-slate-700 text-center tracking-tighter truncate w-full px-0.5">{easterEgg.msg}</span>
               </div>
             </div>
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-4">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {accountStatsList.map(acc => acc.type === 'loan' ? (
-                <div key={acc.id} className="bg-orange-50 rounded-xl p-3.5 shadow-sm border border-orange-200 flex flex-col justify-between relative group overflow-hidden">
-                  <div className="flex justify-between items-center mb-1.5">
-                    <h4 className="font-bold text-[12px] truncate flex items-center gap-1.5 text-orange-700">💸 {acc.name}</h4>
-                    <button onClick={() => { if(window.confirm('대출을 삭제할까요?')) { saveStateToHistory(); setAccounts(prev => prev.filter(a => a.id !== acc.id)); } }} className="opacity-0 group-hover:opacity-100 transition-opacity text-orange-300 hover:text-rose-500"><X size={12}/></button>
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-[11px]"><span className="text-orange-500 font-bold whitespace-nowrap">잔액</span><span className="font-black text-rose-600 truncate ml-1 text-right">-₩{formatNum(acc.loanAmount)}</span></div>
-                    {acc.loanRate && <div className="flex justify-between text-[10px]"><span className="text-orange-400 font-bold">이자율</span><span className="font-black text-orange-700">{acc.loanRate}%</span></div>}
-                    {(acc.loanPayDay || acc.loanPeriod) && <div className="flex justify-between text-[10px]"><span className="text-orange-400 font-bold">{acc.loanPayDay ? `매월 ${acc.loanPayDay}일` : ''}</span><span className="font-black text-orange-600">{acc.loanPeriod ? `${acc.loanPeriod}개월` : ''}</span></div>}
-                    <div className="w-full border-t border-dashed border-orange-200 my-0.5"></div>
-                    <div className="flex justify-between text-[10px]"><span className="text-orange-500 font-bold">유형</span><span className="font-black text-orange-600">대출</span></div>
-                  </div>
-                  <button onClick={() => setLoanItemModal({ isOpen: true, loanId: acc.id, amount: acc.loanAmount ? String(acc.loanAmount) : '', rate: acc.loanRate || '', payDay: acc.loanPayDay || '', period: acc.loanPeriod || '', linkedAccId: acc.linkedAccId || '' })} className="mt-2 w-full bg-orange-100 text-orange-600 border border-orange-200 rounded-lg py-1 text-[9px] font-black hover:bg-orange-200 transition-colors flex items-center justify-center gap-1"><Plus size={9}/> 항목 추가</button>
-                </div>
-              ) : (
-                <div key={acc.id} className="bg-white rounded-xl p-3.5 shadow-sm border border-slate-100 flex flex-col justify-between relative group overflow-hidden">
-                  <div className="flex justify-between items-center mb-2.5"><h4 className="font-bold text-slate-800 text-[12px] truncate flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${acc.type === 'stock' ? t.main.split(' ')[0] : t.altMain.split(' ')[0]}`}></div> {acc.name}</h4></div>
-                  <div className="space-y-1.5"><div className="flex justify-between text-[11px]"><span className="text-slate-500 font-bold whitespace-nowrap">평가액</span><span className={`font-black truncate ml-1 text-right ${acc.type === 'card' ? 'text-rose-500' : 'text-slate-800'}`}>{acc.type === 'card' ? `-₩${formatNum(acc.cardItemsTotal)}` : `₩${formatNum(acc.type === 'spending' ? acc.spendingItemsTotal : acc.totalValue + acc.cash)}`}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold whitespace-nowrap">{acc.type === 'savings' ? '여분 금액' : acc.type === 'card' ? 'N빵 제외' : '계좌 잔여금'}</span><span className={`font-bold truncate ml-1 text-right ${acc.type === 'card' ? 'text-rose-400' : 'text-slate-600'}`}>{acc.type === 'card' ? `-₩${formatNum(acc.cardItemsNonNbbang)}` : `₩${formatNum(acc.cash)}`}</span></div><div className="w-full border-t border-dashed border-slate-100 my-1"></div><div className="flex justify-between text-[10px]"><span className="text-slate-500 font-bold">유형</span><span className={`font-black whitespace-nowrap ${acc.type === 'stock' ? t.text : t.altText}`}>{acc.type === 'stock' ? '주식' : acc.type === 'spending' ? '소비' : acc.type === 'card' ? '카드' : '저축'}</span></div></div>
-                </div>
-              ))}
-              </div>
+
+            {/* 5가지 타입 요약 카드 */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+              {existingTypes.map(type => {
+                const c = typeColor[type];
+                const s = typeSummary[type];
+                const isActive = dashboardTypeTab === type;
+                const isNeg = type === 'loan' || type === 'card';
+                return (
+                  <button key={type} onClick={() => setDashboardTypeTab(isActive ? null : type)}
+                    className={`text-left rounded-xl p-3.5 border transition-all duration-200 shadow-sm ${isActive ? c.activeBg + ' ' + c.activeBorder : 'bg-white border-slate-100 hover:border-slate-200'}`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.dot}`} />
+                      <span className={`text-[11px] font-black ${isActive ? c.activeVal : 'text-slate-500'}`}>{typeEmoji[type]} {typeLabel[type]}</span>
+                      <span className="text-[9px] text-slate-300 font-bold ml-auto">{s.count}개</span>
+                    </div>
+                    <div className={`text-[15px] font-black leading-tight ${isNeg ? 'text-rose-500' : 'text-slate-800'}`}>
+                      {isNeg ? '-' : ''}₩{formatNum(Math.abs(s.total))}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+
+            {/* 선택된 타입의 계좌 리스트 */}
+            {dashboardTypeTab && (
+              <div className="animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center gap-1.5 mb-2.5 px-0.5">
+                  <span className={`text-[11px] font-black text-slate-500`}>{typeEmoji[dashboardTypeTab]} {typeLabel[dashboardTypeTab]} 계좌</span>
+                  <button onClick={() => setDashboardTypeTab(null)} className="ml-auto text-slate-300 hover:text-slate-500 transition-colors"><X size={14}/></button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {detailAccs.map(acc => {
+                    const isLoan = acc.type === 'loan';
+                    const isCard = acc.type === 'card';
+                    const isSpending = acc.type === 'spending';
+                    const mainVal = isLoan ? -acc.loanAmount : isCard ? -acc.cardItemsNonNbbang : isSpending ? acc.spendingItemsTotal : acc.totalValue + acc.cash;
+                    const subLabel = isLoan ? '이자율' : isCard ? '총 사용액' : isSpending ? '잔여금' : '계좌 잔여금';
+                    const subVal = isLoan ? (acc.loanRate ? `연 ${acc.loanRate}%` : '-') : isCard ? `-₩${formatNum(acc.cardItemsTotal)}` : `₩${formatNum(acc.cash)}`;
+                    return (
+                      <div key={acc.id} className="bg-white rounded-xl p-3.5 border border-slate-100 shadow-sm flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${typeColor[acc.type]?.dot || 'bg-slate-300'}`} />
+                          <span className="font-black text-[12px] text-slate-700 truncate">{acc.name}</span>
+                        </div>
+                        <div className={`text-[15px] font-black ${isLoan || isCard ? 'text-rose-500' : 'text-slate-800'}`}>
+                          {(isLoan || isCard) ? '-' : ''}₩{formatNum(Math.abs(mainVal))}
+                        </div>
+                        <div className="flex justify-between text-[10px] pt-1 border-t border-slate-50">
+                          <span className="text-slate-400 font-bold">{subLabel}</span>
+                          <span className="text-slate-500 font-black">{subVal}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        )}
+          );
+        })()}
 
        {/* --- HISTORY TAB (월간 요약 내장 + 지능형 4계층 아코디언) --- */}
         {activeTab === 'history' && (() => {
@@ -5628,9 +5713,12 @@ const AppContent = () => {
             <button type="button" onClick={() => setIsAddAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
             <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">➕ 내 자산 추가</h3>
             <div className="flex gap-1 mb-4 bg-slate-50 p-1 rounded-xl">
-              {[['stock','📈','주식',t.main],['savings','🏦','저축','bg-emerald-500 text-white shadow-sm'],['spending','🛍️','소비','bg-rose-500 text-white shadow-sm'],['card','💳','카드','bg-slate-700 text-white shadow-sm'],['loan','💸','대출','bg-orange-500 text-white shadow-sm']].map(([type,icon,label,active]) => (
-                <button key={type} type="button" onClick={()=>{ setNewAccountType(type); setNewAccountName(''); }} className={`flex-1 py-2 rounded-lg text-[9px] font-black transition-all ${newAccountType === type ? active : 'text-slate-400'}`}>{icon}<br/>{label}</button>
-              ))}
+              {[['stock','📈','주식',t.main],['savings','🏦','저축','bg-emerald-500 text-white shadow-sm'],['spending','🛍️','소비','bg-rose-500 text-white shadow-sm'],['card','💳','카드','bg-slate-700 text-white shadow-sm'],['loan','💸','대출','bg-orange-500 text-white shadow-sm']].map(([type,icon,label,active]) => {
+                const alreadyHas = accounts.some(a => a.type === type);
+                return (
+                <button key={type} type="button" disabled={alreadyHas} onClick={()=>{ if(!alreadyHas){ setNewAccountType(type); setNewAccountName(''); } }} className={`flex-1 py-2 rounded-lg text-[9px] font-black transition-all ${newAccountType === type ? active : alreadyHas ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-slate-600'}`}>{icon}<br/>{label}</button>
+                );
+              })}
             </div>
             <input type="text" placeholder={newAccountType === 'card' ? '카드 별칭 (예: 신한카드)' : newAccountType === 'loan' ? '대출명 (예: 전세대출)' : '계좌 별칭 (예: 생활비 통장)'} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border mb-3 ${newAccountType === 'loan' ? 'focus:border-orange-400' : `focus:${t.border}`} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.nextElementSibling?.click(); }} />
             <button type="button" onClick={() => {
