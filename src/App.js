@@ -296,6 +296,7 @@ const AppContent = () => {
   // 🎯 accounts가 로드되거나 바뀌면, selectedAccountId가 실제 계좌 중 하나를 가리키도록 자동 동기화
   useEffect(() => {
     if (accounts.length === 0) return;
+    if (selectedAccountId && selectedAccountId.startsWith('__all__')) return;
     const exists = accounts.some(a => a.id === selectedAccountId);
     if (!exists) setSelectedAccountId(accounts[0].id);
   }, [accounts, selectedAccountId]);
@@ -2637,10 +2638,11 @@ const AppContent = () => {
                 const isPopupOpen = activeTypePopup === type;
                 return (
                   <div key={type} className="relative">
-                    {/* 더블클릭 팝업 */}
+                    {/* 더블클릭 팝업: 수정/삭제 */}
                     {isPopupOpen && (
                       <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-xl px-1 py-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-150 whitespace-nowrap after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
-                        <button onClick={(e) => { e.stopPropagation(); setNewAccountType(type); setNewAccountName(''); setIsAddAccountOpen(true); setActiveTypePopup(null); }} className="px-2 py-1 text-[10px] font-black hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1"><Plus size={10}/> 계좌추가</button>
+                        <button onClick={(e) => { e.stopPropagation(); setNewAccountType(type); setNewAccountName(''); setIsAddAccountOpen(true); setActiveTypePopup(null); }} className="px-2 py-1 text-[10px] font-black hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1"><Edit2 size={10}/> 계좌추가</button>
+                        <button onClick={(e) => { e.stopPropagation(); setActiveTypePopup(null); showConfirm(`'${typeLabel[type]}' 메뉴와 포함된 모든 계좌를 삭제할까요?`, () => { saveStateToHistory(); const updated = accounts.filter(a => a.type !== type); setAccounts(updated); const first = updated[0]; if(first){ setPortfolioTypeTab(first.type||'stock'); setSelectedAccountId(first.id); } saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash); showToast('🗑️ 삭제됐습니다.'); }); }} className="px-2 py-1 text-[10px] font-black hover:bg-rose-500 rounded-lg transition-colors flex items-center gap-1"><Trash2 size={10}/> 삭제</button>
                       </div>
                     )}
                     <button
