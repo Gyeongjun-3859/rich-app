@@ -770,6 +770,7 @@ const AppContent = () => {
   const [dashboardTypeTab, setDashboardTypeTab] = useState(null);
   const [activeTypePopup, setActiveTypePopup] = useState(null); // 하단 탭 더블클릭 팝업용 type key
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
+  const [addAccountMode, setAddAccountMode] = useState('type'); // 'type' = 신규 타입, 'account' = 기존 타입에 계좌 추가
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountType, setNewAccountType] = useState('stock');
   const [newLoanAmount, setNewLoanAmount] = useState('');
@@ -2611,6 +2612,14 @@ const AppContent = () => {
                   </div>
                 );
               })}
+              {/* 우측 + 버튼: 현재 타입의 세부 계좌 추가 */}
+              <button
+                type="button"
+                onClick={() => { setNewAccountType(portfolioTypeTab); setNewAccountName(''); setAddAccountMode('account'); setIsAddAccountOpen(true); }}
+                className="ml-auto shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-slate-300 hover:text-slate-500 hover:bg-slate-50 transition-all"
+              >
+                <Plus size={13} strokeWidth={2.5}/>
+              </button>
             </div>
           </div>
         );
@@ -2638,10 +2647,9 @@ const AppContent = () => {
                 const isPopupOpen = activeTypePopup === type;
                 return (
                   <div key={type} className="relative">
-                    {/* 더블클릭 팝업: 수정/삭제 */}
+                    {/* 더블클릭 팝업: 삭제만 */}
                     {isPopupOpen && (
                       <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-xl px-1 py-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-150 whitespace-nowrap after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
-                        <button onClick={(e) => { e.stopPropagation(); setNewAccountType(type); setNewAccountName(''); setIsAddAccountOpen(true); setActiveTypePopup(null); }} className="px-2 py-1 text-[10px] font-black hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1"><Edit2 size={10}/> 계좌추가</button>
                         <button onClick={(e) => { e.stopPropagation(); setActiveTypePopup(null); showConfirm(`'${typeLabel[type]}' 메뉴와 포함된 모든 계좌를 삭제할까요?`, () => { saveStateToHistory(); const updated = accounts.filter(a => a.type !== type); setAccounts(updated); const first = updated[0]; if(first){ setPortfolioTypeTab(first.type||'stock'); setSelectedAccountId(first.id); } saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash); showToast('🗑️ 삭제됐습니다.'); }); }} className="px-2 py-1 text-[10px] font-black hover:bg-rose-500 rounded-lg transition-colors flex items-center gap-1"><Trash2 size={10}/> 삭제</button>
                       </div>
                     )}
@@ -2661,7 +2669,7 @@ const AppContent = () => {
                   {existingTypes.length > 0 && <div className="w-px h-4 bg-slate-200 mx-0.5 shrink-0" />}
                   <button
                     type="button"
-                    onClick={() => setIsAddAccountOpen(true)}
+                    onClick={() => { setAddAccountMode('type'); setIsAddAccountOpen(true); }}
                     className="w-7 h-7 flex items-center justify-center rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all font-black shrink-0"
                   >
                     <Plus size={14} strokeWidth={2.5}/>
@@ -5709,43 +5717,61 @@ const AppContent = () => {
           </div>
         </div>
       )}
-      {isAddAccountOpen && (
+      {isAddAccountOpen && (() => {
+        const typeInfo = { stock: { label:'주식', emoji:'📈', btn:t.main }, savings: { label:'저축', emoji:'🏦', btn:'bg-emerald-500 hover:bg-emerald-600' }, spending: { label:'소비', emoji:'🛍️', btn:'bg-rose-500 hover:bg-rose-600' }, card: { label:'카드', emoji:'💳', btn:'bg-slate-700 hover:bg-slate-800' }, loan: { label:'대출', emoji:'💸', btn:'bg-orange-500 hover:bg-orange-600' } };
+        const typeActiveBtns = { stock: t.main, savings: 'bg-emerald-500 text-white shadow-sm', spending: 'bg-rose-500 text-white shadow-sm', card: 'bg-slate-700 text-white shadow-sm', loan: 'bg-orange-500 text-white shadow-sm' };
+        const info = typeInfo[newAccountType] || typeInfo.stock;
+        const isAccountMode = addAccountMode === 'account';
+        const placeholder = newAccountType === 'card' ? '카드 별칭 (예: 신한카드)' : newAccountType === 'loan' ? '대출명 (예: 전세대출)' : '계좌 별칭 (예: 생활비 통장)';
+        const handleSave = () => {
+          const name = newAccountName.trim();
+          if (!name) return showToast('⚠️ 이름을 입력해주세요.');
+          saveStateToHistory();
+          const newAcc = newAccountType === 'loan'
+            ? { id: 'acc_' + Date.now(), name, cash: "0", type: 'loan', loanAmount: 0, loanRate: '', loanPayDay: '', loanPeriod: '', linkedAccId: '' }
+            : { id: 'acc_' + Date.now(), name, cash: "0", type: newAccountType, label: '입출금 통장' };
+          const updated = [...accounts, newAcc];
+          setAccounts(updated); setSelectedAccountId(newAcc.id);
+          setIsAddAccountOpen(false); setNewAccountName('');
+          setPortfolioTypeTab(newAccountType);
+          saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
+          showToast('✅ 추가됐습니다.');
+        };
+        return (
         <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setIsAddAccountOpen(false); }}>
           <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative">
             <button type="button" onClick={() => setIsAddAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
-            <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">➕ 내 자산 추가</h3>
-            <div className="flex gap-1 mb-4 bg-slate-50 p-1 rounded-xl">
-              {[['stock','📈','주식',t.main],['savings','🏦','저축','bg-emerald-500 text-white shadow-sm'],['spending','🛍️','소비','bg-rose-500 text-white shadow-sm'],['card','💳','카드','bg-slate-700 text-white shadow-sm'],['loan','💸','대출','bg-orange-500 text-white shadow-sm']].map(([type,icon,label,active]) => {
-                const alreadyHas = accounts.some(a => a.type === type);
-                return (
-                <button key={type} type="button" disabled={alreadyHas} onClick={()=>{ if(!alreadyHas){ setNewAccountType(type); setNewAccountName(''); } }} className={`flex-1 py-2 rounded-lg text-[9px] font-black transition-all ${newAccountType === type ? active : alreadyHas ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-slate-600'}`}>{icon}<br/>{label}</button>
-                );
-              })}
-            </div>
-            <input type="text" placeholder={newAccountType === 'card' ? '카드 별칭 (예: 신한카드)' : newAccountType === 'loan' ? '대출명 (예: 전세대출)' : '계좌 별칭 (예: 생활비 통장)'} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border mb-3 ${newAccountType === 'loan' ? 'focus:border-orange-400' : `focus:${t.border}`} text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.nextElementSibling?.click(); }} />
-            <button type="button" onClick={() => {
-              const name = newAccountName.trim();
-              if (!name) return showToast('⚠️ 이름을 입력해주세요.');
-              if (newAccountType === 'loan') {
-                saveStateToHistory();
-                const newAcc = { id: 'acc_' + Date.now(), name, cash: "0", type: 'loan', loanAmount: 0, loanRate: '', loanPayDay: '', loanPeriod: '', linkedAccId: '' };
-                const updated = [...accounts, newAcc];
-                setAccounts(updated); setSelectedAccountId(newAcc.id);
-                setIsAddAccountOpen(false); setNewAccountName('');
-                saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
-                showToast('✅ 대출이 등록되었습니다.');
-              } else {
-                saveStateToHistory();
-                const newAcc = { id: 'acc_' + Date.now(), name, cash: "0", type: newAccountType, label: '입출금 통장' };
-                const updated = [...accounts, newAcc];
-                setAccounts(updated); setSelectedAccountId(newAcc.id); setIsAddAccountOpen(false); setNewAccountName('');
-                saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
-                showToast('✅ 계좌가 생성되었습니다.');
-              }
-            }} className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${newAccountType === 'stock' ? `${t.main}` : newAccountType === 'spending' ? 'bg-rose-500 hover:bg-rose-600' : newAccountType === 'card' ? 'bg-slate-700 hover:bg-slate-800' : newAccountType === 'loan' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-emerald-500 hover:bg-emerald-600'}`}>{newAccountType === 'loan' ? '대출 등록하기' : '계좌 생성하기'}</button>
+            {isAccountMode ? (
+              /* 계좌 추가 모드: 타입 고정, 이름만 입력 */
+              <>
+                <div className="flex items-center justify-center gap-1.5 mb-4">
+                  <span className="text-base">{info.emoji}</span>
+                  <h3 className="font-black text-sm text-slate-800">{info.label} 계좌 추가</h3>
+                </div>
+                <input type="text" placeholder={placeholder} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border mb-3 focus:border-slate-400 text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') handleSave(); }} />
+                <button type="button" onClick={handleSave} className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${info.btn}`}>추가하기</button>
+              </>
+            ) : (
+              /* 신규 타입 추가 모드: 타입 선택 + 이름 입력 */
+              <>
+                <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">➕ 자산 유형 추가</h3>
+                <div className="flex gap-1 mb-4 bg-slate-50 p-1 rounded-xl">
+                  {['stock','savings','spending','card','loan'].map(type => {
+                    const alreadyHas = accounts.some(a => a.type === type);
+                    const ti = typeInfo[type];
+                    return (
+                      <button key={type} type="button" disabled={alreadyHas} onClick={()=>{ if(!alreadyHas){ setNewAccountType(type); setNewAccountName(''); } }} className={`flex-1 py-2 rounded-lg text-[9px] font-black transition-all ${newAccountType === type ? typeActiveBtns[type] : alreadyHas ? 'text-slate-200 cursor-not-allowed' : 'text-slate-400 hover:text-slate-600'}`}>{ti.emoji}<br/>{ti.label}</button>
+                    );
+                  })}
+                </div>
+                <input type="text" placeholder={placeholder} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border mb-3 focus:border-slate-300 text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') handleSave(); }} />
+                <button type="button" onClick={handleSave} className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${info.btn}`}>{newAccountType === 'loan' ? '대출 추가하기' : '계좌 추가하기'}</button>
+              </>
+            )}
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {isEditLabelModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setIsEditLabelModalOpen(false); }}>
