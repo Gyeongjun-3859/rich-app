@@ -583,7 +583,7 @@ const AppContent = () => {
          trade_logs: tradeLogs,
          my_cards: myCards,
          history_records: historyRecords,
-         settings: { ...settings, monthlyGoals, fixedExpenses, loans },
+         settings: { ...settings, monthlyGoals, fixedExpenses },
          updated_at: new Date().toISOString()
        }, { onConflict: 'user_id' });
 
@@ -592,7 +592,7 @@ const AppContent = () => {
 
     const timeoutId = setTimeout(saveToCloud, 2000);
     return () => clearTimeout(timeoutId);
-  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, myDisplayName, session, isCloudDataLoaded, monthlyGoals, fixedExpenses, loans]);
+  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, myDisplayName, session, isCloudDataLoaded, monthlyGoals, fixedExpenses]);
 
   // 고정비 자동 지출: 로드 후 오늘 날짜에 해당하는 고정비를 미처리 시 자동 기록
   useEffect(() => {
@@ -1047,6 +1047,9 @@ const AppContent = () => {
   const accountStatsList = useMemo(() => {
     const rate = toPureNumber(exchangeRate) || 1392;
     return accounts.map(acc => {
+      if (acc.type === 'loan') {
+        return { id: acc.id, name: acc.name, type: 'loan', cash: 0, loanAmount: toPureNumber(acc.loanAmount), loanRate: acc.loanRate || '', loanPayDay: acc.loanPayDay || '', loanPeriod: acc.loanPeriod || '', linkedAccId: acc.linkedAccId || '', totalValue: 0, rebalanceData: [], totalROI: 0, stockOnlyTotalValue: 0 };
+      }
       const accStocks = stocks.filter(s => (s.accountId || 'default') === acc.id);
       const currentCash = toPureNumber(acc.cash);
       const isSavingsAcc = acc.type === 'savings';
@@ -1155,16 +1158,16 @@ const AppContent = () => {
         tInvested += buyP * qty * mult; tValue += curP * qty * mult;
         Object.values(s.dividendTimeline || {}).forEach(v => tDiv += toPureNumber(v));
       });
-      if (!isCard) {
+      if (!isCard && acc.type !== 'loan') {
         globalInvested += tInvested; globalValue += tValue; globalReceivedDiv += tDiv;
         globalProfit += (tValue - tInvested) + tDiv; accountCashSum += toPureNumber(acc.cash);
       }
     });
-    const totalLoanDebt = loans.reduce((s, l) => s + toPureNumber(l.amount), 0);
+    const totalLoanDebt = accounts.filter(a => a.type === 'loan').reduce((s, a) => s + toPureNumber(a.loanAmount), 0);
     const totalAssets = globalValue + accountCashSum - cardNonNbbangTotal - totalLoanDebt;
     const totalPrincipal = globalInvested + accountCashSum;
     return { globalInvested, globalValue, globalProfit, accountCashSum, globalReceivedDiv, totalAssets, totalPrincipal, totalROI: globalInvested > 0 ? (globalProfit / globalInvested) * 100 : 0, totalLoanDebt };
-  }, [accounts, stocks, exchangeRate, globalCash, tradeLogs, loans]);
+  }, [accounts, stocks, exchangeRate, globalCash, tradeLogs]);
 
   // FIRE: 과거 historyRecords 기반 CAGR 계산 (시세차익 기준 — 배당은 totalAssets에 이미 포함)
   const fireCAGR = useMemo(() => {
@@ -2532,9 +2535,9 @@ const AppContent = () => {
                     draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)} onDragEnd={handleDragEnd} 
                     onClick={() => setSelectedAccountId(acc.id)}
                     onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
-                    className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : acc.type === 'spending' ? 'bg-rose-500 text-white shadow-md' : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
+                    className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : acc.type === 'spending' ? 'bg-rose-500 text-white shadow-md' : acc.type === 'loan' ? 'bg-orange-500 text-white shadow-md' : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
                   >
-                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : acc.type === 'spending' ? '🛍️' : acc.type === 'card' ? '💳' : '📈'}</span>
+                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : acc.type === 'spending' ? '🛍️' : acc.type === 'card' ? '💳' : acc.type === 'loan' ? '🏦' : '📈'}</span>
                     <span className="truncate block max-w-[80px] sm:max-w-[110px] leading-tight mt-[1px]">
                       {acc.name}
                     </span>
@@ -2562,6 +2565,22 @@ const AppContent = () => {
         {/* --- PORTFOLIO TAB --- */}
         {activeTab === 'portfolio' && (
           <div className="animate-in fade-in duration-500">
+            {currentAccountStat?.type === 'loan' && (
+              <div className="flex flex-col gap-3 mb-4">
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
+                  <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
+                    <span className="text-[10px] font-black text-orange-500 mb-1">대출 잔액</span>
+                    <span className="text-[17px] sm:text-2xl font-black text-rose-600">-₩{formatNum(currentAccountStat?.loanAmount)}</span>
+                  </div>
+                  <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
+                    <span className="text-[10px] font-black text-orange-500 mb-1">이자율 / 납입일</span>
+                    <span className="text-[14px] font-black text-orange-700">{currentAccountStat?.loanRate ? `${currentAccountStat.loanRate}%` : '-'} {currentAccountStat?.loanPayDay ? `· 매월 ${currentAccountStat.loanPayDay}일` : ''}</span>
+                    {currentAccountStat?.loanPeriod && <span className="text-[10px] text-orange-500 font-bold">계약기간 {currentAccountStat.loanPeriod}개월</span>}
+                  </div>
+                </div>
+                <button onClick={() => setLoanItemModal({ isOpen: true, loanId: currentAccountStat.id, amount: currentAccountStat.loanAmount ? String(currentAccountStat.loanAmount) : '', rate: currentAccountStat.loanRate || '', payDay: currentAccountStat.loanPayDay || '', period: currentAccountStat.loanPeriod || '', linkedAccId: currentAccountStat.linkedAccId || '' })} className="w-full bg-orange-100 text-orange-600 border border-orange-200 rounded-xl py-2.5 text-xs font-black hover:bg-orange-200 transition-colors flex items-center justify-center gap-1.5"><Plus size={12}/> 대출 정보 수정</button>
+              </div>
+            )}
             {currentAccountStat?.type === 'card' && (
               <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-4">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden">
@@ -2576,8 +2595,8 @@ const AppContent = () => {
                 </div>
               </div>
             )}
-            <div className={`grid grid-cols-2 gap-2 sm:gap-3 mb-4 ${currentAccountStat?.type === 'card' ? 'hidden' : ''}`}>
-              {!['savings','spending','card'].includes(currentAccountStat?.type) && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden relative col-span-1">
+            <div className={`grid grid-cols-2 gap-2 sm:gap-3 mb-4 ${['card','loan'].includes(currentAccountStat?.type) ? 'hidden' : ''}`}>
+              {!['savings','spending','card','loan'].includes(currentAccountStat?.type) && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden relative col-span-1">
                  <div className="flex justify-between items-center mb-1">
                    <span className={`text-[10px] sm:text-[11px] font-black text-slate-500 flex items-center gap-1 sm:gap-1.5 truncate ${currentAccountStat?.type === 'savings' ? `cursor-pointer hover:${t.text} transition-colors group/label` : ''}`} onClick={() => { if(currentAccountStat?.type === 'savings') { setEditLabelInput(currentAccountStat.label || '입출금 통장'); setIsEditLabelModalOpen(true); } }}>
                      <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : currentAccountStat?.type === 'spending' ? '소비 계좌' : '총 평가액'}</span>
@@ -2669,7 +2688,7 @@ const AppContent = () => {
             </div>
 
             {/* 컴팩트화된 종목 리스트 그리드 */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1.5 md:gap-2">
+            <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1.5 md:gap-2 ${currentAccountStat?.type === 'loan' ? 'hidden' : ''}`}>
               {currentAccountStat?.rebalanceData.length === 0 ? (
                 <button onClick={handleAddClick} className={`col-span-full picture-card p-4 flex flex-col items-center justify-center ${t.light} border-2 border-dashed ${t.border} transition-colors group min-h-[90px] md:min-h-[110px]`}><div className={`bg-white p-2 md:p-2.5 rounded-full shadow-sm group-hover:scale-110 transition-transform mb-1.5 md:mb-2`}><Plus className={t.text} size={16} /></div><span className={`font-black text-[10px] md:text-[11px] ${t.text}`}>{stocks.length === 0 ? '텅 비어있어요! 첫 항목 추가' : '새 항목 추가'}</span></button>
               ) : (
@@ -2820,26 +2839,25 @@ const AppContent = () => {
             
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-4">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                {accountStatsList.map(acc => (
-                <div key={acc.id} className="bg-white rounded-xl p-3.5 shadow-sm border border-slate-100 flex flex-col justify-between relative group overflow-hidden">
-                  <div className="flex justify-between items-center mb-2.5"><h4 className="font-bold text-slate-800 text-[12px] truncate flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${acc.type === 'stock' ? t.main.split(' ')[0] : t.altMain.split(' ')[0]}`}></div> {acc.name}</h4></div>
-                  <div className="space-y-1.5"><div className="flex justify-between text-[11px]"><span className="text-slate-500 font-bold whitespace-nowrap">평가액</span><span className={`font-black truncate ml-1 text-right ${acc.type === 'card' ? 'text-rose-500' : 'text-slate-800'}`}>{acc.type === 'card' ? `-₩${formatNum(acc.cardItemsTotal)}` : `₩${formatNum(acc.type === 'spending' ? acc.spendingItemsTotal : acc.totalValue + acc.cash)}`}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold whitespace-nowrap">{acc.type === 'savings' ? '여분 금액' : acc.type === 'card' ? 'N빵 제외' : '계좌 잔여금'}</span><span className={`font-bold truncate ml-1 text-right ${acc.type === 'card' ? 'text-rose-400' : 'text-slate-600'}`}>{acc.type === 'card' ? `-₩${formatNum(acc.cardItemsNonNbbang)}` : `₩${formatNum(acc.cash)}`}</span></div><div className="w-full border-t border-dashed border-slate-100 my-1"></div><div className="flex justify-between text-[10px]"><span className="text-slate-500 font-bold">유형</span><span className={`font-black whitespace-nowrap ${acc.type === 'stock' ? t.text : t.altText}`}>{acc.type === 'stock' ? '주식' : acc.type === 'spending' ? '소비' : acc.type === 'card' ? '카드' : '저축'}</span></div></div>
-                </div>
-              ))}
-              {loans.map(loan => (
-                <div key={loan.id} className="bg-orange-50 rounded-xl p-3.5 shadow-sm border border-orange-200 flex flex-col justify-between relative group overflow-hidden">
+                {accountStatsList.map(acc => acc.type === 'loan' ? (
+                <div key={acc.id} className="bg-orange-50 rounded-xl p-3.5 shadow-sm border border-orange-200 flex flex-col justify-between relative group overflow-hidden">
                   <div className="flex justify-between items-center mb-1.5">
-                    <h4 className="font-bold text-[12px] truncate flex items-center gap-1.5 text-orange-700">🏦 {loan.name}</h4>
-                    <button onClick={() => { if(window.confirm('대출을 삭제할까요?')) setLoans(prev => prev.filter(l => l.id !== loan.id)); }} className="opacity-0 group-hover:opacity-100 transition-opacity text-orange-300 hover:text-rose-500"><X size={12}/></button>
+                    <h4 className="font-bold text-[12px] truncate flex items-center gap-1.5 text-orange-700">🏦 {acc.name}</h4>
+                    <button onClick={() => { if(window.confirm('대출을 삭제할까요?')) { saveStateToHistory(); setAccounts(prev => prev.filter(a => a.id !== acc.id)); } }} className="opacity-0 group-hover:opacity-100 transition-opacity text-orange-300 hover:text-rose-500"><X size={12}/></button>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex justify-between text-[11px]"><span className="text-orange-500 font-bold whitespace-nowrap">잔액</span><span className="font-black text-rose-600 truncate ml-1 text-right">-₩{formatNum(loan.amount)}</span></div>
-                    {loan.rate && <div className="flex justify-between text-[10px]"><span className="text-orange-400 font-bold">이자율</span><span className="font-black text-orange-700">{loan.rate}%</span></div>}
-                    {(loan.payDay || loan.period) && <div className="flex justify-between text-[10px]"><span className="text-orange-400 font-bold">{loan.payDay ? `매월 ${loan.payDay}일` : ''}</span><span className="font-black text-orange-600">{loan.period ? `${loan.period}개월` : ''}</span></div>}
+                    <div className="flex justify-between text-[11px]"><span className="text-orange-500 font-bold whitespace-nowrap">잔액</span><span className="font-black text-rose-600 truncate ml-1 text-right">-₩{formatNum(acc.loanAmount)}</span></div>
+                    {acc.loanRate && <div className="flex justify-between text-[10px]"><span className="text-orange-400 font-bold">이자율</span><span className="font-black text-orange-700">{acc.loanRate}%</span></div>}
+                    {(acc.loanPayDay || acc.loanPeriod) && <div className="flex justify-between text-[10px]"><span className="text-orange-400 font-bold">{acc.loanPayDay ? `매월 ${acc.loanPayDay}일` : ''}</span><span className="font-black text-orange-600">{acc.loanPeriod ? `${acc.loanPeriod}개월` : ''}</span></div>}
                     <div className="w-full border-t border-dashed border-orange-200 my-0.5"></div>
                     <div className="flex justify-between text-[10px]"><span className="text-orange-500 font-bold">유형</span><span className="font-black text-orange-600">대출</span></div>
                   </div>
-                  <button onClick={() => setLoanItemModal({ isOpen: true, loanId: loan.id, amount: loan.amount ? String(loan.amount) : '', rate: loan.rate || '', payDay: loan.payDay || '', period: loan.period || '', linkedAccId: loan.linkedAccId || '' })} className="mt-2 w-full bg-orange-100 text-orange-600 border border-orange-200 rounded-lg py-1 text-[9px] font-black hover:bg-orange-200 transition-colors flex items-center justify-center gap-1"><Plus size={9}/> 항목 추가</button>
+                  <button onClick={() => setLoanItemModal({ isOpen: true, loanId: acc.id, amount: acc.loanAmount ? String(acc.loanAmount) : '', rate: acc.loanRate || '', payDay: acc.loanPayDay || '', period: acc.loanPeriod || '', linkedAccId: acc.linkedAccId || '' })} className="mt-2 w-full bg-orange-100 text-orange-600 border border-orange-200 rounded-lg py-1 text-[9px] font-black hover:bg-orange-200 transition-colors flex items-center justify-center gap-1"><Plus size={9}/> 항목 추가</button>
+                </div>
+              ) : (
+                <div key={acc.id} className="bg-white rounded-xl p-3.5 shadow-sm border border-slate-100 flex flex-col justify-between relative group overflow-hidden">
+                  <div className="flex justify-between items-center mb-2.5"><h4 className="font-bold text-slate-800 text-[12px] truncate flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${acc.type === 'stock' ? t.main.split(' ')[0] : t.altMain.split(' ')[0]}`}></div> {acc.name}</h4></div>
+                  <div className="space-y-1.5"><div className="flex justify-between text-[11px]"><span className="text-slate-500 font-bold whitespace-nowrap">평가액</span><span className={`font-black truncate ml-1 text-right ${acc.type === 'card' ? 'text-rose-500' : 'text-slate-800'}`}>{acc.type === 'card' ? `-₩${formatNum(acc.cardItemsTotal)}` : `₩${formatNum(acc.type === 'spending' ? acc.spendingItemsTotal : acc.totalValue + acc.cash)}`}</span></div><div className="flex justify-between text-[10px]"><span className="text-slate-400 font-bold whitespace-nowrap">{acc.type === 'savings' ? '여분 금액' : acc.type === 'card' ? 'N빵 제외' : '계좌 잔여금'}</span><span className={`font-bold truncate ml-1 text-right ${acc.type === 'card' ? 'text-rose-400' : 'text-slate-600'}`}>{acc.type === 'card' ? `-₩${formatNum(acc.cardItemsNonNbbang)}` : `₩${formatNum(acc.cash)}`}</span></div><div className="w-full border-t border-dashed border-slate-100 my-1"></div><div className="flex justify-between text-[10px]"><span className="text-slate-500 font-bold">유형</span><span className={`font-black whitespace-nowrap ${acc.type === 'stock' ? t.text : t.altText}`}>{acc.type === 'stock' ? '주식' : acc.type === 'spending' ? '소비' : acc.type === 'card' ? '카드' : '저축'}</span></div></div>
                 </div>
               ))}
               </div>
@@ -5508,9 +5526,11 @@ const AppContent = () => {
               if (!name) return showToast('⚠️ 이름을 입력해주세요.');
               if (newAccountType === 'loan') {
                 saveStateToHistory();
-                const newLoan = { id: 'loan_' + Date.now(), name, amount: 0, rate: '', payDay: '', period: '', linkedAccId: '' };
-                setLoans(prev => [...prev, newLoan]);
+                const newAcc = { id: 'acc_' + Date.now(), name, cash: "0", type: 'loan', loanAmount: 0, loanRate: '', loanPayDay: '', loanPeriod: '', linkedAccId: '' };
+                const updated = [...accounts, newAcc];
+                setAccounts(updated); setSelectedAccountId(newAcc.id);
                 setIsAddAccountOpen(false); setNewAccountName('');
+                saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
                 showToast('✅ 대출이 등록되었습니다.');
               } else {
                 saveStateToHistory();
@@ -5641,7 +5661,9 @@ const AppContent = () => {
               <button onClick={() => setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' })} className="flex-1 py-2.5 rounded-xl font-black text-slate-600 text-xs bg-slate-100 hover:bg-slate-200 transition-colors">취소</button>
               <button onClick={() => {
                 if (!loanItemModal.amount) return showToast('⚠️ 대출 잔액을 입력해주세요.');
-                setLoans(prev => prev.map(l => l.id === loanItemModal.loanId ? { ...l, amount: toPureNumber(loanItemModal.amount), rate: loanItemModal.rate, payDay: loanItemModal.payDay, period: loanItemModal.period, linkedAccId: loanItemModal.linkedAccId } : l));
+                const updated = accounts.map(a => a.id === loanItemModal.loanId ? { ...a, loanAmount: toPureNumber(loanItemModal.amount), loanRate: loanItemModal.rate, loanPayDay: loanItemModal.payDay, loanPeriod: loanItemModal.period, linkedAccId: loanItemModal.linkedAccId } : a);
+                setAccounts(updated);
+                saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
                 setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' });
                 showToast('✅ 대출 정보가 저장되었습니다.');
               }} className="flex-1 py-2.5 rounded-xl font-black text-white text-xs bg-orange-500 hover:bg-orange-600 shadow-md transition-colors">저장</button>
