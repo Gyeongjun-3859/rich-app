@@ -765,6 +765,7 @@ const AppContent = () => {
   const [showDivExPicker, setShowDivExPicker] = useState(false);
   const [subDivYear, setSubDivYear] = useState(new Date().getFullYear());
   
+  const [portfolioTypeTab, setPortfolioTypeTab] = useState('stock');
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [newAccountName, setNewAccountName] = useState('');
   const [newAccountType, setNewAccountType] = useState('stock');
@@ -1224,7 +1225,35 @@ const AppContent = () => {
     return Infinity;
   }, [expectedReturn, globalStats.totalAssets, annualLimit, fireTarget, fireAnnualDiv]);
 
-  const currentAccountStat = accountStatsList.find(a => a.id === selectedAccountId) || accountStatsList[0];
+  const currentAccountStat = (() => {
+    if (selectedAccountId && selectedAccountId.startsWith('__all__')) {
+      const type = selectedAccountId.replace('__all__', '');
+      const typeStats = accountStatsList.filter(a => a.type === type);
+      if (typeStats.length === 0) return accountStatsList[0];
+      const merged = {
+        id: selectedAccountId, name: '전체', type,
+        cash: typeStats.reduce((s, a) => s + a.cash, 0),
+        totalValue: typeStats.reduce((s, a) => s + a.totalValue, 0),
+        totalInvestedKRW: typeStats.reduce((s, a) => s + a.totalInvestedKRW, 0),
+        totalProfitKRW: typeStats.reduce((s, a) => s + a.totalProfitKRW, 0),
+        totalReceivedDivKRW: typeStats.reduce((s, a) => s + a.totalReceivedDivKRW, 0),
+        stockOnlyTotalValue: typeStats.reduce((s, a) => s + a.stockOnlyTotalValue, 0),
+        savingsExpectedTotal: typeStats.reduce((s, a) => s + (a.savingsExpectedTotal || 0), 0),
+        futureTotalDiv: typeStats.reduce((s, a) => s + (a.futureTotalDiv || 0), 0),
+        spendingItemsTotal: typeStats.reduce((s, a) => s + (a.spendingItemsTotal || 0), 0),
+        cardItemsTotal: typeStats.reduce((s, a) => s + (a.cardItemsTotal || 0), 0),
+        cardItemsNonNbbang: typeStats.reduce((s, a) => s + (a.cardItemsNonNbbang || 0), 0),
+        loanAmount: typeStats.reduce((s, a) => s + (a.loanAmount || 0), 0),
+        rebalanceData: typeStats.flatMap(a => a.rebalanceData),
+        totalROI: 0, futureExpectedTotalROI: 0, totalRatio: 0,
+      };
+      const inv = merged.totalInvestedKRW;
+      merged.totalROI = inv > 0 ? (merged.totalProfitKRW / inv) * 100 : 0;
+      merged.futureExpectedTotalROI = merged.stockOnlyTotalValue > 0 ? (merged.futureTotalDiv / merged.stockOnlyTotalValue) * 100 : 0;
+      return merged;
+    }
+    return accountStatsList.find(a => a.id === selectedAccountId) || accountStatsList[0];
+  })();
   
   const currentModalOtherRatioSum = useMemo(() => {
     if (!isModalOpen || !selectedAccountId) return 0;
@@ -1307,6 +1336,15 @@ const AppContent = () => {
       return newHistory;
     });
   }, [globalStats, currentYearNum, currentMonthNum]);
+
+  // 포트폴리오 탭 타입 동기화: selectedAccountId가 바뀌면 portfolioTypeTab도 맞춤
+  useEffect(() => {
+    if (!selectedAccountId || selectedAccountId.startsWith('__all__')) return;
+    const acc = accounts.find(a => a.id === selectedAccountId);
+    if (acc && acc.type !== portfolioTypeTab) {
+      setPortfolioTypeTab(acc.type || 'stock');
+    }
+  }, [selectedAccountId, accounts]);
 
   // --- Handlers ---
   const showToast = (text) => {
@@ -2523,67 +2561,94 @@ const AppContent = () => {
         </div>
       )}
 
-      {/* Account Tabs & Wallet (분리형) */}
-      {activeTab === 'portfolio' && (
-        <div className="max-w-5xl mx-auto px-4 mb-4 mt-2 animate-in fade-in zoom-in duration-300 relative z-20">
-          <div className="flex flex-row items-stretch gap-2 w-full">
-            {/* Left: Accounts Container (더블클릭 인터랙션 + 물흐름 적용) */}
-            <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0 bg-white p-2 md:p-1.5 rounded-[1.25rem] md:rounded-[1rem] shadow-sm border border-slate-200" onClick={(e) => e.stopPropagation()}>
-              {accounts.map((acc, index) => (
-                <div key={acc.id} className="account-card-area relative group flex items-center">
-                  <button 
-                    draggable onDragStart={(e) => handleDragStart(e, index)} onDragEnter={(e) => handleDragEnter(e, index)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, index)} onDragEnd={handleDragEnd} 
-                    onClick={() => setSelectedAccountId(acc.id)}
-                    onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
-                    className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : acc.type === 'spending' ? 'bg-rose-500 text-white shadow-md' : acc.type === 'loan' ? 'bg-orange-500 text-white shadow-md' : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
-                  >
-                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : acc.type === 'spending' ? '🛍️' : acc.type === 'card' ? '💳' : acc.type === 'loan' ? '💸' : '📈'}</span>
-                    <span className="truncate block max-w-[80px] sm:max-w-[110px] leading-tight mt-[1px]">
-                      {acc.name}
-                    </span>
-                  </button>
-                  
-                  {/* 🎯 더블클릭 시 탭 위에 말풍선처럼 뜨는 수정/삭제 액션 버튼 */}
-                  {activeCardId === acc.id && (
-                    <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-lg p-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-200 after:content-[''] after:absolute after:-bottom-1 after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
-                      <button onClick={(e) => { e.stopPropagation(); setEditAccountName(acc.name); setIsEditAccountOpen(true); setActiveCardId(null); }} className="p-1.5 hover:bg-indigo-500 rounded transition-colors"><Edit2 size={12}/></button>
-                      {acc.id !== 'default' && <button onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.id); setActiveCardId(null); }} className="p-1.5 hover:bg-rose-500 rounded transition-colors"><Trash2 size={12}/></button>}
-                    </div>
-                  )}
-                </div>
+      {/* Account Tabs & Wallet (2단 계층형) */}
+      {activeTab === 'portfolio' && (() => {
+        const typeOrder = ['stock','savings','spending','card','loan'];
+        const typeLabel = { stock: '📈 주식', savings: '🏦 저축', spending: '🛍️ 소비', card: '💳 카드', loan: '💸 대출' };
+        const typeColor = {
+          stock: { active: t.accStock, tab: 'border-b-2 ' + t.text + ' font-black', dot: t.main.split(' ')[0] },
+          savings: { active: t.accSavings, tab: 'border-b-2 text-emerald-600 font-black', dot: 'bg-emerald-500' },
+          spending: { active: 'bg-rose-500 text-white shadow-md', tab: 'border-b-2 text-rose-500 font-black', dot: 'bg-rose-500' },
+          card: { active: 'bg-purple-500 text-white shadow-md', tab: 'border-b-2 text-purple-500 font-black', dot: 'bg-purple-500' },
+          loan: { active: 'bg-orange-500 text-white shadow-md', tab: 'border-b-2 text-orange-500 font-black', dot: 'bg-orange-500' },
+        };
+        const existingTypes = typeOrder.filter(type => accounts.some(a => a.type === type));
+        const accsOfType = accounts.filter(a => a.type === portfolioTypeTab);
+        const activeTypeColor = typeColor[portfolioTypeTab] || typeColor.stock;
+        return (
+          <div className="max-w-5xl mx-auto px-4 mb-3 mt-2 animate-in fade-in zoom-in duration-300 relative z-20" onClick={(e) => e.stopPropagation()}>
+            {/* 1단: 타입 메뉴 탭 */}
+            <div className="flex items-center gap-0 bg-white rounded-t-[1.25rem] border border-slate-200 border-b-0 px-2 pt-1.5 overflow-x-auto custom-scrollbar">
+              {existingTypes.map(type => (
+                <button key={type} onClick={() => {
+                  setPortfolioTypeTab(type);
+                  const first = accounts.find(a => a.type === type);
+                  if (first) setSelectedAccountId(first.id);
+                }} className={`px-3 py-1.5 text-[11px] sm:text-xs whitespace-nowrap transition-all duration-200 rounded-t-lg mr-0.5 ${portfolioTypeTab === type ? typeColor[type].tab + ' bg-slate-50 border-slate-200 border border-b-white -mb-px z-10' : 'text-slate-400 hover:text-slate-600'}`}>
+                  {typeLabel[type]}
+                </button>
               ))}
-              <div className="flex items-center gap-1 ml-auto shrink-0">
-                {/* 🎯 기존의 지저분한 버튼들을 지우고 [+] 버튼 하나로 심플하게 압축 */}
-                <button type="button" onClick={() => setIsAddAccountOpen(true)} className={`${t.light} w-7 h-7 flex items-center justify-center rounded-full font-black shadow-sm transition-transform hover:scale-110`}><Plus size={14} strokeWidth={3}/></button>
+              <div className="ml-auto shrink-0 pb-1">
+                <button type="button" onClick={() => setIsAddAccountOpen(true)} className={`${t.light} w-6 h-6 flex items-center justify-center rounded-full font-black shadow-sm transition-transform hover:scale-110`}><Plus size={12} strokeWidth={3}/></button>
               </div>
             </div>
+            {/* 2단: 해당 타입의 계좌 버튼들 */}
+            <div className="flex flex-wrap items-center gap-1.5 bg-white px-2 py-2 rounded-b-[1.25rem] border border-slate-200 border-t-0 shadow-sm">
+              {/* 전체 버튼 */}
+              <button onClick={() => setSelectedAccountId('__all__' + portfolioTypeTab)} className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 shrink-0 flex items-center gap-1 ${selectedAccountId === '__all__' + portfolioTypeTab ? activeTypeColor.active : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}>
+                전체
+              </button>
+              {accsOfType.map((acc, index) => {
+                const globalIndex = accounts.findIndex(a => a.id === acc.id);
+                return (
+                  <div key={acc.id} className="account-card-area relative group flex items-center">
+                    <button
+                      draggable onDragStart={(e) => handleDragStart(e, globalIndex)} onDragEnter={(e) => handleDragEnter(e, globalIndex)} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, globalIndex)} onDragEnd={handleDragEnd}
+                      onClick={() => setSelectedAccountId(acc.id)}
+                      onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
+                      className={`px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[130px] overflow-hidden ${selectedAccountId === acc.id ? activeTypeColor.active : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === globalIndex ? 'opacity-30 scale-95' : ''} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
+                    >
+                      <span className="truncate block leading-tight">{acc.name}</span>
+                    </button>
+                    {activeCardId === acc.id && (
+                      <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-lg p-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-200 after:content-[''] after:absolute after:-bottom-1 after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
+                        <button onClick={(e) => { e.stopPropagation(); setEditAccountName(acc.name); setIsEditAccountOpen(true); setActiveCardId(null); }} className="p-1.5 hover:bg-indigo-500 rounded transition-colors"><Edit2 size={12}/></button>
+                        {acc.id !== 'default' && <button onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.id); setActiveCardId(null); }} className="p-1.5 hover:bg-rose-500 rounded transition-colors"><Trash2 size={12}/></button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <main className="max-w-5xl mx-auto px-4 mt-2">
         {/* --- PORTFOLIO TAB --- */}
         {activeTab === 'portfolio' && (
           <div className="animate-in fade-in duration-500">
             {currentAccountStat?.type === 'loan' && (() => {
-              const monthlyInterest = currentAccountStat.loanAmount && currentAccountStat.loanRate
-                ? Math.round(toPureNumber(currentAccountStat.loanAmount) * toPureNumber(currentAccountStat.loanRate) / 100 / 12)
-                : 0;
+              const loanAccs = selectedAccountId.startsWith('__all__')
+                ? accountStatsList.filter(a => a.type === 'loan')
+                : [currentAccountStat];
+              const totalLoan = loanAccs.reduce((s, a) => s + (a.loanAmount || 0), 0);
+              const totalMonthlyInterest = loanAccs.reduce((s, a) => {
+                if (!a.loanAmount || !a.loanRate) return s;
+                return s + Math.round(toPureNumber(a.loanAmount) * toPureNumber(a.loanRate) / 100 / 12);
+              }, 0);
               return (
-              <div className="flex flex-col gap-3 mb-4">
-                <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
-                    <span className="text-[10px] font-black text-orange-500 mb-1">대출 잔액</span>
-                    <span className="text-[17px] sm:text-2xl font-black text-rose-600">-₩{formatNum(currentAccountStat?.loanAmount)}</span>
-                    {currentAccountStat?.loanPeriod && <span className="text-[9px] text-orange-400 font-bold mt-0.5">계약 {currentAccountStat.loanPeriod}개월</span>}
-                  </div>
-                  <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
-                    <span className="text-[10px] font-black text-orange-500 mb-1">이번달 이자 상환</span>
-                    <span className="text-[17px] sm:text-2xl font-black text-rose-600">{monthlyInterest > 0 ? `₩${formatNum(monthlyInterest)}` : '-'}</span>
-                    <span className="text-[9px] text-orange-400 font-bold mt-0.5">{currentAccountStat?.loanRate ? `연 ${currentAccountStat.loanRate}%` : ''}{currentAccountStat?.loanPayDay ? ` · 매월 ${currentAccountStat.loanPayDay}일` : ''}</span>
-                  </div>
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-4">
+                <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
+                  <span className="text-[10px] font-black text-orange-500 mb-1">대출 잔액</span>
+                  <span className="text-[17px] sm:text-2xl font-black text-rose-600">-₩{formatNum(totalLoan)}</span>
+                  {!selectedAccountId.startsWith('__all__') && currentAccountStat?.loanPeriod && <span className="text-[9px] text-orange-400 font-bold mt-0.5">계약 {currentAccountStat.loanPeriod}개월</span>}
                 </div>
-                <button onClick={() => setLoanItemModal({ isOpen: true, loanId: currentAccountStat.id, amount: currentAccountStat.loanAmount ? String(currentAccountStat.loanAmount) : '', rate: currentAccountStat.loanRate || '', payDay: currentAccountStat.loanPayDay || '', period: currentAccountStat.loanPeriod || '', linkedAccId: currentAccountStat.linkedAccId || '' })} className={`picture-card p-4 flex flex-col items-center justify-center bg-orange-50 border-2 border-dashed border-orange-200 transition-colors group min-h-[70px]`}><div className="bg-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform mb-1.5"><Plus className="text-orange-500" size={16} /></div><span className="font-black text-[10px] text-orange-600">새 항목 추가</span></button>
+                <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
+                  <span className="text-[10px] font-black text-orange-500 mb-1">이번달 이자 상환</span>
+                  <span className="text-[17px] sm:text-2xl font-black text-rose-600">{totalMonthlyInterest > 0 ? `₩${formatNum(totalMonthlyInterest)}` : '-'}</span>
+                  {!selectedAccountId.startsWith('__all__') && <span className="text-[9px] text-orange-400 font-bold mt-0.5">{currentAccountStat?.loanRate ? `연 ${currentAccountStat.loanRate}%` : ''}{currentAccountStat?.loanPayDay ? ` · 매월 ${currentAccountStat.loanPayDay}일` : ''}</span>}
+                </div>
               </div>
               );
             })()}
@@ -2665,7 +2730,7 @@ const AppContent = () => {
 
             <div className="flex justify-between items-center mb-3 px-1 gap-1 w-full">
               <h3 className={`font-black text-slate-800 flex items-center gap-1 text-[11px] sm:text-sm h-[28px] shrink-0`}>
-                <Heart size={14} className={t.text} /> 내 {currentAccountStat?.type === 'stock' ? '보유 종목' : currentAccountStat?.type === 'card' ? '카드 항목' : currentAccountStat?.type === 'spending' ? '소비 항목' : '저축 상품'}
+                <Heart size={14} className={t.text} /> 내 {currentAccountStat?.type === 'stock' ? '보유 종목' : currentAccountStat?.type === 'card' ? '카드 항목' : currentAccountStat?.type === 'spending' ? '소비 항목' : currentAccountStat?.type === 'loan' ? '대출 상품' : '저축 상품'}
               </h3>
               {currentAccountStat?.type === 'stock' && (
                 <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar pb-1 sm:pb-0 justify-end flex-1">
@@ -2693,6 +2758,13 @@ const AppContent = () => {
               )}
             </div>
 
+            {/* 대출 계좌: 새 항목 추가 버튼 (전체 모드 제외) */}
+            {currentAccountStat?.type === 'loan' && !selectedAccountId.startsWith('__all__') && (
+              <button onClick={() => setLoanItemModal({ isOpen: true, loanId: currentAccountStat.id, amount: currentAccountStat.loanAmount ? String(currentAccountStat.loanAmount) : '', rate: currentAccountStat.loanRate || '', payDay: currentAccountStat.loanPayDay || '', period: currentAccountStat.loanPeriod || '', linkedAccId: currentAccountStat.linkedAccId || '' })} className="w-full picture-card p-4 flex flex-col items-center justify-center bg-orange-50 border-2 border-dashed border-orange-200 transition-colors group min-h-[70px] mb-4">
+                <div className="bg-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform mb-1.5"><Plus className="text-orange-500" size={16} /></div>
+                <span className="font-black text-[10px] text-orange-600">새 항목 추가</span>
+              </button>
+            )}
             {/* 컴팩트화된 종목 리스트 그리드 */}
             <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1.5 md:gap-2 ${currentAccountStat?.type === 'loan' ? 'hidden' : ''}`}>
               {currentAccountStat?.rebalanceData.length === 0 ? (
