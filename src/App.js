@@ -263,6 +263,9 @@ const AppContent = () => {
   const [appSubtitle, setAppSubtitle] = useState('Dream Big, Invest Smart');
   const [characterName, setCharacterName] = useState('경준');
   const [appTheme, setAppTheme] = useState('pink');
+  const [typeCustom, setTypeCustom] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('kj_type_custom') || '{}'); } catch { return {}; }
+  });
  
   
   // 수정용 임시 상태 (설정창용)
@@ -768,7 +771,8 @@ const AppContent = () => {
   
   const [portfolioTypeTab, setPortfolioTypeTab] = useState('stock');
   const [dashboardTypeTab, setDashboardTypeTab] = useState(null);
-  const [activeTypePopup, setActiveTypePopup] = useState(null); // 하단 탭 더블클릭 팝업용 type key
+  const [activeTypePopup, setActiveTypePopup] = useState(null);
+  const [editTypeModal, setEditTypeModal] = useState({ isOpen: false, type: '', name: '', emoji: '' });
   const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
   const [addAccountMode, setAddAccountMode] = useState('type'); // 'type' = 신규 타입, 'account' = 기존 타입에 계좌 추가
   const [newAccountName, setNewAccountName] = useState('');
@@ -1405,6 +1409,11 @@ const AppContent = () => {
   };
 
   const saveConfig = (accs, fx, title = appTitle, subtitle = appSubtitle, charName = characterName, theme = appTheme, gCash = globalCash, zLevel = zoomLevel) => {
+  };
+
+  const saveTypeCustom = (updated) => {
+    setTypeCustom(updated);
+    localStorage.setItem('kj_type_custom', JSON.stringify(updated));
   };
 
   const logTrade = (tradeDetails) => {
@@ -2628,8 +2637,8 @@ const AppContent = () => {
       {/* 하단 플로팅 타입 탭 (포트폴리오 탭) */}
       {activeTab === 'portfolio' && (() => {
         const typeOrder = ['stock','savings','spending','card','loan'];
-        const typeLabel = { stock: '주식', savings: '저축', spending: '소비', card: '카드', loan: '대출' };
-        const typeEmoji = { stock: '📈', savings: '🏦', spending: '🛍️', card: '💳', loan: '💸' };
+        const defaultLabel = { stock: '주식', savings: '저축', spending: '소비', card: '카드', loan: '대출' };
+        const defaultEmoji = { stock: '📈', savings: '🏦', spending: '🛍️', card: '💳', loan: '💸' };
         const typeActive = {
           stock: t.main,
           savings: 'bg-emerald-500 text-white',
@@ -2645,21 +2654,24 @@ const AppContent = () => {
               {existingTypes.map(type => {
                 const isActive = portfolioTypeTab === type;
                 const isPopupOpen = activeTypePopup === type;
+                const label = typeCustom[type]?.name || defaultLabel[type];
+                const emoji = typeCustom[type]?.emoji || defaultEmoji[type];
                 return (
                   <div key={type} className="relative">
-                    {/* 더블클릭 팝업: 삭제만 */}
+                    {/* 더블클릭 팝업: 수정 + 삭제 */}
                     {isPopupOpen && (
                       <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-800 text-white rounded-xl px-1 py-1 flex gap-1 shadow-xl z-50 animate-in fade-in zoom-in duration-150 whitespace-nowrap after:content-[''] after:absolute after:top-full after:left-1/2 after:-translate-x-1/2 after:border-4 after:border-transparent after:border-t-slate-800">
-                        <button onClick={(e) => { e.stopPropagation(); setActiveTypePopup(null); showConfirm(`'${typeLabel[type]}' 메뉴와 포함된 모든 계좌를 삭제할까요?`, () => { saveStateToHistory(); const updated = accounts.filter(a => a.type !== type); setAccounts(updated); const first = updated[0]; if(first){ setPortfolioTypeTab(first.type||'stock'); setSelectedAccountId(first.id); } saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash); showToast('🗑️ 삭제됐습니다.'); }); }} className="px-2 py-1 text-[10px] font-black hover:bg-rose-500 rounded-lg transition-colors flex items-center gap-1"><Trash2 size={10}/> 삭제</button>
+                        <button onClick={(e) => { e.stopPropagation(); setActiveTypePopup(null); setEditTypeModal({ isOpen: true, type, name: label, emoji }); }} className="px-2 py-1 text-[10px] font-black hover:bg-indigo-500 rounded-lg transition-colors flex items-center gap-1"><Edit2 size={10}/> 수정</button>
+                        <button onClick={(e) => { e.stopPropagation(); setActiveTypePopup(null); showConfirm(`'${label}' 메뉴와 포함된 모든 계좌를 삭제할까요?`, () => { saveStateToHistory(); const updated = accounts.filter(a => a.type !== type); setAccounts(updated); const first = updated[0]; if(first){ setPortfolioTypeTab(first.type||'stock'); setSelectedAccountId(first.id); } showToast('🗑️ 삭제됐습니다.'); }); }} className="px-2 py-1 text-[10px] font-black hover:bg-rose-500 rounded-lg transition-colors flex items-center gap-1"><Trash2 size={10}/> 삭제</button>
                       </div>
                     )}
                     <button
-                      onClick={() => { setActiveTypePopup(null); setPortfolioTypeTab(type); const first = accounts.find(a => a.type === type); if (first) setSelectedAccountId(first.id); }}
+                      onClick={() => { setActiveTypePopup(null); setPortfolioTypeTab(type); setSelectedAccountId('__all__' + type); }}
                       onDoubleClick={(e) => { e.stopPropagation(); setActiveTypePopup(isPopupOpen ? null : type); }}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-black transition-all duration-200 whitespace-nowrap select-none ${isActive ? typeActive[type] + ' shadow-sm' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}
                     >
-                      <span className="text-[13px] leading-none">{typeEmoji[type]}</span>
-                      <span>{typeLabel[type]}</span>
+                      <span className="text-[13px] leading-none">{emoji}</span>
+                      <span>{label}</span>
                     </button>
                   </div>
                 );
@@ -5718,7 +5730,7 @@ const AppContent = () => {
         </div>
       )}
       {isAddAccountOpen && (() => {
-        const typeInfo = { stock: { label:'주식', emoji:'📈', btn:t.main }, savings: { label:'저축', emoji:'🏦', btn:'bg-emerald-500 hover:bg-emerald-600' }, spending: { label:'소비', emoji:'🛍️', btn:'bg-rose-500 hover:bg-rose-600' }, card: { label:'카드', emoji:'💳', btn:'bg-slate-700 hover:bg-slate-800' }, loan: { label:'대출', emoji:'💸', btn:'bg-orange-500 hover:bg-orange-600' } };
+        const typeInfo = { stock: { label: typeCustom.stock?.name||'주식', emoji: typeCustom.stock?.emoji||'📈', btn:t.main }, savings: { label: typeCustom.savings?.name||'저축', emoji: typeCustom.savings?.emoji||'🏦', btn:'bg-emerald-500 hover:bg-emerald-600' }, spending: { label: typeCustom.spending?.name||'소비', emoji: typeCustom.spending?.emoji||'🛍️', btn:'bg-rose-500 hover:bg-rose-600' }, card: { label: typeCustom.card?.name||'카드', emoji: typeCustom.card?.emoji||'💳', btn:'bg-slate-700 hover:bg-slate-800' }, loan: { label: typeCustom.loan?.name||'대출', emoji: typeCustom.loan?.emoji||'💸', btn:'bg-orange-500 hover:bg-orange-600' } };
         const typeActiveBtns = { stock: t.main, savings: 'bg-emerald-500 text-white shadow-sm', spending: 'bg-rose-500 text-white shadow-sm', card: 'bg-slate-700 text-white shadow-sm', loan: 'bg-orange-500 text-white shadow-sm' };
         const info = typeInfo[newAccountType] || typeInfo.stock;
         const isAccountMode = addAccountMode === 'account';
@@ -5746,7 +5758,7 @@ const AppContent = () => {
               <>
                 <div className="flex items-center justify-center gap-1.5 mb-4">
                   <span className="text-base">{info.emoji}</span>
-                  <h3 className="font-black text-sm text-slate-800">{info.label} 계좌 추가</h3>
+                  <h3 className="font-black text-sm text-slate-800">{info.label} 추가</h3>
                 </div>
                 <input type="text" placeholder={placeholder} autoFocus className={`w-full p-2.5 rounded-xl text-sm font-bold outline-none border mb-3 focus:border-slate-400 text-center`} value={newAccountName} onChange={e=>setNewAccountName(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') handleSave(); }} />
                 <button type="button" onClick={handleSave} className={`w-full text-white py-2.5 rounded-xl text-xs font-black transition-colors shadow-md ${info.btn}`}>추가하기</button>
@@ -5772,6 +5784,27 @@ const AppContent = () => {
         </div>
         );
       })()}
+
+      {/* 타입 메뉴 수정 모달 (이름 + 이모지) */}
+      {editTypeModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setEditTypeModal(m => ({ ...m, isOpen: false })); }}>
+          <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative">
+            <button type="button" onClick={() => setEditTypeModal(m => ({ ...m, isOpen: false }))} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
+            <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center items-center gap-1.5"><Edit2 size={14}/> 메뉴 수정</h3>
+            <div className="flex gap-2 mb-3">
+              <div className="w-14 shrink-0">
+                <label className="text-[10px] font-black text-slate-400 block mb-1 text-center">이모지</label>
+                <input type="text" className="w-full p-2 rounded-xl border text-center text-lg outline-none focus:border-slate-400" value={editTypeModal.emoji} onChange={e => setEditTypeModal(m => ({ ...m, emoji: e.target.value }))} maxLength={2} />
+              </div>
+              <div className="flex-1">
+                <label className="text-[10px] font-black text-slate-400 block mb-1">메뉴 이름</label>
+                <input type="text" autoFocus className="w-full p-2 rounded-xl border text-sm font-bold outline-none focus:border-slate-400" value={editTypeModal.name} onChange={e => setEditTypeModal(m => ({ ...m, name: e.target.value }))} placeholder="메뉴 이름" onKeyDown={e => { if (e.key === 'Enter') { const updated = { ...typeCustom, [editTypeModal.type]: { name: editTypeModal.name || undefined, emoji: editTypeModal.emoji || undefined } }; saveTypeCustom(updated); setEditTypeModal(m => ({ ...m, isOpen: false })); showToast('✅ 수정됐습니다.'); }}} />
+              </div>
+            </div>
+            <button type="button" onClick={() => { const updated = { ...typeCustom, [editTypeModal.type]: { name: editTypeModal.name || undefined, emoji: editTypeModal.emoji || undefined } }; saveTypeCustom(updated); setEditTypeModal(m => ({ ...m, isOpen: false })); showToast('✅ 수정됐습니다.'); }} className="w-full bg-slate-800 text-white py-2.5 rounded-xl text-xs font-black shadow-md">저장하기</button>
+          </div>
+        </div>
+      )}
 
       {isEditLabelModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={e => { if (e.target === e.currentTarget) setIsEditLabelModalOpen(false); }}>
