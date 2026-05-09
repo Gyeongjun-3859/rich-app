@@ -2537,7 +2537,7 @@ const AppContent = () => {
                     onDoubleClick={(e) => { e.stopPropagation(); setActiveCardId(acc.id); }}
                     className={`px-3 py-1.5 rounded-xl md:rounded-lg text-[11px] md:text-xs font-black transition-all duration-300 shrink-0 cursor-grab active:cursor-grabbing flex items-center gap-1 max-w-[120px] sm:max-w-[150px] overflow-hidden ${selectedAccountId === acc.id ? (acc.type === 'savings' ? t.accSavings : acc.type === 'spending' ? 'bg-rose-500 text-white shadow-md' : acc.type === 'loan' ? 'bg-orange-500 text-white shadow-md' : t.accStock) : 'bg-slate-50 text-slate-500 hover:bg-slate-100'} ${draggedAccIdx === index ? 'opacity-30 scale-95' : 'opacity-100 scale-100'} ${activeCardId === acc.id ? 'ring-2 ring-indigo-400' : ''}`}
                   >
-                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : acc.type === 'spending' ? '🛍️' : acc.type === 'card' ? '💳' : acc.type === 'loan' ? '🏦' : '📈'}</span>
+                    <span className="shrink-0">{acc.type === 'savings' ? '🏦' : acc.type === 'spending' ? '🛍️' : acc.type === 'card' ? '💳' : acc.type === 'loan' ? '💸' : '📈'}</span>
                     <span className="truncate block max-w-[80px] sm:max-w-[110px] leading-tight mt-[1px]">
                       {acc.name}
                     </span>
@@ -2565,22 +2565,28 @@ const AppContent = () => {
         {/* --- PORTFOLIO TAB --- */}
         {activeTab === 'portfolio' && (
           <div className="animate-in fade-in duration-500">
-            {currentAccountStat?.type === 'loan' && (
+            {currentAccountStat?.type === 'loan' && (() => {
+              const monthlyInterest = currentAccountStat.loanAmount && currentAccountStat.loanRate
+                ? Math.round(toPureNumber(currentAccountStat.loanAmount) * toPureNumber(currentAccountStat.loanRate) / 100 / 12)
+                : 0;
+              return (
               <div className="flex flex-col gap-3 mb-4">
                 <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
                     <span className="text-[10px] font-black text-orange-500 mb-1">대출 잔액</span>
                     <span className="text-[17px] sm:text-2xl font-black text-rose-600">-₩{formatNum(currentAccountStat?.loanAmount)}</span>
+                    {currentAccountStat?.loanPeriod && <span className="text-[9px] text-orange-400 font-bold mt-0.5">계약 {currentAccountStat.loanPeriod}개월</span>}
                   </div>
                   <div className="bg-orange-50 rounded-xl border border-orange-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center">
-                    <span className="text-[10px] font-black text-orange-500 mb-1">이자율 / 납입일</span>
-                    <span className="text-[14px] font-black text-orange-700">{currentAccountStat?.loanRate ? `${currentAccountStat.loanRate}%` : '-'} {currentAccountStat?.loanPayDay ? `· 매월 ${currentAccountStat.loanPayDay}일` : ''}</span>
-                    {currentAccountStat?.loanPeriod && <span className="text-[10px] text-orange-500 font-bold">계약기간 {currentAccountStat.loanPeriod}개월</span>}
+                    <span className="text-[10px] font-black text-orange-500 mb-1">이번달 이자 상환</span>
+                    <span className="text-[17px] sm:text-2xl font-black text-rose-600">{monthlyInterest > 0 ? `₩${formatNum(monthlyInterest)}` : '-'}</span>
+                    <span className="text-[9px] text-orange-400 font-bold mt-0.5">{currentAccountStat?.loanRate ? `연 ${currentAccountStat.loanRate}%` : ''}{currentAccountStat?.loanPayDay ? ` · 매월 ${currentAccountStat.loanPayDay}일` : ''}</span>
                   </div>
                 </div>
-                <button onClick={() => setLoanItemModal({ isOpen: true, loanId: currentAccountStat.id, amount: currentAccountStat.loanAmount ? String(currentAccountStat.loanAmount) : '', rate: currentAccountStat.loanRate || '', payDay: currentAccountStat.loanPayDay || '', period: currentAccountStat.loanPeriod || '', linkedAccId: currentAccountStat.linkedAccId || '' })} className="w-full bg-orange-100 text-orange-600 border border-orange-200 rounded-xl py-2.5 text-xs font-black hover:bg-orange-200 transition-colors flex items-center justify-center gap-1.5"><Plus size={12}/> 대출 정보 수정</button>
+                <button onClick={() => setLoanItemModal({ isOpen: true, loanId: currentAccountStat.id, amount: currentAccountStat.loanAmount ? String(currentAccountStat.loanAmount) : '', rate: currentAccountStat.loanRate || '', payDay: currentAccountStat.loanPayDay || '', period: currentAccountStat.loanPeriod || '', linkedAccId: currentAccountStat.linkedAccId || '' })} className={`picture-card p-4 flex flex-col items-center justify-center bg-orange-50 border-2 border-dashed border-orange-200 transition-colors group min-h-[70px]`}><div className="bg-white p-2 rounded-full shadow-sm group-hover:scale-110 transition-transform mb-1.5"><Plus className="text-orange-500" size={16} /></div><span className="font-black text-[10px] text-orange-600">새 항목 추가</span></button>
               </div>
-            )}
+              );
+            })()}
             {currentAccountStat?.type === 'card' && (
               <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-4">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden">
@@ -2842,7 +2848,7 @@ const AppContent = () => {
                 {accountStatsList.map(acc => acc.type === 'loan' ? (
                 <div key={acc.id} className="bg-orange-50 rounded-xl p-3.5 shadow-sm border border-orange-200 flex flex-col justify-between relative group overflow-hidden">
                   <div className="flex justify-between items-center mb-1.5">
-                    <h4 className="font-bold text-[12px] truncate flex items-center gap-1.5 text-orange-700">🏦 {acc.name}</h4>
+                    <h4 className="font-bold text-[12px] truncate flex items-center gap-1.5 text-orange-700">💸 {acc.name}</h4>
                     <button onClick={() => { if(window.confirm('대출을 삭제할까요?')) { saveStateToHistory(); setAccounts(prev => prev.filter(a => a.id !== acc.id)); } }} className="opacity-0 group-hover:opacity-100 transition-opacity text-orange-300 hover:text-rose-500"><X size={12}/></button>
                   </div>
                   <div className="space-y-1">
@@ -5516,7 +5522,7 @@ const AppContent = () => {
             <button type="button" onClick={() => setIsAddAccountOpen(false)} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
             <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">➕ 내 자산 추가</h3>
             <div className="flex gap-1 mb-4 bg-slate-50 p-1 rounded-xl">
-              {[['stock','📈','주식',t.main],['savings','🏦','저축','bg-emerald-500 text-white shadow-sm'],['spending','🛍️','소비','bg-rose-500 text-white shadow-sm'],['card','💳','카드','bg-slate-700 text-white shadow-sm'],['loan','🏦','대출','bg-orange-500 text-white shadow-sm']].map(([type,icon,label,active]) => (
+              {[['stock','📈','주식',t.main],['savings','🏦','저축','bg-emerald-500 text-white shadow-sm'],['spending','🛍️','소비','bg-rose-500 text-white shadow-sm'],['card','💳','카드','bg-slate-700 text-white shadow-sm'],['loan','💸','대출','bg-orange-500 text-white shadow-sm']].map(([type,icon,label,active]) => (
                 <button key={type} type="button" onClick={()=>{ setNewAccountType(type); setNewAccountName(''); }} className={`flex-1 py-2 rounded-lg text-[9px] font-black transition-all ${newAccountType === type ? active : 'text-slate-400'}`}>{icon}<br/>{label}</button>
               ))}
             </div>
@@ -5623,11 +5629,20 @@ const AppContent = () => {
       )}
 
       {/* 대출 세부 항목 추가 모달 */}
-      {loanItemModal.isOpen && (
+      {loanItemModal.isOpen && (() => {
+        // 저축계좌 안의 항목(stocks)만 출금 대상으로 표시
+        const savingsStockOptions = stocks.filter(s => {
+          const acc = accounts.find(a => a.id === (s.accountId || 'default'));
+          return acc?.type === 'savings';
+        });
+        const previewInterest = loanItemModal.amount && loanItemModal.rate
+          ? Math.round(toPureNumber(loanItemModal.amount) * toPureNumber(loanItemModal.rate) / 100 / 12)
+          : 0;
+        return (
         <div className="fixed inset-0 bg-slate-900/50 z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl relative">
             <button onClick={() => setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' })} className="absolute top-4 right-4 p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
-            <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">🏦 대출 상세 입력</h3>
+            <h3 className="font-black text-sm mb-4 text-slate-800 flex justify-center w-full">💸 대출 상세 입력</h3>
             <div className="flex flex-col gap-2.5 mb-4">
               <div className="relative flex items-center">
                 <span className="absolute left-3 text-xs font-bold text-slate-400">₩</span>
@@ -5643,16 +5658,21 @@ const AppContent = () => {
                   <span className="absolute right-3 text-xs font-bold text-slate-400">일</span>
                 </div>
               </div>
+              {previewInterest > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5 text-center">
+                  <span className="text-[10px] font-black text-orange-600">이번달 예상 이자: ₩{formatNum(previewInterest)}</span>
+                </div>
+              )}
               <div className="relative flex items-center">
                 <input type="text" placeholder="계약기간 (개월)" className="w-full p-2.5 pr-10 rounded-xl bg-slate-50 border outline-none font-black text-sm text-right focus:border-orange-400" value={loanItemModal.period} onChange={e=>setLoanItemModal({...loanItemModal, period: e.target.value.replace(/[^0-9]/g,'')})} />
                 <span className="absolute right-3 text-xs font-bold text-slate-400">개월</span>
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-black text-slate-400 text-center">출금 저축 계좌 (이자 납입용)</label>
+                <label className="text-[10px] font-black text-slate-400 text-center">이자 출금 항목 (저축계좌 항목)</label>
                 <select className="w-full p-2.5 rounded-xl bg-slate-50 border outline-none font-black text-xs text-center focus:border-orange-400" value={loanItemModal.linkedAccId} onChange={e=>setLoanItemModal({...loanItemModal, linkedAccId: e.target.value})}>
                   <option value="">선택 안 함</option>
-                  {accounts.filter(a => a.type === 'savings').map(a => (
-                    <option key={a.id} value={a.id}>🏦 {a.name} (₩{formatNum(a.cash)})</option>
+                  {savingsStockOptions.map(s => (
+                    <option key={s.id} value={`stock:${s.id}`}>💰 {s.name} (₩{formatNum(toPureNumber(s.quantity))})</option>
                   ))}
                 </select>
               </div>
@@ -5661,16 +5681,30 @@ const AppContent = () => {
               <button onClick={() => setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' })} className="flex-1 py-2.5 rounded-xl font-black text-slate-600 text-xs bg-slate-100 hover:bg-slate-200 transition-colors">취소</button>
               <button onClick={() => {
                 if (!loanItemModal.amount) return showToast('⚠️ 대출 잔액을 입력해주세요.');
+                saveStateToHistory();
+                const loanAcc = accounts.find(a => a.id === loanItemModal.loanId);
                 const updated = accounts.map(a => a.id === loanItemModal.loanId ? { ...a, loanAmount: toPureNumber(loanItemModal.amount), loanRate: loanItemModal.rate, loanPayDay: loanItemModal.payDay, loanPeriod: loanItemModal.period, linkedAccId: loanItemModal.linkedAccId } : a);
                 setAccounts(updated);
+                // 납입일과 이자율이 설정됐으면 고정비로 자동 등록
+                if (loanItemModal.payDay && loanItemModal.rate && loanItemModal.amount) {
+                  const interestAmt = Math.round(toPureNumber(loanItemModal.amount) * toPureNumber(loanItemModal.rate) / 100 / 12);
+                  const loanName = loanAcc?.name || '대출';
+                  const feId = `loan_interest_${loanItemModal.loanId}`;
+                  const newFe = { id: feId, name: `${loanName} 이자`, amount: interestAmt, day: Number(loanItemModal.payDay), paymentMethod: '현금', cardName: '', linkedStockId: loanItemModal.linkedAccId.startsWith('stock:') ? loanItemModal.linkedAccId.replace('stock:','') : '' };
+                  setFixedExpenses(prev => {
+                    const filtered = prev.filter(fe => fe.id !== feId);
+                    return [...filtered, newFe];
+                  });
+                }
                 saveConfig(updated, exchangeRate, appTitle, appSubtitle, characterName, appTheme, globalCash);
                 setLoanItemModal({ isOpen: false, loanId: null, amount: '', rate: '', payDay: '', period: '', linkedAccId: '' });
-                showToast('✅ 대출 정보가 저장되었습니다.');
+                showToast('✅ 대출 정보가 저장되었습니다. 납입일에 이자가 자동 출금됩니다.');
               }} className="flex-1 py-2.5 rounded-xl font-black text-white text-xs bg-orange-500 hover:bg-orange-600 shadow-md transition-colors">저장</button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 저축 만기 입력 모달 */}
       {savingsMaturityModal.isOpen && (
