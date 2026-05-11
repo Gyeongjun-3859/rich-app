@@ -570,6 +570,7 @@ const AppContent = () => {
           if (s.fixedExpenses) setFixedExpenses(s.fixedExpenses);
           if (s.loans) setLoans(s.loans);
           if (s.shopItems) setShopItems(s.shopItems);
+          if (s.excludeLoanFromTotal !== undefined) setExcludeLoanFromTotal(s.excludeLoanFromTotal);
        } else {
           // 신규 가입자: 모든 데이터 빈 상태로 초기화
           await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0, settings: {}, history_records: [] }]);
@@ -619,7 +620,7 @@ const AppContent = () => {
          trade_logs: tradeLogs,
          my_cards: myCards,
          history_records: historyRecords,
-         settings: { ...settings, monthlyGoals, fixedExpenses, shopItems },
+         settings: { ...settings, monthlyGoals, fixedExpenses, shopItems, excludeLoanFromTotal },
          updated_at: new Date().toISOString()
        }, { onConflict: 'user_id' });
 
@@ -2504,7 +2505,7 @@ const AppContent = () => {
           ...stocks.filter(s => { const acc = accounts.find(a => a.id === (s.accountId || 'default')); return acc?.type === 'savings'; }).map(s => ({ key: `savstk-${s.id}`, label: `🏦 ${s.name}`, method: '현금', cardName: '', transferAccId: `stock:${s.id}` })),
         ];
         const doSave = () => {
-          const parsed = Number(editFixedAmount.replace(/[^0-9]/g, ''));
+          const parsed = editFixedIsUSD ? Number(editFixedAmount) : Number(editFixedAmount.replace(/[^0-9]/g, ''));
           const dayNum = Number(editFixedDay);
           if (!parsed || !dayNum || dayNum < 1 || dayNum > 31) { showToast('금액과 날짜(일)를 올바르게 입력하세요'); return; }
           setFixedExpenses(fixedExpenses.map(f => f.id === fe.id ? { ...f, amount: parsed, day: dayNum, paymentMethod: editFixedPayment.method, cardName: editFixedPayment.cardName, transferAccId: editFixedPayment.transferAccId, isUSD: editFixedIsUSD } : f));
@@ -2536,7 +2537,7 @@ const AppContent = () => {
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">금액</span>
                   <div className="flex gap-1.5 mt-1 items-center">
                     <button onClick={() => setEditFixedIsUSD(v => !v)} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 border transition-colors ${editFixedIsUSD ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{editFixedIsUSD ? '$' : '₩'}</button>
-                    <input type="text" autoFocus className="flex-1 text-right text-[12px] font-black text-slate-800 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-amber-400" placeholder={editFixedIsUSD ? 'USD 금액' : '금액'} value={toCommaString(editFixedAmount)} onChange={e => setEditFixedAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') doSave(); }} />
+                    <input type="text" autoFocus className="flex-1 text-right text-[12px] font-black text-slate-800 border border-slate-200 rounded-lg px-3 py-2 outline-none focus:border-amber-400" placeholder={editFixedIsUSD ? 'USD 금액' : '금액'} value={editFixedIsUSD ? editFixedAmount : toCommaString(editFixedAmount)} onChange={e => setEditFixedAmount(editFixedIsUSD ? e.target.value.replace(/[^0-9.]/g, '') : e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') doSave(); }} />
                   </div>
                 </div>
                 <div>
@@ -3159,7 +3160,7 @@ const AppContent = () => {
                 <div className="flex flex-col justify-center shrink-0 w-[40%] sm:w-[35%] border-r border-slate-600/50 pr-2 h-full">
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-slate-300 font-bold text-[9px] flex items-center gap-1"><Briefcase size={10}/> 전체 총 자산</span>
-                    {globalStats.totalLoanDebt > 0 && (
+                    {accounts.some(a => a.type === 'loan') && (
                       <button onClick={() => setExcludeLoanFromTotal(v => !v)}
                         className={`shrink-0 px-1.5 py-0.5 rounded text-[7px] font-black transition-colors border ${excludeLoanFromTotal ? 'bg-emerald-500 border-emerald-400 text-white' : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600'}`}>
                         대출제외
@@ -5674,7 +5675,7 @@ const AppContent = () => {
                               </div>
                               <div className="flex gap-1.5 items-center">
                                 <button onClick={() => setNewFixedIsUSD(v => !v)} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 border transition-colors ${newFixedIsUSD ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{newFixedIsUSD ? '$' : '₩'}</button>
-                                <input id="fixedAmtInput" type="text" className="flex-1 min-w-0 text-right text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white" placeholder={newFixedIsUSD ? 'USD 금액' : '금액'} value={toCommaString(newFixedAmount)} onChange={e => setNewFixedAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') document.getElementById('fixedDayInput')?.focus(); }} />
+                                <input id="fixedAmtInput" type="text" className="flex-1 min-w-0 text-right text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white" placeholder={newFixedIsUSD ? 'USD 금액' : '금액'} value={newFixedIsUSD ? newFixedAmount : toCommaString(newFixedAmount)} onChange={e => setNewFixedAmount(newFixedIsUSD ? e.target.value.replace(/[^0-9.]/g, '') : e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') document.getElementById('fixedDayInput')?.focus(); }} />
                                 <input id="fixedDayInput" type="text" inputMode="numeric" className="w-[46px] text-center text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white shrink-0" placeholder="일" value={newFixedDay} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); if (Number(v) <= 31) setNewFixedDay(v); }} onKeyDown={e => { if (e.key === 'Enter') doRegister(); }} />
                                 <button onClick={doRegister} className="bg-amber-400 text-white px-3 py-2 rounded-lg text-[10px] font-black shrink-0 shadow-sm hover:bg-amber-500 transition-colors">등록</button>
                                 <button onClick={() => { setShowFixedCatInput(v => !v); setNewFixedCatName(''); }} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 shadow-sm transition-colors border ${showFixedCatInput ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>+분류</button>
