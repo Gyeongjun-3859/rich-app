@@ -19,7 +19,7 @@ const fetchMarketDataViaEdgeFn = async (symbols) => {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey },
       body: JSON.stringify({ symbols }),
     });
     const data = await res.json();
@@ -34,7 +34,7 @@ const searchStocksViaEdgeFn = async (query) => {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey },
       body: JSON.stringify({ search: query }),
     });
     const data = await res.json();
@@ -105,16 +105,16 @@ const PRESET_PROFILES = [
 
 const STOCK_DATABASE = [
   // 🎯 사용자가 특별히 요청한 필수 ETF 8종 (최상단 고정 배치)
-  { id: 'etf_req10', name: 'TIGER 미국배당다우존스타겟데일리커버드콜', ticker: '476060', currentPrice: 10000, isUSD: false, isETF: true, tickerSuffix: '.KQ' },
+  { id: 'etf_req10', name: 'TIGER 미국배당다우존스타겟데일리커버드콜', ticker: '0008S0', currentPrice: 10000, isUSD: false, isETF: true },
   { id: 'etf_req11', name: 'TIGER 미국S&P500', ticker: '360750', currentPrice: 15000, isUSD: false, isETF: true },
-  { id: 'etf_req12', name: 'ACE 미국하이일드액티브(H)', ticker: '466740', currentPrice: 10000, isUSD: false, isETF: true },
-  { id: 'etf_req13', name: 'KODEX 한국부동산리츠인프라', ticker: '474920', currentPrice: 5000, isUSD: false, isETF: true },
+  { id: 'etf_req12', name: 'ACE 미국하이일드액티브(H)', ticker: '455660', currentPrice: 10000, isUSD: false, isETF: true },
+  { id: 'etf_req13', name: 'KODEX 한국부동산리츠인프라', ticker: '476800', currentPrice: 5000, isUSD: false, isETF: true },
   { id: 'etf_req14', name: 'KODEX 코스닥150', ticker: '229200', currentPrice: 12000, isUSD: false, isETF: true },
   { id: 'etf_req15', name: 'KODEX 코스피100', ticker: '237350', currentPrice: 25000, isUSD: false, isETF: true },
   { id: 'etf_req16', name: 'ACE KRX금현물', ticker: '411060', currentPrice: 13000, isUSD: false, isETF: true },
-  { id: 'etf_req17', name: 'PLUS 미국고배당주액티브', ticker: '485080', currentPrice: 10000, isUSD: false, isETF: true },
-  { id: 'etf_req18', name: 'TIGER 미국AI데이터센터TOP4Plus', ticker: '509310', currentPrice: 10000, isUSD: false, isETF: true },
-  { id: 'etf_req19', name: 'PLUS 글로벌HBM반도체', ticker: '476410', currentPrice: 10000, isUSD: false, isETF: true },
+  { id: 'etf_req17', name: 'PLUS 미국고배당주액티브', ticker: '0153X0', currentPrice: 10000, isUSD: false, isETF: true },
+  { id: 'etf_req18', name: 'TIGER 미국AI데이터센터TOP4Plus', ticker: '0142D0', currentPrice: 10000, isUSD: false, isETF: true },
+  { id: 'etf_req19', name: 'PLUS 글로벌HBM반도체', ticker: '442580', currentPrice: 10000, isUSD: false, isETF: true },
 
   // 🎯 글로벌 & 국내 시총 상위 실제 주식 100종 (콤팩트 배열 파싱)
   ...[
@@ -392,7 +392,9 @@ const AppContent = () => {
   const [nbbangFilter, setNbbangFilter] = useState('all');
   const [expandedPersons, setExpandedPersons] = useState({}); 
   const [expandedRestaurants, setExpandedRestaurants] = useState({}); 
-  const [editingNbbang, setEditingNbbang] = useState(null); 
+  const [editingNbbang, setEditingNbbang] = useState(null);
+  const [editingAllGroupKey, setEditingAllGroupKey] = useState(null); // 전체 사용내역 수정 모달용
+  const [selectedAllGroupKeys, setSelectedAllGroupKeys] = useState([]); // 전체 사용내역 클릭 정산용 (복수)
   const [prepayModalState, setPrepayModalState] = useState({ isOpen: false, cardName: '' });
   const [prepaySelectedKey, setPrepaySelectedKey] = useState(null);
   const [prepayEditKey, setPrepayEditKey] = useState(null);
@@ -838,6 +840,30 @@ const AppContent = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]); // Yahoo 실시간 검색 결과
   const [isSearching, setIsSearching] = useState(false);  // 검색 로딩 중
+  const [tickerQuery, setTickerQuery] = useState('');      // 티커 직접 입력
+  const tickerTimerRef = useRef(null);
+  const [isWatchlistModalOpen, setIsWatchlistModalOpen] = useState(false);
+  const [watchlist, setWatchlist] = useState(() => { try { return JSON.parse(localStorage.getItem('kj_watchlist') || '[]'); } catch { return []; } });
+  const [watchlistSearch, setWatchlistSearch] = useState('');
+  const [watchlistTickerQuery, setWatchlistTickerQuery] = useState('');
+  const [watchlistSearchResults, setWatchlistSearchResults] = useState([]);
+  const [watchlistIsSearching, setWatchlistIsSearching] = useState(false);
+  const [watchlistIsDropdownOpen, setWatchlistIsDropdownOpen] = useState(false);
+  const [watchlistPrices, setWatchlistPrices] = useState({});
+  const [watchlistCategories, setWatchlistCategories] = useState(() => { try { return JSON.parse(localStorage.getItem('kj_watchlist_categories') || '["한국주식","미국주식","ETF"]'); } catch { return ['한국주식','미국주식','ETF']; } });
+  const [watchlistCategoryMap, setWatchlistCategoryMap] = useState(() => { try { return JSON.parse(localStorage.getItem('kj_watchlist_catmap') || '{}'); } catch { return {}; } });
+  const [watchlistChartStock, setWatchlistChartStock] = useState(null);
+  const [watchlistChartPeriod, setWatchlistChartPeriod] = useState('1Y');
+  const [watchlistChartData, setWatchlistChartData] = useState([]);
+  const [watchlistChartLoading, setWatchlistChartLoading] = useState(false);
+  const [watchlistNewCategory, setWatchlistNewCategory] = useState('');
+  const [watchlistAddingCategory, setWatchlistAddingCategory] = useState(false);
+  const [watchlistSelectedCategory, setWatchlistSelectedCategory] = useState(null);
+  const [watchlistDeleteTarget, setWatchlistDeleteTarget] = useState(null); // 삭제 대기 중인 종목 id
+  const watchlistSearchTimerRef = useRef(null);
+  const watchlistTickerTimerRef = useRef(null);
+  const watchlistClickTimerRef = useRef({});
+  const watchlistLongPressTimerRef = useRef({});
   const [isSubDivModalOpen, setIsSubDivModalOpen] = useState(false);
   const [isGlobalDivModalOpen, setIsGlobalDivModalOpen] = useState(false);
   const [divInputView, setDivInputView] = useState('schedule');
@@ -930,6 +956,49 @@ const AppContent = () => {
 
   const stocksRef = useRef(stocks);
   useEffect(() => { stocksRef.current = stocks; }, [stocks]);
+  useEffect(() => { localStorage.setItem('kj_watchlist', JSON.stringify(watchlist)); }, [watchlist]);
+  useEffect(() => { localStorage.setItem('kj_watchlist_categories', JSON.stringify(watchlistCategories)); }, [watchlistCategories]);
+  useEffect(() => { localStorage.setItem('kj_watchlist_catmap', JSON.stringify(watchlistCategoryMap)); }, [watchlistCategoryMap]);
+
+  // 관심종목 현재가 자동 갱신 (10분마다)
+  useEffect(() => {
+    const fetchWatchlistPrices = async () => {
+      if (watchlist.length === 0) return;
+      const symbols = watchlist.map(w => w.isUSD ? w.ticker : `${w.ticker}${w.tickerSuffix || '.KS'}`);
+      const results = await fetchMarketDataViaEdgeFn(symbols);
+      const newPrices = {};
+      watchlist.forEach(w => {
+        const sym = w.isUSD ? w.ticker : `${w.ticker}${w.tickerSuffix || '.KS'}`;
+        if (results[sym]) newPrices[w.id] = results[sym];
+      });
+      setWatchlistPrices(newPrices);
+    };
+    fetchWatchlistPrices();
+    const interval = setInterval(fetchWatchlistPrices, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [watchlist]);
+
+  // 관심종목 차트 데이터 로딩 (Edge Function 경유)
+  const fetchWatchlistChart = async (stock, period) => {
+    setWatchlistChartLoading(true);
+    setWatchlistChartData([]);
+    try {
+      const periodMap = { '1M': '1mo', '3M': '3mo', '1Y': '1y', '3Y': '3y' };
+      const intervalMap = { '1M': '1d', '3M': '1d', '1Y': '1wk', '3Y': '1mo' };
+      const sym = stock.isUSD ? stock.ticker : `${stock.ticker}${stock.tickerSuffix || '.KS'}`;
+      const range = periodMap[period] || '1y';
+      const iv = intervalMap[period] || '1wk';
+      const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey },
+        body: JSON.stringify({ chart: sym, range, interval: iv }),
+      });
+      const data = await res.json();
+      const points = (data?.points || []).map(p => ({ date: new Date(p.t * 1000), close: p.c }));
+      setWatchlistChartData(points);
+    } catch { setWatchlistChartData([]); }
+    setWatchlistChartLoading(false);
+  };
 
   // 달력 트랙패드 가로 스와이프 (non-passive wheel + 슬라이드 애니메이션)
   useEffect(() => {
@@ -1169,15 +1238,17 @@ const AppContent = () => {
          } else if (isSpendingAcc) {
            spendingItemsTotal += qty;
          } else if (isCardAcc) {
+           // N빵 결제자 로그(isNbbang=false, myInNbbang 있음)만 포함, 대상자 로그(isNbbang=true) 제외
            const rawLogs = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isNbbang);
            const cardLogs = filterByCurrentMonth(rawLogs);
-           // 전체 카드 사용금액: N빵 원본은 전체금액(perPersonShare*nbbangCount)으로 복원
+           // 총 카드 사용금액: 전체 결제금액 (N빵이면 totalAmount, 아니면 amount)
            const totalUsed = cardLogs.reduce((sum, r) => {
-             const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+             const full = r.totalAmount ? Number(r.totalAmount) : toPureNumber(r.amount);
              return sum + full;
            }, 0);
-           // N빵제외(내 몫만): 내 몫 금액(amount) 그대로
-           const myUsed = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
+           // 내 실부담 금액: 내가 N빵 멤버인 경우만 내 몫(amount) 포함, 나 제외 N빵은 제외
+           const myUsed = cardLogs.filter(r => !r.nbbangCount || r.nbbangCount <= 1 || r.myInNbbang !== false)
+             .reduce((sum, r) => sum + toPureNumber(r.amount), 0);
            cardItemsTotal += totalUsed;
            cardItemsNonNbbang += myUsed;
          } else {
@@ -1242,9 +1313,12 @@ const AppContent = () => {
       let tInvested = 0, tValue = 0, tDiv = 0;
       cStocks.forEach(s => {
         if (isCard) {
+          // N빵 결제자 로그(isNbbang=false)만 포함, 대상자 로그(isNbbang=true) 제외
           const rawLogs = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isNbbang);
           const cardLogs = filterByCurrentMonth(rawLogs);
-          const myUsed = cardLogs.reduce((sum, r) => sum + toPureNumber(r.amount), 0);
+          // 내 실부담 금액: 내가 N빵 멤버인 경우만 내 몫 포함, 나 제외 N빵은 제외
+          const myUsed = cardLogs.filter(r => !r.nbbangCount || r.nbbangCount <= 1 || r.myInNbbang !== false)
+            .reduce((sum, r) => sum + toPureNumber(r.amount), 0);
           cardNonNbbangTotal += myUsed;
           return;
         }
@@ -1530,8 +1604,9 @@ const AppContent = () => {
       const validPeople = nbbangList.filter(n => n.name.trim() !== '');
       finalNbbangCount = validPeople.length;
       if (finalNbbangCount > 0) {
-        myShare = Math.floor(amt / finalNbbangCount);
-        perPersonShare = Math.floor(amt / finalNbbangCount);
+        perPersonShare = Math.ceil(amt / finalNbbangCount);
+        // 내 몫 = 전체 - 멤버들 몫 합산 (올림처리 나머지를 내가 부담)
+        myShare = amt - perPersonShare * (finalNbbangCount - 1);
         finalNbbangNames = validPeople.map(n => n.name.trim()).join(', ');
       }
     }
@@ -1653,10 +1728,17 @@ const AppContent = () => {
 
     if (isExpense && isNbbang && finalNbbangCount > 1) {
       const cleanLogName = logName.replace(/\(.*?(몫|분)\)/g, '').trim();
-      const myLog = { ...baseLog, id: Date.now().toString() + '_0', name: cleanLogName, isNbbang: false, amount: myShare };
-      logsToAdd.push(myLog);
       const validPeople = nbbangList.filter(n => n.name.trim() !== '');
-      validPeople.forEach((p, idx) => {
+      // 내 이름이 멤버 목록에 있는지 확인
+      const myName = (myDisplayName || '').trim();
+      const iAmInList = myName && validPeople.some(p => p.name.trim() === myName);
+      // 항상 payer log 생성 (카드 총 사용금액 추적용)
+      // iAmInList=true → myInNbbang:true (내 몫 소비로 반영)
+      // iAmInList=false → myInNbbang:false (카드 총액에만 반영, 소비/N빵제외에서는 제외)
+      const myLogAmount = iAmInList ? myShare : amt;
+      const myLog = { ...baseLog, id: Date.now().toString() + '_0', name: cleanLogName, isNbbang: false, myInNbbang: iAmInList ? true : false, amount: myLogAmount };
+      logsToAdd.push(myLog);
+      validPeople.filter(p => p.name.trim() !== myName).forEach((p, idx) => {
         logsToAdd.push({ ...baseLog, id: Date.now().toString() + '_' + (idx + 1), name: cleanLogName, category: logCat, amount: perPersonShare, timestamp: Date.now() + idx + 1, isNbbang: true, isSettled: false, nbbangTarget: p.name.trim() });
       });
       const updatedLogs = [...logsToAdd.reverse(), ...tradeLogs];
@@ -1753,6 +1835,7 @@ const AppContent = () => {
       setEditingStockId(null);
       setNewStock(blankStock);
       setSearchQuery('');
+      setTickerQuery('');
       setIsModalOpen(true);
       return;
     }
@@ -1761,6 +1844,7 @@ const AppContent = () => {
     setEditingStockId(null);
     setNewStock(blankStock);
     setSearchQuery('');
+    setTickerQuery('');
     setIsModalOpen(true);
   };
 
@@ -2477,7 +2561,7 @@ const AppContent = () => {
   const scale = zoomLevel / 100;
   return (
     <>
-    <div className={`${t.bg} text-slate-800 selection:bg-slate-200 transition-colors duration-500`} style={{ fontFamily: "'Pretendard', sans-serif", paddingBottom: 'max(80px, calc(env(safe-area-inset-bottom) + 80px))', paddingTop: 'env(safe-area-inset-top)', transformOrigin: 'top left', transform: `scale(${scale})`, width: `${(1 / scale) * 100}%`, minHeight: `${(1 / scale) * 100}vh` }}>
+    <div className={`${t.bg} text-slate-800 selection:bg-slate-200 transition-colors duration-500`} style={{ fontFamily: "'Pretendard', sans-serif", paddingBottom: 'max(80px, calc(env(safe-area-inset-bottom) + 80px))', paddingTop: 'env(safe-area-inset-top)', zoom: scale }}>
       <style>{`
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
         body { font-family: 'Pretendard', sans-serif !important; overflow-x: clip; background-color: transparent; }
@@ -2489,7 +2573,9 @@ const AppContent = () => {
 
       {/* Confirmation Modal */}
       {confirmModal.isOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1000000] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1000000] flex items-center justify-center p-4"
+          onKeyDown={e => { if (e.key === 'Enter') { confirmModal.onConfirm && confirmModal.onConfirm(); setConfirmModal({ isOpen: false, message: '', onConfirm: null, onCancel: null }); } if (e.key === 'Escape') { if(confirmModal.onCancel) confirmModal.onCancel(); setConfirmModal({ isOpen: false, message: '', onConfirm: null, onCancel: null }); } }}
+          tabIndex={-1} ref={el => el && el.focus()}>
           <div className="bg-white rounded-[1.5rem] p-6 shadow-2xl w-full max-w-xs flex flex-col items-center text-center animate-in fade-in zoom-in duration-200">
             <h3 className="font-black text-slate-800 text-[13px] mb-5 leading-relaxed whitespace-pre-line">{confirmModal.message}</h3>
             <div className="flex gap-2 w-full mt-1">
@@ -2861,7 +2947,7 @@ const AppContent = () => {
                 </div>
                 <div className="bg-white rounded-xl border border-orange-100 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-[10px] sm:text-[11px] font-black text-orange-500 flex items-center gap-1 sm:gap-1.5 truncate"><CreditCard size={12} className="shrink-0"/><span className="truncate">엔빵 제외 카드 사용금액</span></span>
+                    <span className="text-[10px] sm:text-[11px] font-black text-orange-500 flex items-center gap-1 sm:gap-1.5 truncate"><CreditCard size={12} className="shrink-0"/><span className="truncate">내 실부담 금액</span></span>
                   </div>
                   <div className="flex items-baseline gap-1 sm:gap-1.5 overflow-hidden"><span className="text-orange-400 text-xs sm:text-sm font-black shrink-0">₩</span><span className="text-[17px] sm:text-2xl lg:text-3xl font-black text-slate-800 tracking-tight leading-none truncate py-1">{formatNum(currentAccountStat?.cardItemsNonNbbang)}</span></div>
                 </div>
@@ -2950,6 +3036,10 @@ const AppContent = () => {
                       <span className="text-[8px] opacity-60">₩</span>{formatNum(currentAccountStat?.cash)}
                     </button>
                   )}
+                  {/* 관심종목 */}
+                  <button onClick={() => setIsWatchlistModalOpen(true)} className="flex items-center gap-1 px-2 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded-lg text-[9px] font-black border border-yellow-200 transition-colors shrink-0 whitespace-nowrap">
+                    <Star size={10}/> 관심종목
+                  </button>
                   {/* 배당관리 */}
                   <button onClick={() => openGlobalDivModal('batch', null, selectedAccountId.startsWith('__all__') ? null : selectedAccountId)} className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-lg text-[9px] font-black border border-amber-200 transition-colors shrink-0 whitespace-nowrap">
                     <CircleDollarSign size={10}/> 배당
@@ -3047,6 +3137,7 @@ const AppContent = () => {
                               <span onClick={(e) => { e.stopPropagation(); setFlowingTextId(s.id); }} className={`cursor-pointer ${flowingTextId === s.id ? 'animate-flow whitespace-nowrap block' : 'truncate'}`}>
                                 {s.name}
                               </span>
+                              {!isSavings && !isSpending && !isCard && s.ticker && <span className="text-[8px] font-black text-slate-400 bg-slate-100 px-1 py-0.5 rounded shrink-0 ml-0.5">{s.ticker}</span>}
                               {isSavings && s.maturityDate && <button onClick={(e)=>{ e.stopPropagation(); setSavingsMaturityModal({ isOpen: true, targetId: s.id, finalAmount: String(Math.floor(toPureNumber(s.quantity) * (s.interestType==='복리'?Math.pow(1+toPureNumber(s.interestRate)/100,1):(1+toPureNumber(s.interestRate)/100)))) }); }} className="bg-amber-100 text-amber-600 px-1 md:px-1.5 py-0.5 rounded text-[7px] md:text-[8px] font-black shrink-0 ml-0.5 hover:bg-amber-200 transition-colors shadow-sm">🎉 만기</button>}
                               {isCard && (() => {
                                 const _goal = toPureNumber(s.performance);
@@ -3074,7 +3165,11 @@ const AppContent = () => {
                             (() => {
                               const rawCardLogs = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isNbbang);
                               const cardLogs = filterByCurrentMonth(rawCardLogs);
-                              const used = cardLogs.reduce((sum, r) => { const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare)*Number(r.nbbangCount) : toPureNumber(r.amount); return sum + full; }, 0);
+                              // 총 카드 사용금액 = N빵 여부 상관없이 내가 실제 카드로 긁은 전체 금액
+                              const used = cardLogs.reduce((sum, r) => {
+                                const full = r.totalAmount ? Number(r.totalAmount) : toPureNumber(r.amount);
+                                return sum + full;
+                              }, 0);
                               const goal = toPureNumber(s.performance);
                               const achieved = goal > 0 && used >= goal;
                               const pct = goal > 0 ? Math.min(100, Math.round((used / goal) * 100)) : 0;
@@ -3676,6 +3771,9 @@ const AppContent = () => {
 
         safeRecords.forEach(r => {
            if (!r) return;
+           if (r.type === 'deposit') return;
+           if (r.type === 'buy' && r.isSavings) return;
+           if (r.type === 'expense' && r.category === '카드대금') return;
            if (r.type === 'expense' && r.isNbbang) {
               const isMyShare = r.name.includes('(본인 몫)') || (cleanMyName && r.name.includes(`${cleanMyName} 몫`));
               const groupId = `${r.date}_${r.memo || 'nbbang'}`; // 🎯 고유 그룹키
@@ -3684,6 +3782,8 @@ const AppContent = () => {
                  myUniqueRecords.push({...r, amount: Number(r.amount || 0)}); // 🎯 전체 금액이 아닌 1인분만 저장!
               }
            } else {
+              // 나를 제외한 N빵 결제자 로그(myInNbbang===false)는 달력 소비에서 제외
+              if (r.type === 'expense' && r.nbbangCount > 1 && r.myInNbbang === false) return;
               myUniqueRecords.push(r);
            }
         });
@@ -3699,7 +3799,8 @@ const AppContent = () => {
           let amtForStat = Number(r.amount || 0);
           
           let cat = 'income';
-          if (r.type === 'deposit') return; // 카드/계좌 입금은 수익 집계 제외
+          if (r.type === 'deposit') return;
+          if (r.type === 'expense' && r.category === '카드대금') return;
           if (r.type === 'buy') cat = 'invest';
           else if (r.type === 'expense') {
              cat = r.category && r.category !== 'N빵' ? r.category : 'expense';
@@ -4255,15 +4356,44 @@ const AppContent = () => {
               {/* 엔빵 정산소 탭 */}
               {accountbookTab === 'dutch' && (() => {
                 const othersOweMe = nbbangRecords.filter(r => (r?.category === 'N빵' || r?.isNbbang) && !r?.isSettled);
-                const totalOwed = othersOweMe.reduce((sum, r) => sum + Number(r?.amount || 0), 0);
-                
+                // 미정산 총액: 같은 그룹별로 totalAmount/nbbangCount 기준으로 계산
+                // nbbangCount = 실제 전체 인원수 (내가 멤버인 경우도 포함된 값)
+                const owedGroupMap = {};
+                othersOweMe.forEach(r => {
+                  const baseName = (r.name || '').replace(/\(.*?\)/g, '').trim();
+                  const gKey = `${r.date}_${baseName}`;
+                  if (!owedGroupMap[gKey]) owedGroupMap[gKey] = { totalAmount: 0, count: 0 };
+                  // nbbangCount 필드가 있으면 그걸 사용, 없으면 target log 수를 카운트
+                  if (r.nbbangCount && r.nbbangCount > owedGroupMap[gKey].count) owedGroupMap[gKey].count = Number(r.nbbangCount);
+                  else if (!r.nbbangCount) owedGroupMap[gKey].count += 1;
+                  if (r.totalAmount && !owedGroupMap[gKey].totalAmount) owedGroupMap[gKey].totalAmount = Number(r.totalAmount);
+                });
+                const totalOwed = othersOweMe.reduce((sum, r) => {
+                  return sum + Number(r.amount || 0);
+                }, 0);
+
+                // 같은 날짜+이름 그룹별로 totalAmount와 count를 먼저 계산
+                const nbbangGroups = {};
+                othersOweMe.forEach(r => {
+                   const baseName = (r.name || '').replace(/\(.*?\)/g, '').trim();
+                   const gKey = `${r.date}_${baseName}`;
+                   if (!nbbangGroups[gKey]) nbbangGroups[gKey] = { totalAmount: 0, count: 0, nbbangNames: '' };
+                   if (r.nbbangCount && r.nbbangCount > nbbangGroups[gKey].count) nbbangGroups[gKey].count = Number(r.nbbangCount);
+                   else if (!r.nbbangCount) nbbangGroups[gKey].count += 1;
+                   if (r.totalAmount && !nbbangGroups[gKey].totalAmount) nbbangGroups[gKey].totalAmount = Number(r.totalAmount);
+                   if (r.nbbangNames && !nbbangGroups[gKey].nbbangNames) nbbangGroups[gKey].nbbangNames = r.nbbangNames;
+                });
+                Object.values(nbbangGroups).forEach(g => { if (!g.totalAmount) g.totalAmount = null; });
+
                 const groupedByPerson = {};
                 othersOweMe.forEach(r => {
                    // 🎯 기존 괄호(몫) 데이터와 새로운 nbbangTarget 데이터를 모두 완벽 호환
                    const personName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                   // 표시 금액: 저장된 amount 그대로 (저장 시 올바르게 계산됨)
+                   const displayAmt = Number(r.amount || 0);
                    if(!groupedByPerson[personName]) groupedByPerson[personName] = { total: 0, details: [] };
-                   groupedByPerson[personName].total += Number(r.amount || 0);
-                   groupedByPerson[personName].details.push(r);
+                   groupedByPerson[personName].total += displayAmt;
+                   groupedByPerson[personName].details.push({ ...r, displayAmount: displayAmt });
                 });
 
                 const handleEditNbbangAmount = (logId, newAmount) => {
@@ -4285,7 +4415,9 @@ const AppContent = () => {
                      const deletedAmt = Number(targetLog.amount || 0);
                      const remaining = findGroup(logId);
                      const myLog = remaining.find(r => !r.isNbbang);
-                     const remainingCount = remaining.length;
+                     const otherNbbangLogs = remaining.filter(r => r.isNbbang);
+                     // 재분배 대상: 다른 N빵 인원들 + 내 로그(나머지는 내 로그에 몰아줌)
+                     const remainingCount = otherNbbangLogs.length + (myLog ? 1 : 0);
                      const addPerPerson = remainingCount > 0 ? Math.floor(deletedAmt / remainingCount) : 0;
                      const remainder = deletedAmt - addPerPerson * remainingCount;
 
@@ -4418,12 +4550,24 @@ const AppContent = () => {
                 };
 
                 const handleSettleSelected = () => {
-                   if (selectedPersonsToSettle.length === 0) return showToast('⚠️ 정산받을 인원을 클릭해서 선택해주세요.');
-                   const targets = othersOweMe.filter(r => {
-                      const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
-                      return selectedPersonsToSettle.includes(pName);
-                   });
-                   doSettle(targets);
+                   if (nbbangFilter === 'all') {
+                     if (selectedAllGroupKeys.length === 0) return showToast('⚠️ 정산할 내역을 클릭해서 선택해주세요.');
+                     // selectedAllGroupKeys는 "date_name" 형태 — othersOweMe에서 매칭
+                     const targets = othersOweMe.filter(r => {
+                       const baseName = (r.name || '').replace(/\(.*?\)/g, '').trim();
+                       const key = `${r.date}_${baseName}`;
+                       return selectedAllGroupKeys.includes(key);
+                     });
+                     doSettle(targets);
+                     setSelectedAllGroupKeys([]);
+                   } else {
+                     if (selectedPersonsToSettle.length === 0) return showToast('⚠️ 정산받을 인원을 클릭해서 선택해주세요.');
+                     const targets = othersOweMe.filter(r => {
+                        const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                        return selectedPersonsToSettle.includes(pName);
+                     });
+                     doSettle(targets);
+                   }
                 };
 
                 const handleSettleAll = () => {
@@ -4447,10 +4591,13 @@ const AppContent = () => {
                    setSelectedPersonsToSettle(prev => prev.includes(person) ? prev.filter(p => p !== person) : [...prev, person]);
                 };
 
-                const selectedTotal = othersOweMe.filter(r => {
-                   const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
-                   return selectedPersonsToSettle.includes(pName);
-                }).reduce((sum, r) => sum + Number(r.amount||0), 0);
+                const selectedTotal = nbbangFilter === 'all'
+                  ? 0 // 전체 탭: 버튼 텍스트에 금액 안 쓰임 (그룹 단위라 합산 어려움)
+                  : othersOweMe.filter(r => {
+                      const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
+                      return selectedPersonsToSettle.includes(pName);
+                    }).reduce((sum, r) => sum + Number(r.amount||0), 0);
+                const hasSelected = nbbangFilter === 'all' ? selectedAllGroupKeys.length > 0 : selectedPersonsToSettle.length > 0;
 
                 const savingsStockItems = stocks.filter(s => accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'savings');
 
@@ -4478,7 +4625,7 @@ const AppContent = () => {
                      <div className="flex flex-col gap-2 bg-purple-50 rounded-xl p-3 border border-purple-100 shadow-sm relative">
                         <div className="flex justify-between items-center">
                           <div className="flex flex-col min-w-0">
-                            <span className="text-[10px] font-black text-purple-600 truncate">미정산된 N빵 총액</span>
+                            <span className="text-[10px] font-black text-purple-600 truncate">N빵 미수금</span>
                             <span className="text-lg font-black text-purple-800 truncate">₩{formatNum(totalOwed)}</span>
                           </div>
                           <button onClick={() => setIsNameSettingOpen(!isNameSettingOpen)} className="bg-white border border-purple-200 text-purple-600 px-2 py-1.5 rounded-lg text-[9px] font-black shadow-sm hover:bg-purple-100 transition-colors shrink-0">
@@ -4489,9 +4636,16 @@ const AppContent = () => {
                           )}
                         </div>
                         <div className="flex gap-1.5">
-                          <button onClick={handleSettleSelected} disabled={selectedPersonsToSettle.length === 0} className={`flex-1 text-white px-2 py-2 rounded-lg text-[10px] font-black shadow-sm transition-all ${selectedPersonsToSettle.length > 0 ? 'bg-emerald-500 hover:bg-emerald-600 animate-pulse' : 'bg-slate-300'}`}>
-                            {selectedPersonsToSettle.length > 0 ? `₩${formatNum(selectedTotal)} 정산 완료` : '선택 정산하기'}
+                          <button onClick={handleSettleSelected} disabled={!hasSelected} className={`flex-1 text-white px-2 py-2 rounded-lg text-[10px] font-black shadow-sm transition-all ${hasSelected ? 'bg-emerald-500 hover:bg-emerald-600 animate-pulse' : 'bg-slate-300'}`}>
+                            {nbbangFilter === 'all'
+                              ? (selectedAllGroupKeys.length > 0 ? `${selectedAllGroupKeys.length}건 정산 완료` : '선택 정산하기')
+                              : (selectedPersonsToSettle.length > 0 ? `₩${formatNum(selectedTotal)} 정산 완료` : '선택 정산하기')}
                           </button>
+                          {hasSelected && (
+                            <button onClick={() => { setSelectedAllGroupKeys([]); setSelectedPersonsToSettle([]); }} className="px-3 py-2 rounded-lg text-[10px] font-black bg-slate-200 text-slate-600 hover:bg-slate-300 transition-all shrink-0">
+                              취소
+                            </button>
+                          )}
                           <button onClick={handleSettleAll} disabled={othersOweMe.length === 0} className={`flex-1 text-white px-2 py-2 rounded-lg text-[10px] font-black shadow-sm transition-all ${othersOweMe.length > 0 ? 'bg-purple-500 hover:bg-purple-600' : 'bg-slate-300'}`}>
                             일괄정산
                           </button>
@@ -4557,6 +4711,7 @@ const AppContent = () => {
                                        <div className="flex gap-1.5 w-full">
                                          <button onClick={e => { e.stopPropagation(); setDoubleClickedBatchItem(null); }} className="flex-1 py-1 rounded-lg bg-slate-200 text-slate-600 text-[9px] font-black">취소</button>
                                          <button onClick={e => { e.stopPropagation(); handleUndoSettle(batch.id); }} className="flex-1 py-1 rounded-lg bg-rose-500 text-white text-[9px] font-black">↩️ 되돌리기</button>
+                                         <button onClick={e => { e.stopPropagation(); showConfirm('이 정산 내역을 완전히 삭제하시겠습니까?', () => { saveStateToHistory(); setTradeLogs(prev => prev.filter(r => r.settledBatchId !== batch.id)); setDoubleClickedBatchItem(null); showToast('🗑️ 삭제되었습니다.'); }); }} className="flex-1 py-1 rounded-lg bg-slate-700 text-white text-[9px] font-black">삭제</button>
                                        </div>
                                      </div>
                                    ) : (
@@ -4592,30 +4747,167 @@ const AppContent = () => {
                         othersOweMe.forEach(r => {
                           const baseName = (r.name || '').replace(/\(.*?\)/g, '').trim();
                           const key = `${r.date}_${baseName}`;
-                          if (!allGroups[key]) allGroups[key] = { name: baseName, date: r.date, total: 0, persons: [] };
+                          if (!allGroups[key]) {
+                            allGroups[key] = { name: baseName, date: r.date, total: 0, totalAmount: 0, persons: [], ids: [], nbbangNames: '' };
+                          }
                           const pName = r.nbbangTarget || (r.name||'').match(/\((.*?)\s*몫\)/)?.[1] || '일행';
-                          allGroups[key].total += Number(r.amount || 0);
                           if (!allGroups[key].persons.includes(pName)) allGroups[key].persons.push(pName);
+                          allGroups[key].ids.push(r.id);
+                          allGroups[key].total += Number(r.amount || 0);
+                          // totalAmount: 원래 입력한 전체금액 — 하나라도 있으면 그걸 우선 사용
+                          if (r.totalAmount && !allGroups[key].totalAmount) allGroups[key].totalAmount = Number(r.totalAmount);
+                          // nbbangNames: 전체 멤버 이름 문자열 (내가 포함된 경우 표시용)
+                          if (r.nbbangNames && !allGroups[key].nbbangNames) allGroups[key].nbbangNames = r.nbbangNames;
+                        });
+                        // totalAmount 없는 경우 합산값으로 fallback
+                        // nbbangNames가 있으면 전체 멤버 이름으로 persons 교체 (내 이름 포함)
+                        Object.values(allGroups).forEach(g => {
+                          if (!g.totalAmount) g.totalAmount = g.total;
+                          if (g.nbbangNames) {
+                            const allMembers = g.nbbangNames.split(',').map(n => n.trim()).filter(Boolean);
+                            if (allMembers.length > g.persons.length) g.persons = allMembers;
+                          }
                         });
                         const groupList = Object.values(allGroups).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
                         if (groupList.length === 0) return <div className="text-center py-6 text-[10px] font-bold text-slate-400">미정산 내역이 없습니다!</div>;
+
+                        // 전체 사용내역 수정 모달
+                        const editingGroup = editingAllGroupKey ? groupList.find(g => `${g.date}_${g.name}` === editingAllGroupKey) : null;
+                        const editGroupLogs = editingGroup ? tradeLogs.filter(r => editingGroup.ids.map(String).includes(String(r.id))) : [];
+
                         return (
+                          <>
                           <div className="grid grid-cols-2 gap-2 animate-in fade-in duration-200">
-                            {groupList.map((g, idx) => (
-                              <div key={idx} className="bg-white border border-slate-200 rounded-xl p-2.5 flex flex-col gap-1.5 shadow-sm">
+                            {groupList.map((g, idx) => {
+                              const gKey = `${g.date}_${g.name}`;
+                              const isAllSelected = selectedAllGroupKeys.includes(gKey);
+                              return (
+                              <div key={idx}
+                                onClick={() => { if (editingAllGroupKey) return; setSelectedAllGroupKeys(prev => isAllSelected ? prev.filter(k => k !== gKey) : [...prev, gKey]); }}
+                                className={`border rounded-xl p-2.5 flex flex-col gap-1.5 shadow-sm cursor-pointer transition-all ${isAllSelected ? 'bg-slate-200 border-slate-300 opacity-50 grayscale' : 'bg-white border-slate-200 hover:border-purple-200'}`}>
                                 <div className="flex items-start justify-between gap-1">
-                                  <span className="text-[10px] font-black text-slate-800 leading-tight truncate">{g.name}</span>
+                                  <span className={`text-[10px] font-black leading-tight truncate flex-1 ${isAllSelected ? 'line-through text-slate-500' : 'text-slate-800'}`}>{g.name}</span>
                                   <span className="text-[8px] font-bold text-slate-400 shrink-0">{(g.date||'').substring(5)}</span>
                                 </div>
-                                <span className="text-[12px] font-black text-rose-500">₩{formatNum(g.total)}</span>
+                                <span
+                                  onClick={e => { e.stopPropagation(); setEditingAllGroupKey(gKey); setSelectedAllGroupKeys(prev => prev.filter(k => k !== gKey)); }}
+                                  className={`text-[12px] font-black text-rose-500 cursor-pointer hover:underline ${isAllSelected ? 'line-through' : ''}`}>
+                                  ₩{formatNum(g.totalAmount)}
+                                </span>
                                 <div className="flex flex-wrap gap-1 pt-1 border-t border-slate-100">
                                   {g.persons.map(p => (
-                                    <span key={p} className="px-1.5 py-0.5 bg-purple-50 border border-purple-100 rounded-md text-[8px] font-black text-purple-600">{p}</span>
+                                    <span key={p} className={`px-1.5 py-0.5 bg-purple-50 border border-purple-100 rounded-md text-[8px] font-black text-purple-600 ${isAllSelected ? 'line-through' : ''}`}>{p}</span>
                                   ))}
                                 </div>
                               </div>
-                            ))}
+                            )})}
                           </div>
+
+                          {/* 전체 사용내역 수정 모달 */}
+                          {editingGroup && (() => {
+                            const count = editGroupLogs[0]?.nbbangCount || editGroupLogs.length;
+                            return (
+                            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[999999] flex items-center justify-center p-4" onClick={() => { setEditingAllGroupKey(null); setEditingNbbang(null); }}>
+                              <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in duration-200" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                                  <p className="text-xs font-black text-slate-800">{editingGroup.name} <span className="font-bold text-slate-400 text-[9px]">{editingGroup.date}</span></p>
+                                  <button onClick={() => { setEditingAllGroupKey(null); setEditingNbbang(null); }} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-full"><X size={14}/></button>
+                                </div>
+
+                                {/* 전체 금액 수정 */}
+                                <div className="bg-purple-50 rounded-xl px-3 py-2.5 mb-3 border border-purple-100">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-[9px] font-black text-purple-600">전체 금액 수정</p>
+                                    <span className="text-[8px] font-bold text-purple-400">올림처리 적용</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="relative flex-1 flex items-center">
+                                      <span className="absolute left-2.5 text-xs font-bold text-slate-400">₩</span>
+                                      <input type="text" inputMode="numeric"
+                                        className="w-full bg-white border border-purple-200 rounded-lg pl-6 pr-2 py-2 text-[11px] font-black text-right outline-none focus:border-purple-500"
+                                        value={toCommaString(editingNbbang?.id === '__total__' ? editingNbbang.amount : String(editingGroup.totalAmount))}
+                                        onFocus={() => setEditingNbbang({ id: '__total__', amount: String(editingGroup.totalAmount) })}
+                                        onChange={e => setEditingNbbang({ id: '__total__', amount: e.target.value.replace(/[^0-9]/g, '') })}
+                                        onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                                        onBlur={() => {
+                                          if (editingNbbang?.id !== '__total__') return;
+                                          const newTotal = toPureNumber(editingNbbang.amount);
+                                          if (newTotal <= 0 || newTotal === editingGroup.totalAmount) { setEditingNbbang(null); return; }
+                                          const perPerson = Math.ceil(newTotal / count);
+                                          saveStateToHistory();
+                                          setTradeLogs(prev => prev.map(r => {
+                                            if (!editingGroup.ids.map(String).includes(String(r.id))) return r;
+                                            return { ...r, amount: perPerson, perPersonShare: perPerson, totalAmount: newTotal };
+                                          }));
+                                          editingGroup.totalAmount = newTotal;
+                                          editingGroup.total = perPerson * count;
+                                          setEditingNbbang(null);
+                                          showToast(`✅ ${formatNum(newTotal)}원 → 인원당 ${formatNum(perPerson)}원`);
+                                        }}
+                                      />
+                                    </div>
+                                    <span className="text-[9px] font-bold text-slate-400 shrink-0">{count}명 × {formatNum(Math.ceil((editingNbbang?.id === '__total__' ? toPureNumber(editingNbbang.amount) : editingGroup.totalAmount) / count))}원</span>
+                                  </div>
+                                </div>
+
+                                <p className="text-[9px] font-bold text-slate-400 mb-2">개별 수정도 가능. 0원 입력 시 해당 인원 삭제.</p>
+                                <div className="overflow-y-auto custom-scrollbar flex-1 pr-0.5">
+                                  <div className="grid grid-cols-3 gap-2">
+                                  {editGroupLogs.map(r => {
+                                    const displayAmt = Number(r.amount || 0);
+                                    return (
+                                    <div key={r.id} className="flex flex-col items-center gap-1 bg-slate-50 rounded-xl px-2 py-2 border border-slate-200">
+                                      <span className="text-[9px] font-black text-slate-700 truncate w-full text-center">{r.nbbangTarget || '나'}</span>
+                                      <div className="relative flex items-center w-full">
+                                        <span className="absolute left-1.5 text-[8px] font-bold text-slate-400">₩</span>
+                                        <input type="text" inputMode="numeric"
+                                          className="w-full bg-white border border-slate-200 rounded-lg pl-4 pr-1 py-1 text-[9px] font-black text-right outline-none focus:border-purple-400"
+                                          value={toCommaString(editingNbbang?.id === r.id ? editingNbbang.amount : String(displayAmt))}
+                                          onFocus={() => setEditingNbbang({ id: r.id, amount: String(displayAmt) })}
+                                          onChange={e => setEditingNbbang({ id: r.id, amount: e.target.value.replace(/[^0-9]/g, '') })}
+                                          onBlur={() => { if (editingNbbang?.id === r.id) handleEditNbbangAmount(r.id, editingNbbang.amount); }}
+                                          onKeyDown={e => { if (e.key === 'Enter' && editingNbbang?.id === r.id) { handleEditNbbangAmount(r.id, editingNbbang.amount); e.target.blur(); } }}
+                                        />
+                                      </div>
+                                    </div>
+                                    );
+                                  })}
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex gap-2">
+                                  <button
+                                    onClick={() => showConfirm(`"${editingGroup.name}" 전체 내역(${count}명)을 삭제하시겠습니까?`, () => {
+                                      saveStateToHistory();
+                                      const targetIds = editingGroup.ids.map(String);
+                                      setTradeLogs(prev => {
+                                        // targetIds에 해당하는 로그 찾아서 totalAmount+date 추출
+                                        const refLogs = prev.filter(r => targetIds.includes(String(r.id)));
+                                        const refTotalAmount = refLogs[0]?.totalAmount;
+                                        const refDate = (editingGroup.date || '').substring(0, 10);
+                                        const refName = (refLogs[0]?.name || '').trim();
+                                        return prev.filter(r => {
+                                          // N빵 대상자 로그 삭제
+                                          if (targetIds.includes(String(r.id))) return false;
+                                          // 결제자 로그: 같은 날짜 + totalAmount + name 모두 일치
+                                          if (!r.isNbbang && r.nbbangCount > 1) {
+                                            const rDate = (r.date || '').substring(0, 10);
+                                            if (rDate === refDate && String(r.totalAmount) === String(refTotalAmount) && (r.name || '').trim() === refName) return false;
+                                          }
+                                          return true;
+                                        });
+                                      });
+                                      setEditingAllGroupKey(null); setEditingNbbang(null);
+                                      showToast('🗑️ 내역이 삭제되었습니다.');
+                                    })}
+                                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.click(); }}
+                                    className="flex-1 py-2.5 bg-rose-500 text-white rounded-xl text-xs font-black hover:bg-rose-600 transition-colors">삭제</button>
+                                  <button onClick={() => { setEditingAllGroupKey(null); setEditingNbbang(null); }} className="flex-1 py-2.5 bg-purple-500 text-white rounded-xl text-xs font-black">완료</button>
+                                </div>
+                              </div>
+                            </div>
+                            );
+                          })()}
+                          </>
                         );
                      })()
                      : othersOweMe.length === 0 ? (
@@ -4625,21 +4917,20 @@ const AppContent = () => {
                           {Object.keys(groupedByPerson).map(person => {
                             const isSelected = selectedPersonsToSettle && selectedPersonsToSettle.includes(person);
                             return (
-                            // 🎯 선택 시 카드가 회색으로 변하고 취소선(strikethrough) 생성
-                            <div key={person} onClick={() => togglePersonSelection(person)} className={`p-2 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col h-full ${isSelected ? 'bg-slate-200 border-slate-300 opacity-50 grayscale line-through' : 'bg-slate-50 border-slate-100 hover:border-purple-200'}`}>
-                               <div className="text-center border-b border-slate-300 pb-1 mb-1">
+                            <div key={person} onClick={() => togglePersonSelection(person)} className={`p-2 rounded-xl shadow-sm border transition-all cursor-pointer flex flex-col h-full ${isSelected ? 'bg-slate-200 border-slate-300 opacity-50 grayscale' : 'bg-slate-50 border-slate-100 hover:border-purple-200'}`}>
+                               <div className={`text-center border-b border-slate-300 pb-1 mb-1 ${isSelected ? 'line-through' : ''}`}>
                                  <span className="text-[11px] font-black text-slate-800"><Heart size={10} className={`inline ${isSelected?'text-slate-500':'text-purple-400'} relative -top-0.5`}/> {person}</span>
                                  <div className="text-[12px] font-black text-rose-500 mt-0.5">₩{formatNum(groupedByPerson[person].total)}</div>
                                </div>
                                <div className="grid grid-cols-2 gap-1.5 overflow-y-auto custom-scrollbar flex-1 max-h-[100px] p-0.5">
                                  {groupedByPerson[person].details.map(detail => (
-                                   <div key={detail.id} className="text-[8px] flex flex-col justify-center bg-white p-1.5 rounded-lg border border-slate-100 shadow-sm min-h-[38px] transition-colors" onClick={(e) => { e.stopPropagation(); if(!isSelected) setEditingNbbang({id: detail.id, amount: String(detail.amount)}); }}>
+                                   <div key={detail.id} className="text-[8px] flex flex-col justify-center bg-white p-1.5 rounded-lg border border-slate-100 shadow-sm min-h-[38px] transition-colors" onClick={(e) => { e.stopPropagation(); if(!isSelected) setEditingNbbang({id: detail.id, amount: String(detail.displayAmount ?? detail.amount)}); }}>
                                      {editingNbbang?.id === detail.id ? (
                                         <input type="text" className="w-full text-right outline-none bg-slate-100 px-1 rounded font-black text-blue-500 py-0.5" value={toCommaString(editingNbbang.amount)} autoFocus onBlur={()=>handleEditNbbangAmount(detail.id, editingNbbang.amount)} onChange={e=>setEditingNbbang({...editingNbbang, amount: e.target.value.replace(/[^0-9]/g, '')})} onKeyDown={e=>e.key==='Enter' && handleEditNbbangAmount(detail.id, editingNbbang.amount)}/>
                                      ) : (
                                         <>
                                           <span className="truncate w-full font-bold text-slate-500 mb-0.5">{detail.name.replace(`(${person} 몫)`, '').trim()}</span>
-                                          <span className="font-black text-slate-700 text-right">₩{formatNum(detail.amount)}</span>
+                                          <span className="font-black text-slate-700 text-right">₩{formatNum(detail.displayAmount ?? detail.amount)}</span>
                                         </>
                                      )}
                                    </div>
@@ -4688,12 +4979,13 @@ const AppContent = () => {
                 // 🎯 카드 내역에서도 내 몫만 남기고 텍스트 정제 (N빵 텍스트 완벽 제거)
                 const myCardRecords = cardRecords.filter(r => {
                    if (r?.type === 'expense' && (r?.isNbbang || r?.category === 'N빵')) {
-                      return r.name.includes('(본인 몫)') || (cleanMyName && r.name.includes(`${cleanMyName} 몫`));
+                      const rName = r.name || '';
+                      return rName.includes('(본인 몫)') || (cleanMyName && rName.includes(`${cleanMyName} 몫`));
                    }
                    return true;
                 }).map(r => ({
-                   ...r, 
-                   name: r.name.replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim(), 
+                   ...r,
+                   name: (r.name || '').replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim(),
                    amount: Number(r.amount || 0)
                 }));
 
@@ -4789,7 +5081,7 @@ const AppContent = () => {
                          const ne = ce ? new Date(ce.getFullYear(), ce.getMonth() + 1, ce.getDate()) : null;
                          const d = parseLocalDate(r.date || r.timestamp);
                          // N빵 원본은 카드에 전체금액이 청구됨
-                         const amt = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                         const amt = r.totalAmount ? Number(r.totalAmount) : (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
                          if (d && cs && ce && d >= cs && d <= ce) totalThisMonth += amt;
                          else if (d && ns && ne && d >= ns && d <= ne) totalNextMonth += amt;
                        });
@@ -4827,7 +5119,7 @@ const AppContent = () => {
                            const _nextS = _curE ? new Date(_curE.getFullYear(), _curE.getMonth(), _curE.getDate() + 1) : null;
                            const _nextE = _curE ? new Date(_curE.getFullYear(), _curE.getMonth() + 1, _curE.getDate()) : null;
                            const _allUnpaid = (tradeLogs || []).filter(r => r.cardName === c.name && r.paymentMethod === '신용카드' && !r.isPaid && !r.isNbbang);
-                           const _toAmt = r => (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                           const _toAmt = r => r.totalAmount ? Number(r.totalAmount) : (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
                            const thisMonthPay = _curS && _curE ? _allUnpaid.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _curS && d <= _curE; }).reduce((s, r) => s + _toAmt(r), 0) : 0;
                            const nextMonthPay = _nextS && _nextE ? _allUnpaid.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _nextS && d <= _nextE; }).reduce((s, r) => s + _toAmt(r), 0) : 0;
                            const toPay = thisMonthPay + nextMonthPay;
@@ -4892,7 +5184,7 @@ const AppContent = () => {
                            const _ns2 = _ce2 ? new Date(_ce2.getFullYear(), _ce2.getMonth(), _ce2.getDate() + 1) : null;
                            const _ne2 = _ce2 ? new Date(_ce2.getFullYear(), _ce2.getMonth() + 1, _ce2.getDate()) : null;
                            const _unpaid2 = (tradeLogs || []).filter(r => r.cardName === s.name && r.paymentMethod === '신용카드' && !r.isPaid && !r.isNbbang);
-                           const _toAmt2 = r => (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                           const _toAmt2 = r => r.totalAmount ? Number(r.totalAmount) : (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
                            const thisMonthPay2 = _cs2 && _ce2 ? _unpaid2.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _cs2 && d <= _ce2; }).reduce((a, r) => a + _toAmt2(r), 0) : 0;
                            const nextMonthPay2 = _ns2 && _ne2 ? _unpaid2.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d >= _ns2 && d <= _ne2; }).reduce((a, r) => a + _toAmt2(r), 0) : 0;
                            const toPay = thisMonthPay2 + nextMonthPay2;
@@ -4975,8 +5267,8 @@ const AppContent = () => {
                        });
                        const modalItems = allRecordsForCard.map(log => {
                          const cleanName = (log.name || '').replace(/\(.*?(몫|분)\)/g, '').replace(/\(N빵\)/g, '').trim();
-                         const nbbangTotal = (log.nbbangCount > 1 && log.perPersonShare) ? Number(log.perPersonShare) * Number(log.nbbangCount) : null;
-                         // 항상 전체금액 표시 (N빵이면 카드 실제 결제금액 = perPersonShare * nbbangCount)
+                         const nbbangTotal = log.totalAmount ? Number(log.totalAmount) : (log.nbbangCount > 1 && log.perPersonShare) ? Number(log.perPersonShare) * Number(log.nbbangCount) : null;
+                         // 항상 전체금액 표시 (N빵이면 카드 실제 결제금액 = totalAmount 우선)
                          const displayAmount = nbbangTotal || Number(log.amount);
                          const myAmount = Number(log.amount);
                          return { ...log, combinedIds: [log.id], combinedAmount: displayAmount, myAmount, displayTitle: cleanName, hasNbbang: nbbangTotal != null };
@@ -5010,7 +5302,7 @@ const AppContent = () => {
                                    </div>
                                  )
                                ) : (
-                                 <button onClick={() => { if (!window.confirm(`₩${formatNum(totalUnpaid)} 전액을 결제하시겠습니까?`)) return; handleAutoPayCard(prepayModalState.cardName, totalUnpaid); closeModal(); }}
+                                 <button onClick={() => { showConfirm(`₩${formatNum(totalUnpaid)} 전액을 결제하시겠습니까?`, () => { handleAutoPayCard(prepayModalState.cardName, totalUnpaid); closeModal(); }); }}
                                    className="w-full mb-3 py-2.5 bg-rose-500 text-white rounded-xl text-[11px] font-black shadow-sm hover:bg-rose-600 active:scale-95 transition-all flex items-center justify-center gap-2">
                                    전액 갚기 <span className="bg-white/20 px-2 py-0.5 rounded-lg">₩{formatNum(totalUnpaid)}</span>
                                  </button>
@@ -5028,9 +5320,7 @@ const AppContent = () => {
                                        onClick={() => {
                                          if (isFromPortfolio) { if (isEditing) setPrepayEditKey(null); return; }
                                          if (!isActive) { setPrepaySelectedKey(itemKey); return; }
-                                         if (!window.confirm(`₩${formatNum(log.combinedAmount)} 결제하시겠습니까?`)) return;
-                                         handlePaySingleItem(log);
-                                         setPrepaySelectedKey(null);
+                                         showConfirm(`₩${formatNum(log.combinedAmount)} 결제하시겠습니까?`, () => { handlePaySingleItem(log); setPrepaySelectedKey(null); }); return;
                                        }}
                                        onDoubleClick={() => { setPrepayEditKey(isEditing ? null : itemKey); setPrepaySelectedKey(null); }}
                                        className={`p-2 rounded-xl border shadow-sm transition-all flex flex-col gap-0.5 cursor-pointer ${isEditing ? 'border-rose-400 bg-rose-50 ring-2 ring-rose-200' : isActive ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200' : isPaidItem ? 'border-slate-100 bg-slate-50 opacity-50' : 'border-slate-200 bg-slate-50 hover:border-slate-300'}`}>
@@ -5211,7 +5501,7 @@ const AppContent = () => {
                 {selectedDay && stats.daily[selectedDay]?.records?.length > 0 && (() => {
                   const dayData = stats.daily[selectedDay];
                   const visibleRecords = (dayData.records || []).filter(r =>
-                    r?.category !== '카드대금' && !r?.isNbbang
+                    r?.category !== '카드대금' && !r?.isNbbang && r?.type !== 'deposit'
                   );
                   const incRecords = visibleRecords.filter(r => r?.viewCategory === 'salary' || r?.viewCategory === 'income');
                   const expRecords = visibleRecords.filter(r => r?.viewCategory === 'expense');
@@ -5268,6 +5558,393 @@ const AppContent = () => {
           </div>
         );
       })()}
+
+        {/* --- WATCHLIST MODAL --- */}
+        {isWatchlistModalOpen && (() => {
+          const filteredWDB = STOCK_DATABASE.filter(d =>
+            d.name.toLowerCase().includes(watchlistSearch.toLowerCase()) ||
+            d.ticker.toLowerCase().includes(watchlistSearch.toLowerCase())
+          );
+          const catFlag = { '한국주식': '🇰🇷', '미국주식': '🇺🇸' };
+          const closeWatchlist = () => { setIsWatchlistModalOpen(false); setWatchlistSearch(''); setWatchlistTickerQuery(''); setWatchlistIsDropdownOpen(false); setWatchlistSearchResults([]); setWatchlistNewCategory(''); setWatchlistSelectedCategory(null); setWatchlistDeleteTarget(null); };
+          const addToWatchlist = async (item, isFromDB) => {
+            const newItem = isFromDB
+              ? { id: Date.now().toString(), name: item.name, ticker: item.ticker, isUSD: item.isUSD, tickerSuffix: item.tickerSuffix || '', isETF: item.isETF }
+              : { id: Date.now().toString(), name: item.name, ticker: item.ticker, isUSD: item.isUSD, tickerSuffix: item.suffix || '', isETF: item.isETF };
+            if (watchlist.some(w => w.ticker === newItem.ticker)) { setWatchlistSearch(''); setWatchlistTickerQuery(''); setWatchlistIsDropdownOpen(false); setWatchlistSearchResults([]); return; }
+            const sym = newItem.isUSD ? newItem.ticker : `${newItem.ticker}${newItem.tickerSuffix || '.KS'}`;
+            const res = await fetchMarketDataViaEdgeFn([sym]);
+            const priceData = res[sym];
+            setWatchlist(prev => [...prev, newItem]);
+            if (priceData) setWatchlistPrices(prev => ({ ...prev, [newItem.id]: priceData }));
+            const autoCat = watchlistSelectedCategory || (newItem.isETF ? 'ETF' : newItem.isUSD ? '미국주식' : '한국주식');
+            if (watchlistCategories.includes(autoCat)) setWatchlistCategoryMap(prev => ({ ...prev, [newItem.ticker]: autoCat }));
+            setWatchlistSearch(''); setWatchlistTickerQuery(''); setWatchlistIsDropdownOpen(false); setWatchlistSearchResults([]);
+          };
+          const colW = 148;
+          const modalW = Math.min(watchlistCategories.length * (colW + 12) + 40, window.innerWidth - 32);
+          return (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 overflow-hidden" onClick={closeWatchlist}>
+              <div className="bg-white rounded-[2rem] p-5 shadow-2xl flex flex-col max-h-[85vh] transition-all duration-300" style={{ width: `${modalW}px`, minWidth: '340px', maxWidth: 'calc(100vw - 32px)' }} onClick={e => { e.stopPropagation(); if (watchlistDeleteTarget) setWatchlistDeleteTarget(null); }}>
+
+                {/* 헤더 */}
+                <div className="flex items-center justify-between mb-3 shrink-0">
+                  <h3 className={`font-black text-sm flex items-center gap-2 ${t.text}`}><Star size={15}/> 관심종목</h3>
+                  <div className="flex items-center gap-1.5">
+                    {/* + 분류 추가 버튼 */}
+                    <div className="relative">
+                      <button onClick={() => setWatchlistAddingCategory(v => !v)} className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-all ${watchlistAddingCategory ? `${t.bg} text-white border-transparent` : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-400'}`}>+ 분류</button>
+                      {watchlistAddingCategory && (
+                        <>
+                          <div className="fixed inset-0 z-[50]" onClick={() => { setWatchlistAddingCategory(false); setWatchlistNewCategory(''); }}/>
+                          <div className="absolute right-0 top-8 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-48">
+                            <p className="text-[10px] font-black text-slate-600 mb-2">분류명 입력</p>
+                            <input autoFocus type="text" placeholder="예: 채권, 리츠..." value={watchlistNewCategory} onChange={e => setWatchlistNewCategory(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' && watchlistNewCategory.trim()) {
+                                  if (!watchlistCategories.includes(watchlistNewCategory.trim())) setWatchlistCategories(prev => [...prev, watchlistNewCategory.trim()]);
+                                  setWatchlistNewCategory(''); setWatchlistAddingCategory(false);
+                                }
+                                if (e.key === 'Escape') { setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }
+                              }}
+                              className="w-full bg-slate-50 py-2 px-2.5 rounded-xl outline-none border border-slate-200 text-[11px] font-black text-slate-700 mb-3"
+                            />
+                            <div className="flex gap-1.5">
+                              <button onClick={() => { if (watchlistNewCategory.trim() && !watchlistCategories.includes(watchlistNewCategory.trim())) setWatchlistCategories(prev => [...prev, watchlistNewCategory.trim()]); setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className={`flex-1 text-[11px] font-black py-1.5 rounded-xl ${t.bg} text-white`}>추가</button>
+                              <button onClick={() => { setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className="flex-1 text-[11px] font-black py-1.5 rounded-xl bg-slate-100 text-slate-500">취소</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <button onClick={closeWatchlist} className="p-1 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full"><X size={15}/></button>
+                  </div>
+                </div>
+
+                {/* 검색창 */}
+                <div className="relative mb-3 shrink-0">
+                  <div className="flex gap-1.5">
+                    <div className="relative flex-[2]">
+                      <Search className="absolute right-2 top-2 text-slate-300" size={13}/>
+                      <input type="text" placeholder="종목명 검색" className={`w-full bg-slate-50 py-2 pl-3 pr-7 rounded-xl outline-none border focus:${t.border} font-bold text-xs`}
+                        value={watchlistSearch}
+                        onChange={e => {
+                          const q = e.target.value;
+                          setWatchlistSearch(q);
+                          setWatchlistIsDropdownOpen(true);
+                          clearTimeout(watchlistSearchTimerRef.current);
+                          if (q.trim().length >= 1) {
+                            watchlistSearchTimerRef.current = setTimeout(async () => {
+                              setWatchlistIsSearching(true);
+                              const items = await searchStocksViaEdgeFn(q.trim());
+                              setWatchlistSearchResults(items);
+                              setWatchlistIsSearching(false);
+                            }, 400);
+                          } else { setWatchlistSearchResults([]); }
+                        }}
+                        onFocus={() => setWatchlistIsDropdownOpen(true)}
+                      />
+                    </div>
+                    <input type="text" placeholder="티커" className={`flex-[1] bg-slate-50 py-2 px-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center`}
+                      value={watchlistTickerQuery}
+                      onChange={e => {
+                        const q = e.target.value.toUpperCase();
+                        setWatchlistTickerQuery(q);
+                        clearTimeout(watchlistTickerTimerRef.current);
+                        if (q.trim().length >= 1) {
+                          watchlistTickerTimerRef.current = setTimeout(async () => {
+                            setWatchlistIsSearching(true);
+                            const items = await searchStocksViaEdgeFn(q.trim());
+                            if (items.length > 0) { setWatchlistSearchResults(items); setWatchlistIsDropdownOpen(true); }
+                            setWatchlistIsSearching(false);
+                          }, 400);
+                        }
+                      }}
+                    />
+                  </div>
+                  {/* 카테고리 선택 (검색 중일 때만) */}
+                  {(watchlistSearch.length > 0 || watchlistTickerQuery.length > 0) && (
+                    <div className="flex gap-1 mt-1.5 flex-wrap">
+                      <span className="text-[9px] text-slate-400 font-bold self-center">분류:</span>
+                      {watchlistCategories.map(cat => (
+                        <button key={cat} onClick={() => setWatchlistSelectedCategory(watchlistSelectedCategory === cat ? null : cat)}
+                          className={`text-[9px] font-black px-2 py-0.5 rounded-full border transition-all ${watchlistSelectedCategory === cat ? `${t.bg} text-white border-transparent` : 'bg-white text-slate-500 border-slate-200'}`}>
+                          {catFlag[cat] || ''} {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* 드롭다운 */}
+                  {watchlistIsDropdownOpen && (watchlistSearch.length > 0 || watchlistTickerQuery.length > 0) && (
+                    <>
+                      <div className="fixed inset-0 z-[50]" onClick={() => setWatchlistIsDropdownOpen(false)}/>
+                      <div className="absolute z-[60] w-full mt-1 bg-white border rounded-xl shadow-xl max-h-[260px] overflow-hidden border-slate-200 text-left flex flex-col">
+                        {filteredWDB.length > 0 && (
+                          <div className="overflow-y-auto custom-scrollbar max-h-[130px] p-2">
+                            <div className={`text-[9px] font-black ${t.text} mb-1`}>📈 내장 DB</div>
+                            {filteredWDB.map(db => (
+                              <div key={db.id} onClick={() => addToWatchlist(db, true)} className="p-1.5 hover:bg-slate-50 rounded-lg cursor-pointer flex justify-between items-center">
+                                <div className="flex flex-col"><span className="font-bold text-[10px] text-slate-800 truncate">{db.name}</span><span className="text-[8px] font-black text-slate-400">{db.ticker}</span></div>
+                                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${db.isETF ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'}`}>{db.isETF ? 'ETF' : db.isUSD ? '미국' : '한국'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {(watchlistIsSearching || watchlistSearchResults.length > 0) && (
+                          <div className="border-t border-slate-100 overflow-y-auto custom-scrollbar max-h-[130px]">
+                            <div className="px-2 pt-1.5 pb-0.5 text-[9px] font-black text-slate-400 sticky top-0 bg-white">🌐 실시간 검색</div>
+                            {watchlistIsSearching
+                              ? <div className="text-center text-[9px] text-slate-400 py-2">검색 중...</div>
+                              : watchlistSearchResults.map((item, i) => (
+                                <div key={i} onClick={() => addToWatchlist(item, false)} className="px-2 py-1.5 hover:bg-slate-50 cursor-pointer flex items-center justify-between gap-2 border-b border-slate-50 last:border-0">
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="font-bold text-[10px] truncate text-slate-800">{item.name}</span>
+                                    <span className="text-[8px] font-black text-slate-400">{item.ticker}{item.suffix} · {item.exchange}</span>
+                                  </div>
+                                  <span className={`shrink-0 text-[8px] font-black px-1.5 py-0.5 rounded ${item.isETF ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-600'}`}>{item.isETF ? 'ETF' : item.isUSD ? '미국' : '한국'}</span>
+                                </div>
+                              ))
+                            }
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* 카테고리별 컬럼 리스트 */}
+                <div className="flex-1 overflow-hidden">
+                  <div className="flex gap-3 overflow-x-auto custom-scrollbar h-full pb-1">
+                    {watchlistCategories.map(cat => {
+                      const catStocks = watchlist.filter(w => (watchlistCategoryMap[w.ticker] || (w.isETF ? 'ETF' : w.isUSD ? '미국주식' : '한국주식')) === cat);
+                      const flag = catFlag[cat] || '';
+                      return (
+                        <div key={cat} className="flex flex-col shrink-0" style={{ width: `${colW}px` }}>
+                          {/* 카테고리 헤더 */}
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-[11px] font-black ${t.text}`}>{flag} {cat}</span>
+                            <button onClick={() => {
+                              if (watchlistCategories.length <= 1) return;
+                              if (catStocks.length > 0) { alert(`${cat} 분류에 종목이 있어 삭제할 수 없어요.`); return; }
+                              setWatchlistCategories(prev => prev.filter(c => c !== cat));
+                            }} className="text-slate-300 hover:text-rose-400 transition-colors"><X size={10}/></button>
+                          </div>
+                          {/* 구분선 */}
+                          <div className={`h-0.5 rounded-full mb-2 ${t.bg} opacity-20`}/>
+                          {/* 종목 리스트 */}
+                          <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar flex-1 max-h-[300px]">
+                            {catStocks.length === 0 ? (
+                              <div className="text-center py-5 text-slate-200">
+                                <p className="text-[9px] font-black">종목 없음</p>
+                              </div>
+                            ) : catStocks.map(w => {
+                              const priceData = watchlistPrices[w.id];
+                              const currentPrice = priceData?.price;
+                              const prevClose = priceData?.prevClose;
+                              const change = currentPrice && prevClose ? currentPrice - prevClose : null;
+                              const changePct = change !== null && prevClose ? (change / prevClose) * 100 : null;
+                              const isUp = changePct !== null && changePct >= 0;
+                              const isDeleteMode = watchlistDeleteTarget === w.id;
+                              const deleteStock = () => {
+                                showConfirm(`"${w.name}" 을(를) 관심종목에서 삭제할까요?`, () => {
+                                  setWatchlist(prev => prev.filter(x => x.id !== w.id));
+                                  setWatchlistCategoryMap(prev => { const n = {...prev}; delete n[w.ticker]; return n; });
+                                  setWatchlistDeleteTarget(null);
+                                });
+                              };
+                              return (
+                                <div key={w.id}
+                                  className={`rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-1 cursor-pointer transition-all select-none ${isDeleteMode ? 'bg-rose-50 border-2 border-rose-400' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100 active:bg-slate-200'}`}
+                                  onContextMenu={e => { e.preventDefault(); setWatchlistDeleteTarget(isDeleteMode ? null : w.id); }}
+                                  onTouchStart={() => {
+                                    watchlistLongPressTimerRef.current[w.id] = setTimeout(() => {
+                                      setWatchlistDeleteTarget(isDeleteMode ? null : w.id);
+                                    }, 500);
+                                  }}
+                                  onTouchEnd={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
+                                  onTouchMove={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    if (isDeleteMode) { deleteStock(); return; }
+                                    setWatchlistChartStock(w); setWatchlistChartPeriod('1Y'); fetchWatchlistChart(w, '1Y');
+                                  }}
+                                >
+                                  <div className="flex flex-col min-w-0 flex-1">
+                                    <div className="flex items-baseline gap-1 flex-wrap">
+                                      <span className={`font-black text-[10px] truncate leading-tight ${isDeleteMode ? 'text-rose-600' : 'text-slate-800'}`}>{w.name}</span>
+                                      {changePct !== null && !isDeleteMode && (
+                                        <span className={`text-[9px] font-black shrink-0 ${isUp ? 'text-rose-500' : 'text-blue-500'}`}>{isUp ? '+' : ''}{changePct.toFixed(2)}%</span>
+                                      )}
+                                      {isDeleteMode && <span className="text-[9px] font-black text-rose-400">삭제</span>}
+                                    </div>
+                                    <span className={`text-[8px] font-black truncate ${isDeleteMode ? 'text-rose-300' : 'text-slate-400'}`}>{w.ticker}{w.tickerSuffix}</span>
+                                  </div>
+                                  {isDeleteMode
+                                    ? <button onClick={e => { e.stopPropagation(); setWatchlistDeleteTarget(null); }} className="text-slate-400 hover:text-slate-600 shrink-0 ml-1 bg-white rounded-full p-0.5"><X size={11}/></button>
+                                    : null
+                                  }
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* 관심종목 차트 모달 */}
+        {watchlistChartStock && (() => {
+          const w = watchlistChartStock;
+          const priceData = watchlistPrices[w.id];
+          const currentPrice = priceData?.price;
+          const prevClose = priceData?.prevClose;
+          const changePct = currentPrice && prevClose ? ((currentPrice - prevClose) / prevClose) * 100 : null;
+          const isUp = changePct !== null && changePct >= 0;
+          const periods = ['1M','3M','1Y','3Y'];
+          const points = watchlistChartData.filter(p => p.close != null);
+          const chartW = 300, chartH = 120;
+          let svgPath = '', svgArea = '', totalChangePct = null;
+          // 기간별 격자 간격 설정: { intervalMs, labelFmt }
+          const gridConfig = {
+            '1M': { getMarkers: (pts) => {
+              // 1주일 단위
+              const markers = [];
+              let prevMon = null;
+              pts.forEach((p, i) => {
+                const d = p.date;
+                const mon = `${d.getFullYear()}-${d.getMonth()}-W${Math.floor(d.getDate()/7)}`;
+                if (mon !== prevMon) { markers.push(i); prevMon = mon; }
+              });
+              return markers.slice(1);
+            }, fmt: d => `${d.getMonth()+1}/${d.getDate()}` },
+            '3M': { getMarkers: (pts) => {
+              // 1달 단위
+              const markers = [];
+              let prevMon = null;
+              pts.forEach((p, i) => {
+                const key = `${p.date.getFullYear()}-${p.date.getMonth()}`;
+                if (key !== prevMon) { markers.push(i); prevMon = key; }
+              });
+              return markers.slice(1);
+            }, fmt: d => `${d.getMonth()+1}월` },
+            '1Y': { getMarkers: (pts) => {
+              // 3달 단위
+              const markers = [];
+              let prevQ = null;
+              pts.forEach((p, i) => {
+                const q = `${p.date.getFullYear()}-${Math.floor(p.date.getMonth()/3)}`;
+                if (q !== prevQ) { markers.push(i); prevQ = q; }
+              });
+              return markers.slice(1);
+            }, fmt: d => `${d.getMonth()+1}월` },
+            '3Y': { getMarkers: (pts) => {
+              // 1년 단위
+              const markers = [];
+              let prevY = null;
+              pts.forEach((p, i) => {
+                const y = p.date.getFullYear();
+                if (y !== prevY) { markers.push(i); prevY = y; }
+              });
+              return markers.slice(1);
+            }, fmt: d => `${d.getFullYear()}` },
+          };
+          let gridMarkers = [];
+          if (points.length >= 2) {
+            const minV = Math.min(...points.map(p => p.close));
+            const maxV = Math.max(...points.map(p => p.close));
+            const rng = maxV - minV || 1;
+            const toX = i => (i / (points.length - 1)) * chartW;
+            const toY = v => chartH - ((v - minV) / rng) * chartH * 0.85 - chartH * 0.075;
+            const pts = points.map((p, i) => `${toX(i).toFixed(1)},${toY(p.close).toFixed(1)}`);
+            svgPath = `M${pts.join('L')}`;
+            svgArea = `M${pts[0]}L${pts.join('L')}L${toX(points.length-1).toFixed(1)},${chartH}L0,${chartH}Z`;
+            const s = points[0].close, e = points[points.length-1].close;
+            totalChangePct = s ? ((e - s) / s) * 100 : null;
+            const cfg = gridConfig[watchlistChartPeriod];
+            if (cfg) {
+              const idxs = cfg.getMarkers(points);
+              gridMarkers = idxs.map(i => ({ x: toX(i), label: cfg.fmt(points[i].date) }));
+            }
+          }
+          const chartColor = totalChangePct !== null ? (totalChangePct >= 0 ? '#f43f5e' : '#3b82f6') : '#94a3b8';
+          return (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[199999] flex items-center justify-center p-4" onClick={() => setWatchlistChartStock(null)}>
+              <div className="bg-white rounded-[2rem] p-5 shadow-2xl w-full max-w-xs" onClick={e => e.stopPropagation()}>
+                {/* 헤더 */}
+                <div className="flex items-start justify-between mb-1">
+                  <div>
+                    <p className="font-black text-sm text-slate-800 leading-tight">{w.name}</p>
+                    <p className="text-[9px] font-black text-slate-400">{w.ticker}{w.tickerSuffix} · {w.isETF ? 'ETF' : w.isUSD ? '🇺🇸 미국' : '🇰🇷 한국'}</p>
+                  </div>
+                  <button onClick={() => setWatchlistChartStock(null)} className="p-1 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full"><X size={14}/></button>
+                </div>
+                {currentPrice && (
+                  <div className="mb-3">
+                    <span className="font-black text-xl text-slate-800">{w.isUSD ? `$${formatNum(currentPrice, 2)}` : `₩${formatNum(currentPrice)}`}</span>
+                    {changePct !== null && (
+                      <span className={`ml-2 text-xs font-black ${isUp ? 'text-rose-500' : 'text-blue-500'}`}>{isUp ? '+' : ''}{changePct.toFixed(2)}% 오늘</span>
+                    )}
+                  </div>
+                )}
+                {/* 기간 선택 — 선택된 버튼은 진한 배경 + 흰 글자 */}
+                <div className="flex gap-1 mb-3 bg-slate-100 p-1 rounded-xl">
+                  {periods.map(p => (
+                    <button key={p} onClick={() => { setWatchlistChartPeriod(p); fetchWatchlistChart(w, p); }}
+                      className={`flex-1 text-[10px] font-black py-1 rounded-lg transition-all ${watchlistChartPeriod === p ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{p}</button>
+                  ))}
+                </div>
+                {/* 차트 */}
+                <div className="bg-slate-50 rounded-2xl p-3 min-h-[140px] flex flex-col justify-center">
+                  {watchlistChartLoading ? (
+                    <div className="flex items-center justify-center h-[120px] text-[10px] text-slate-300 font-black">불러오는 중...</div>
+                  ) : points.length < 2 ? (
+                    <div className="flex items-center justify-center h-[120px] text-[10px] text-slate-300 font-black">데이터를 불러올 수 없어요</div>
+                  ) : (
+                    <>
+                      {/* 차트 영역 — 날짜 레이블 공간 포함 */}
+                      <div style={{ position: 'relative' }}>
+                        <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" style={{ display: 'block' }}>
+                          <defs>
+                            <linearGradient id="wlAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={chartColor} stopOpacity="0.2"/>
+                              <stop offset="100%" stopColor={chartColor} stopOpacity="0"/>
+                            </linearGradient>
+                          </defs>
+                          {/* 격자 점선 */}
+                          {gridMarkers.map((m, i) => (
+                            <line key={i} x1={m.x.toFixed(1)} y1="0" x2={m.x.toFixed(1)} y2={chartH}
+                              stroke="#cbd5e1" strokeWidth="1" strokeDasharray="3,3" vectorEffect="non-scaling-stroke"/>
+                          ))}
+                          <path d={svgArea} fill="url(#wlAreaGrad)"/>
+                          <path d={svgPath} fill="none" stroke={chartColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke"/>
+                        </svg>
+                        {/* 날짜 레이블 — SVG 아래에 절대위치로 */}
+                        {gridMarkers.length > 0 && (
+                          <div style={{ position: 'relative', height: '14px' }}>
+                            {gridMarkers.map((m, i) => (
+                              <span key={i} style={{ position: 'absolute', left: `${(m.x / chartW * 100).toFixed(1)}%`, transform: 'translateX(-50%)', fontSize: '8px', color: '#94a3b8', fontWeight: 800, whiteSpace: 'nowrap' }}>{m.label}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {totalChangePct !== null && (
+                        <p className={`text-[10px] font-black mt-1 text-center ${totalChangePct >= 0 ? 'text-rose-500' : 'text-blue-500'}`}>
+                          {watchlistChartPeriod} 수익률 {totalChangePct >= 0 ? '+' : ''}{totalChangePct.toFixed(2)}%
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* --- YIELD TAB --- */}
         {activeTab === 'yield' && (() => {
           // 🎯 원형 차트에 들어갈 자산 데이터 계산 (현금, 저축, 주식 각각 분리)
@@ -5419,7 +6096,10 @@ const AppContent = () => {
             r.type === 'income' && r.category !== '급여' && r.category !== '충전' && r.name !== '지갑 충전'
           );
           const expenseLogs = (tradeLogs || []).filter(r =>
-            r.type === 'expense' && !r.isNbbang && r.category !== '카드대금' && r.category !== '투자/저축' && r.category !== '고정비'
+            r.type === 'expense' && !r.isNbbang &&
+            // N빵 결제자 로그는 내가 멤버인 경우만 소비에 포함 (myInNbbang===false이면 제외, 필드 없는 기존 데이터는 포함)
+            !(r.nbbangCount > 1 && r.myInNbbang === false) &&
+            r.category !== '카드대금' && r.category !== '투자/저축' && r.category !== '고정비'
           );
           const fixedLogs = (tradeLogs || []).filter(r =>
             r.type === 'expense' && r.category === '고정비'
@@ -5551,7 +6231,7 @@ const AppContent = () => {
                             if (!target || target <= 0) return null;
                             const rawLogs = (tradeLogs || []).filter(r => r.cardName === selectedCard && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang);
                             const totalUsed = filterByCurrentMonth(rawLogs).reduce((sum, r) => {
-                              const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
+                              const full = r.totalAmount ? Number(r.totalAmount) : (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
                               return sum + full;
                             }, 0);
                             const percent = Math.min((totalUsed / target) * 100, 100);
@@ -5678,7 +6358,7 @@ const AppContent = () => {
                                       className="w-full text-[10px] font-black text-slate-800 border border-purple-200 rounded-lg p-1.5 outline-none focus:border-purple-400 bg-white text-center shadow-sm"
                                       placeholder={`인원${index+1}`} value={person.name}
                                       onChange={e => { const newList = [...nbbangList]; newList[index].name = e.target.value; setNbbangList(newList); }}
-                                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (index < nbbangList.length - 1) document.getElementById(`ec-nbbang-input-${index + 1}`)?.focus(); } }}
+                                      onKeyDown={e => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); if (index < nbbangList.length - 1) { document.getElementById(`ec-nbbang-input-${index + 1}`)?.focus(); } else { setIsNbbangConfirmed(true); } } }}
                                     />
                                   ))}
                                 </div>
@@ -5878,8 +6558,8 @@ const AppContent = () => {
                         if (val.length >= 3) val = val.slice(0, 2) + '/' + val.slice(2);
                         setExpenseDateInput(val);
                       }} />
-                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-blue-400 min-w-0" placeholder="총 금액 입력" value={toCommaString(incomeAmount)} onChange={e => setIncomeAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') handleMoneyLogSubmit(); }} />
-                      <button onClick={handleMoneyLogSubmit} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-rose-600 transition-colors">확인</button>
+                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-blue-400 min-w-0" placeholder="총 금액 입력" value={toCommaString(incomeAmount)} onChange={e => setIncomeAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') { const amt = toPureNumber(incomeAmount); if (amt <= 0) return; const label = incomeMode === 'salary' ? '월급' : incomeMode === 'bonus' ? '수익' : incomeMode === 'expense' ? '소비' : '고정비'; showConfirm(`₩${formatNum(amt)} ${label}을 기록하시겠습니까?`, handleMoneyLogSubmit); } }} />
+                      <button onClick={() => { const amt = toPureNumber(incomeAmount); if (amt <= 0) return; const label = incomeMode === 'salary' ? '월급' : incomeMode === 'bonus' ? '수익' : incomeMode === 'expense' ? '소비' : '고정비'; showConfirm(`₩${formatNum(amt)} ${label}을 기록하시겠습니까?`, handleMoneyLogSubmit); }} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-rose-600 transition-colors">확인</button>
                     </div>
                     )}
                   </div>
@@ -6032,7 +6712,15 @@ const AppContent = () => {
                                                   });
                                                 }} className="w-4 h-4 bg-white border border-slate-200 rounded text-[8px] font-black text-slate-500 hover:text-blue-500 hover:border-blue-300 flex items-center justify-center shadow-sm transition-colors">✎</button>
                                                 <button onClick={() => showConfirm('이 기록을 삭제하시겠습니까?', () => {
-                                                  setTradeLogs(prev => prev.filter(l => l.id !== r.id));
+                                                  saveStateToHistory();
+                                                  setTradeLogs(prev => prev.filter(l => {
+                                                    if (l.id === r.id) return false;
+                                                    // N빵 결제자 로그면 같은 날짜+totalAmount+name 대상자 로그도 삭제
+                                                    if (r.nbbangCount > 1 && l.isNbbang && l.date === r.date &&
+                                                        String(l.totalAmount) === String(r.totalAmount) &&
+                                                        (l.name || '').trim() === (r.name || '').trim()) return false;
+                                                    return true;
+                                                  }));
                                                   setGlobalCash(prev => prev + r.amount);
                                                   setMoneyLogCardOpen(null);
                                                   showToast('🗑️ 삭제되었습니다.');
@@ -6668,31 +7356,70 @@ const AppContent = () => {
                   <div className="fixed inset-0 z-[50]" onClick={() => setIsDropdownOpen(false)}></div>
                 )}
                 <div className="relative z-[55]">
-                  {currentAccountStat?.type === 'stock' && <Search className="absolute right-3 top-2 text-slate-300" size={14}/>}
-                  <input type="text" placeholder={currentAccountStat?.type === 'stock' ? "종목명 또는 티커 검색" : currentAccountStat?.type === 'spending' ? "예: 네이버페이, 삼성월렛" : currentAccountStat?.type === 'card' ? "예: 국민카드, 신한카드" : "예: 정기예금, 파킹통장"} className={`w-full bg-slate-50 py-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center ${currentAccountStat?.type === 'stock' ? 'px-8' : 'px-3'}`} value={searchQuery}
-                    onChange={e => {
-                      const q = e.target.value;
-                      setSearchQuery(q);
-                      setNewStock(p => ({...p, name: q}));
-                      if (currentAccountStat?.type === 'stock') {
-                        setIsDropdownOpen(true);
-                        // debounce: 400ms 후 Yahoo 검색
-                        clearTimeout(searchTimerRef.current);
-                        if (q.trim().length >= 1) {
-                          searchTimerRef.current = setTimeout(async () => {
-                            setIsSearching(true);
-                            const items = await searchStocksViaEdgeFn(q.trim());
-                            setSearchResults(items);
-                            setIsSearching(false);
-                          }, 400);
-                        } else {
-                          setSearchResults([]);
-                        }
-                      }
-                    }}
-                    onClick={() => { if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true); }}
-                    onFocus={() => { if(currentAccountStat?.type === 'stock') setIsDropdownOpen(true); }}
-                  />
+                  {currentAccountStat?.type === 'stock' ? (
+                    <div className="flex gap-1.5">
+                      {/* 종목명 검색 (2/3) */}
+                      <div className="relative flex-[2]">
+                        <Search className="absolute right-2 top-2 text-slate-300" size={13}/>
+                        <input type="text" placeholder="종목명 검색" className={`w-full bg-slate-50 py-2 pl-3 pr-7 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center`} value={searchQuery}
+                          onChange={e => {
+                            const q = e.target.value;
+                            setSearchQuery(q);
+                            setNewStock(p => ({...p, name: q}));
+                            setIsDropdownOpen(true);
+                            clearTimeout(searchTimerRef.current);
+                            if (q.trim().length >= 1) {
+                              searchTimerRef.current = setTimeout(async () => {
+                                setIsSearching(true);
+                                const items = await searchStocksViaEdgeFn(q.trim());
+                                setSearchResults(items);
+                                setIsSearching(false);
+                              }, 400);
+                            } else {
+                              setSearchResults([]);
+                            }
+                          }}
+                          onClick={() => setIsDropdownOpen(true)}
+                          onFocus={() => setIsDropdownOpen(true)}
+                        />
+                      </div>
+                      {/* 티커 직접 입력 (1/3) */}
+                      <input type="text" placeholder="티커 입력" className={`flex-[1] bg-slate-50 py-2 px-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center`} value={tickerQuery}
+                        onChange={e => {
+                          const q = e.target.value.toUpperCase();
+                          setTickerQuery(q);
+                          clearTimeout(tickerTimerRef.current);
+                          if (q.trim().length >= 1) {
+                            tickerTimerRef.current = setTimeout(async () => {
+                              setIsSearching(true);
+                              const items = await searchStocksViaEdgeFn(q.trim());
+                              if (items.length > 0) {
+                                setSearchResults(items);
+                                setIsDropdownOpen(true);
+                              }
+                              setIsSearching(false);
+                            }, 400);
+                          }
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && tickerQuery.trim()) {
+                            const matched = searchResults.find(r => r.ticker.toUpperCase() === tickerQuery.toUpperCase());
+                            if (matched) {
+                              setNewStock({...newStock, name: matched.name, ticker: matched.ticker, isUSD: matched.isUSD, currentPrice: '0', tickerSuffix: matched.suffix || ''});
+                              setSearchQuery(matched.name);
+                              setTickerQuery('');
+                              setIsDropdownOpen(false);
+                              setSearchResults([]);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <input type="text" placeholder={currentAccountStat?.type === 'spending' ? "예: 네이버페이, 삼성월렛" : currentAccountStat?.type === 'card' ? "예: 국민카드, 신한카드" : "예: 정기예금, 파킹통장"} className={`w-full bg-slate-50 py-2 px-3 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center`} value={searchQuery}
+                      onChange={e => { const q = e.target.value; setSearchQuery(q); setNewStock(p => ({...p, name: q})); }}
+                    />
+                  )}
                   {isDropdownOpen && currentAccountStat?.type === 'stock' && (
                     <div className="absolute z-[60] w-full mt-1 bg-white border rounded-xl shadow-xl max-h-[240px] overflow-hidden border-slate-200 text-left flex flex-col">
                       {/* 내장 DB 결과 */}
@@ -6701,7 +7428,7 @@ const AppContent = () => {
                           <div className="w-1/2 p-2 overflow-y-auto custom-scrollbar bg-white">
                             <div className={`text-[9px] font-black ${t.text} mb-1 border-b ${t.border} pb-1 sticky top-0 bg-white whitespace-nowrap`}>📈 주식</div>
                             {filteredSList.map(db => (
-                              <div key={db.id} onClick={() => { setNewStock({...newStock, name: db.name, ticker: db.ticker, isUSD: db.isUSD, currentPrice: String(db.currentPrice), tickerSuffix: db.tickerSuffix || ''}); setSearchQuery(db.name); setIsDropdownOpen(false); setSearchResults([]); }} className={`p-1.5 hover:${t.light.split(' ')[0]} rounded-lg cursor-pointer flex flex-col gap-0.5`}>
+                              <div key={db.id} onClick={async () => { const sym = db.isUSD ? db.ticker : `${db.ticker}${db.tickerSuffix || '.KS'}`; const res = await fetchMarketDataViaEdgeFn([sym]); const price = res[sym]?.price; setNewStock({...newStock, name: db.name, ticker: db.ticker, isUSD: db.isUSD, currentPrice: price ? String(price) : '0', tickerSuffix: db.tickerSuffix || '', manualPrice: false}); setSearchQuery(db.name); setTickerQuery(db.ticker); setIsDropdownOpen(false); setSearchResults([]); }} className={`p-1.5 hover:${t.light.split(' ')[0]} rounded-lg cursor-pointer flex flex-col gap-0.5`}>
                                 <span className="font-bold text-[10px] truncate text-slate-800">{db.name}</span>
                                 <span className="text-slate-400 text-[8px] font-black">{db.ticker}</span>
                               </div>
@@ -6710,7 +7437,7 @@ const AppContent = () => {
                           <div className="w-1/2 p-2 overflow-y-auto custom-scrollbar bg-slate-50">
                             <div className="text-[9px] font-black text-indigo-500 mb-1 border-b border-indigo-100 pb-1 sticky top-0 bg-slate-50 whitespace-nowrap">📊 ETF</div>
                             {filteredEList.map(db => (
-                              <div key={db.id} onClick={() => { setNewStock({...newStock, name: db.name, ticker: db.ticker, isUSD: db.isUSD, currentPrice: String(db.currentPrice), tickerSuffix: db.tickerSuffix || ''}); setSearchQuery(db.name); setIsDropdownOpen(false); setSearchResults([]); }} className="p-1.5 hover:bg-indigo-100 rounded-lg cursor-pointer flex flex-col gap-0.5">
+                              <div key={db.id} onClick={async () => { const sym = db.isUSD ? db.ticker : `${db.ticker}${db.tickerSuffix || '.KS'}`; const res = await fetchMarketDataViaEdgeFn([sym]); const price = res[sym]?.price; setNewStock({...newStock, name: db.name, ticker: db.ticker, isUSD: db.isUSD, currentPrice: price ? String(price) : '0', tickerSuffix: db.tickerSuffix || '', manualPrice: false}); setSearchQuery(db.name); setTickerQuery(db.ticker); setIsDropdownOpen(false); setSearchResults([]); }} className="p-1.5 hover:bg-indigo-100 rounded-lg cursor-pointer flex flex-col gap-0.5">
                                 <span className="font-bold text-[10px] truncate text-slate-800">{db.name}</span>
                                 <span className="text-indigo-400 text-[8px] font-black">{db.ticker}</span>
                               </div>
@@ -6725,10 +7452,12 @@ const AppContent = () => {
                           {isSearching
                             ? <div className="text-center text-[9px] text-slate-400 py-2">검색 중...</div>
                             : searchResults.map((item, i) => (
-                              <div key={i} onClick={() => {
+                              <div key={i} onClick={async () => {
                                 // suffix 정보를 ticker에 저장하지 않고 별도 필드로 보관
-                                setNewStock({...newStock, name: item.name, ticker: item.ticker, isUSD: item.isUSD, currentPrice: '0', tickerSuffix: item.suffix || ''});
+                                const sym = item.isUSD ? item.ticker : `${item.ticker}${item.suffix || '.KS'}`; const res = await fetchMarketDataViaEdgeFn([sym]); const price = res[sym]?.price;
+                                setNewStock({...newStock, name: item.name, ticker: item.ticker, isUSD: item.isUSD, currentPrice: price ? String(price) : '0', tickerSuffix: item.suffix || '', manualPrice: false});
                                 setSearchQuery(item.name);
+                                setTickerQuery(item.ticker);
                                 setIsDropdownOpen(false);
                                 setSearchResults([]);
                               }} className="px-2 py-1.5 hover:bg-slate-50 cursor-pointer flex items-center justify-between gap-2 border-b border-slate-50 last:border-0">
@@ -6747,7 +7476,7 @@ const AppContent = () => {
                 </div>
               {currentAccountStat?.type === 'stock' ? (
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재가 <span className="text-slate-300 font-normal">(빈칸=자동)</span></label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.currentPrice)} onChange={e => { handleFormattedChange('currentPrice', e.target.value); setNewStock(prev => ({...prev, manualPrice: e.target.value.replace(/,/g,'') !== ''})); }} placeholder="빈칸=자동갱신" /></div></div>
+                  <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재가 <span className="text-slate-300 font-normal">(검색 안될 시 수동입력)</span></label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.currentPrice)} onChange={e => { handleFormattedChange('currentPrice', e.target.value); setNewStock(prev => ({...prev, manualPrice: e.target.value.replace(/,/g,'') !== ''})); }} placeholder="0" /></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">평단가</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">{newStock.isUSD ? '$' : '₩'}</span><input type="text" className={`w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.buyPrice)} onChange={e => handleFormattedChange('buyPrice', e.target.value)} placeholder="0" required /></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">보유 수량</label><div className="relative flex items-center"><input type="text" className={`w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none focus:${t.border} border text-right`} value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" required /><span className="absolute right-2.5 text-xs font-bold text-slate-400">주</span></div></div>
                   <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">목표 비중</label><div className="relative flex items-center"><input type="text" className={`w-full py-2 pl-2.5 pr-6 rounded-xl font-black text-xs outline-none border transition-colors text-right ${isRatioExceededModal ? 'bg-red-50 border-red-500 text-red-500' : `bg-slate-50 focus:${t.border}`}`} value={newStock.targetRatio} onChange={e => handleFormattedChange('targetRatio', e.target.value)} placeholder="자유입력" />{newStock.targetRatio && <span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span>}</div></div>
@@ -7736,14 +8465,15 @@ const AppContent = () => {
                                         placeholder={`인원${index+1}`} 
                                         value={person.name} 
                                         onChange={e => { const newList = [...nbbangList]; newList[index].name = e.target.value; setNbbangList(newList); }} 
-                                        onKeyDown={e => { 
-                                          if (e.key === 'Enter') { 
-                                            e.preventDefault(); 
-                                            if (index < nbbangList.length - 1) { 
-                                              document.getElementById(`nbbang-input-${index + 1}`)?.focus(); 
-                                            // 삭제된 공간에는 아무것도 넣지 않거나, 아래와 같이 깔끔하게 닫아줍니다.
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                                            e.preventDefault();
+                                            if (index < nbbangList.length - 1) {
+                                              document.getElementById(`nbbang-input-${index + 1}`)?.focus();
+                                            } else {
+                                              setIsNbbangConfirmed(true);
                                             }
-                                          } 
+                                          }
                                         }} 
                                       />
                                     ))}
@@ -7775,8 +8505,8 @@ const AppContent = () => {
                             const validPeople = nbbangList.filter(n => n.name.trim() !== '');
                             finalNbbangCount = validPeople.length;
                             if (finalNbbangCount > 0) {
-                              myShare = Math.floor(amt / finalNbbangCount);
-                              perPersonShare = Math.floor(amt / finalNbbangCount);
+                              perPersonShare = Math.ceil(amt / finalNbbangCount);
+                              myShare = amt - perPersonShare * (finalNbbangCount - 1);
                               finalNbbangNames = validPeople.map(n => n.name.trim()).join(', ');
                             }
                           }
@@ -7891,33 +8621,23 @@ const AppContent = () => {
 
                           if (isExpense && isNbbang && finalNbbangCount > 1) {
                              const cleanLogName = logName.replace(/\(.*?(몫|분)\)/g, '').trim();
-                             
-                             // 1. 본인 몫: 일반 소비로 둔갑시켜 달력/발자취에 중복 없이 1건만 깔끔하게 저장
-                             const myLog = {
-                                ...baseLog,
-                                id: Date.now().toString() + '_0',
-                                name: cleanLogName, // 괄호 꼬리표 없는 깔끔한 이름
-                                isNbbang: false,    // 일반 소비로 인식되도록 강제 설정
-                                amount: myShare
-                             };
-                             logsToAdd.push(myLog);
-                             
-                             // 2. 친구들 몫: 달력에서는 숨기고 정산소 탭으로만 데이터 전달
                              const validPeople = nbbangList.filter(n => n.name.trim() !== '');
-                             validPeople.forEach((p, idx) => {
+                             const myName2 = (myDisplayName || '').trim();
+                             const iAmInList2 = myName2 && validPeople.some(p => p.name.trim() === myName2);
+                             // 항상 내 로그 생성 (카드 총 사용금액 추적용)
+                             // iAmInList2=true → myInNbbang:true (내 몫 소비로 반영)
+                             // iAmInList2=false → myInNbbang:false (카드 총액에만 반영, 내 실부담 금액에서는 제외)
+                             const myLogAmount = iAmInList2 ? myShare : amt;
+                             logsToAdd.push({ ...baseLog, id: Date.now().toString() + '_0', name: cleanLogName, isNbbang: false, myInNbbang: iAmInList2 ? true : false, amount: myLogAmount });
+                             // 나를 제외한 다른 멤버들 N빵 로그 생성
+                             validPeople.filter(p => p.name.trim() !== myName2).forEach((p, idx) => {
                                logsToAdd.push({
-                                 ...baseLog, 
-                                 id: Date.now().toString() + '_' + (idx + 1), 
-                                 name: cleanLogName, 
-                                 category: logCat, // 'N빵' 대신 원래 카테고리(식비 등) 유지
-                                 amount: perPersonShare, 
-                                 timestamp: Date.now() + idx + 1,
-                                 isNbbang: true,
-                                 isSettled: false,
-                                 nbbangTarget: p.name.trim() // 정산소를 위한 확실한 타겟 지정
+                                 ...baseLog, id: Date.now().toString() + '_' + (idx + 1),
+                                 name: cleanLogName, category: logCat, amount: perPersonShare,
+                                 timestamp: Date.now() + idx + 1, isNbbang: true, isSettled: false, nbbangTarget: p.name.trim()
                                });
                              });
-                             
+
                              const updatedLogs = [...logsToAdd.reverse(), ...tradeLogs];
                              setTradeLogs(updatedLogs);
                           } else {
@@ -8011,8 +8731,8 @@ const AppContent = () => {
       )}
 
       {isBatchBuyModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm md:max-w-md rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl relative flex flex-col max-h-[85vh]">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200 overflow-hidden" onClick={() => setIsBatchBuyModalOpen(false)}>
+          <div className="bg-white w-full max-w-sm md:max-w-md rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl relative flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4"><h3 className={`font-black text-sm md:text-base flex justify-center w-full items-center gap-2 ${t.text} tracking-tighter`}><ShoppingCart size={16} className="md:w-[18px] md:h-[18px]"/> 일괄 매수 편집</h3><button onClick={() => setIsBatchBuyModalOpen(false)} className="absolute top-4 md:top-5 right-4 md:right-5 p-1 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors"><X size={16}/></button></div>
             <div className={`${t.light} p-3 md:p-4 rounded-xl md:rounded-2xl mb-4 flex justify-between items-center border ${t.border} shadow-sm`}><span className={`text-[10px] md:text-[11px] font-black ${t.text}`}>주문 가능 금액</span><span className={`text-lg md:text-xl font-black ${t.text}`}>₩{formatNum(currentAccountStat.cash)}</span></div>
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 mb-4">
@@ -8038,8 +8758,8 @@ const AppContent = () => {
       )}
 
       {isRebalanceModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm md:max-w-md rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl relative flex flex-col min-h-[480px] md:min-h-[500px]">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 animate-in fade-in duration-200 overflow-hidden" onClick={() => setIsRebalanceModalOpen(false)}>
+          <div className="bg-white w-full max-w-sm md:max-w-md rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-7 shadow-2xl relative flex flex-col min-h-[480px] md:min-h-[500px] max-h-[90vh]" onClick={e => e.stopPropagation()}>
             <button onClick={() => setIsRebalanceModalOpen(false)} className="absolute top-4 md:top-5 right-4 md:right-5 p-1 text-slate-400 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors"><X size={16}/></button>
             <h3 className={`font-black text-sm md:text-base mb-4 md:mb-5 flex justify-center w-full items-center gap-2 text-slate-800 tracking-tighter`}><Scale size={16} className="md:w-[18px] md:h-[18px]"/> 리밸런싱 가이드</h3>
             <div className="flex gap-1 mb-4 bg-slate-50 p-1 rounded-xl shrink-0">
