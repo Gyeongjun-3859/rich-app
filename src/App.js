@@ -5330,7 +5330,7 @@ const AppContent = () => {
                       <span className="shrink-0 w-2 h-2 rounded-full" style={{backgroundColor: item.color}}></span>
                       <span className="text-[10px] md:text-[11px] font-black text-slate-700 truncate flex-1">{item.name}</span>
                       <div className="flex flex-col items-end shrink-0">
-                        <span className="text-[12px] md:text-[14px] font-black text-slate-800">{((item.value / globalStats.totalAssets) * 100).toFixed(1)}%</span>
+                        <span className="text-[12px] md:text-[14px] font-black text-slate-800">{((item.value / (globalStats.totalAssets + globalStats.totalLoanDebt)) * 100).toFixed(1)}%</span>
                         <span className="text-[8px] font-bold text-slate-400">₩{formatNum(item.value)}</span>
                       </div>
                     </div>
