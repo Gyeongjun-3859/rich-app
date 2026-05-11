@@ -376,6 +376,7 @@ const AppContent = () => {
   const [cashSource, setCashSource] = useState(''); // '' = 소비계좌 없음, accId = 소비계좌, 'transfer' = 계좌이체
   const [transferAccId, setTransferAccId] = useState('');
   const [spendingItem, setSpendingItem] = useState(''); // 소비계좌 내 선택된 항목 stock id
+  const [useSpendingPoint, setUseSpendingPoint] = useState(false); // 소비항목 포인트 사용 여부
   const [myCards, setMyCards] = useState([]); 
   const [isNbbang, setIsNbbang] = useState(false);
   const [nbbangCount, setNbbangCount] = useState(1);
@@ -873,7 +874,8 @@ const AppContent = () => {
     name: '', ticker: '', buyPrice: '', quantity: '', targetRatio: '', isUSD: false,
     currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15', divMonths: [], divExDay: '1', divExMonths: [],
     maturityDate: '', interestRate: '', interestType: '단리', benefit: '',
-    cardType: '체크', performance: '', isNbbang: false, cardPayDay: '', cardPeriod: '', cardLinkedAcc: 'wallet'
+    cardType: '체크', performance: '', isNbbang: false, cardPayDay: '', cardPeriod: '', cardLinkedAcc: 'wallet',
+    withdrawAccId: ''
   });
 
   const currentYearNum = new Date().getFullYear();
@@ -1526,8 +1528,8 @@ const AppContent = () => {
 
     if (isExpense && isNbbang) {
       const validPeople = nbbangList.filter(n => n.name.trim() !== '');
-      finalNbbangCount = validPeople.length + 1;
-      if (finalNbbangCount > 1) {
+      finalNbbangCount = validPeople.length;
+      if (finalNbbangCount > 0) {
         myShare = Math.floor(amt / finalNbbangCount);
         perPersonShare = Math.floor(amt / finalNbbangCount);
         finalNbbangNames = validPeople.map(n => n.name.trim()).join(', ');
@@ -1557,11 +1559,33 @@ const AppContent = () => {
         if (cashSource && cashSource !== 'transfer') {
           if (spendingItem) {
             const item = updatedStocks.find(s => s.id === spendingItem);
-            if (!item || toPureNumber(item.quantity) < myShare) { showToast("⚠️ 잔액이 부족합니다."); return; }
-            const benefit = toPureNumber(item.benefit) || 0;
-            const accumulation = Math.floor(myShare * benefit / 100);
-            updatedStocks = updatedStocks.map(s => s.id === spendingItem ? { ...s, quantity: String(toPureNumber(s.quantity) - myShare + accumulation) } : s);
-            if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
+            const benefit = toPureNumber(item?.benefit) || 0;
+            const wid = item?.withdrawAccId || '';
+            if (wid.startsWith('stock:')) {
+              // 출금계좌 연동 항목: CMA에서 차감, 혜택%는 소비항목에 적립
+              const srcId = String(wid.slice(6));
+              const src = updatedStocks.find(s => String(s.id) === srcId);
+              const pointBal = toPureNumber(item?.quantity) || 0;
+              let pointUsed = 0;
+              let cashNeeded = myShare;
+              if (useSpendingPoint && pointBal > 0) {
+                pointUsed = Math.min(pointBal, myShare);
+                cashNeeded = myShare - pointUsed;
+              }
+              if (!src || toPureNumber(src.quantity) < cashNeeded) { showToast("⚠️ 출금 계좌 잔액이 부족합니다."); return; }
+              const accumulation = Math.floor(myShare * benefit / 100);
+              updatedStocks = updatedStocks.map(s => {
+                if (String(s.id) === String(spendingItem)) return { ...s, quantity: String(pointBal - pointUsed + accumulation) };
+                if (String(s.id) === srcId) return { ...s, quantity: String(toPureNumber(s.quantity) - cashNeeded) };
+                return s;
+              });
+              if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
+            } else {
+              if (!item || toPureNumber(item.quantity) < myShare) { showToast("⚠️ 잔액이 부족합니다."); return; }
+              const accumulation = Math.floor(myShare * benefit / 100);
+              updatedStocks = updatedStocks.map(s => s.id === spendingItem ? { ...s, quantity: String(toPureNumber(s.quantity) - myShare + accumulation) } : s);
+              if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
+            }
           }
         } else if (cashSource === 'transfer' && transferAccId) {
           if (transferAccId.startsWith('stock:')) {
@@ -1582,9 +1606,12 @@ const AppContent = () => {
       } else {
         const selectedCardInfo = myCards.find(c => c.name === selectedCard)
           || stocks.find(s => s.name === selectedCard && accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'card');
+        const isCredit = selectedCardInfo?.cardType === '신용';
         const linkedAccId = selectedCardInfo?.linkedAcc || selectedCardInfo?.cardLinkedAcc || '';
         const deductFrom = linkedAccId || '';
-        if (deductFrom.startsWith('stock:')) {
+        if (isCredit) {
+          isPaidNow = false;
+        } else if (deductFrom.startsWith('stock:')) {
           const stockId = deductFrom.replace('stock:', '');
           const targetStock = updatedStocks.find(s => String(s.id) === stockId);
           if (!targetStock || toPureNumber(targetStock.quantity) < myShare) { showToast("⚠️ 연동된 통장 잔액이 부족합니다."); return; }
@@ -1649,7 +1676,7 @@ const AppContent = () => {
         setFixedExpenses(prev => [...prev, newFe]);
       }
     }
-    setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput(''); setBonusDestAccId('');
+    setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput(''); setBonusDestAccId(''); setUseSpendingPoint(false);
     showToast(`🎉 ${logCat} 처리 완료!`);
     saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, updatedGlobalCash);
   };
@@ -1714,7 +1741,8 @@ const AppContent = () => {
       name: '', ticker: '', buyPrice: '', quantity: '', targetRatio: '', isUSD: false,
       currentPrice: '', dividendTimeline: {}, divPerShare: '', divFreq: '월', divDay: '15', divMonths: [], divExDay: '1', divExMonths: [],
       maturityDate: '', interestRate: '', interestType: '단리', benefit: '',
-      cardType: '체크', performance: '', isNbbang: false, cardPayDay: '', cardPeriod: '', cardLinkedAcc: 'wallet'
+      cardType: '체크', performance: '', isNbbang: false, cardPayDay: '', cardPeriod: '', cardLinkedAcc: 'wallet',
+      withdrawAccId: ''
     };
     if (selectedAccountId && selectedAccountId.startsWith('__all__')) {
       const type = selectedAccountId.replace('__all__', '');
@@ -2350,9 +2378,7 @@ const AppContent = () => {
     const resolvedAccId = modalTargetAccId || selectedAccountId;
     const finalStock = { ...newStock, id, accountId: resolvedAccId };
     if (!selectedAccountId.startsWith('__all__') === false) setSelectedAccountId(resolvedAccId);
-    const updatedStocks = editingStockId ? stocks.map(s => s.id === id ? finalStock : s) : [...stocks, finalStock];
-    
-    setStocks(updatedStocks);
+    let updatedStocks = editingStockId ? stocks.map(s => s.id === id ? finalStock : s) : [...stocks, finalStock];
 
     if (!editingStockId) {
       const accountType = accounts.find(a => a.id === resolvedAccId)?.type || currentAccountStat?.type;
@@ -2360,13 +2386,21 @@ const AppContent = () => {
         const total = toPureNumber(finalStock.quantity) * toPureNumber(finalStock.buyPrice) * (finalStock.isUSD ? toPureNumber(exchangeRate) : 1);
         logTrade({ type: 'buy', name: finalStock.name, shares: toPureNumber(finalStock.quantity), price: finalStock.buyPrice, amount: total, total, isUSD: finalStock.isUSD });
       } else if (accountType === 'spending') {
-        // 소비계좌 항목은 가계부 로그 없음
+        const initAmt = toPureNumber(finalStock.quantity);
+        const wid = finalStock.withdrawAccId || '';
+        if (wid.startsWith('stock:') && initAmt > 0) {
+          const srcId = wid.slice(6);
+          const src = updatedStocks.find(s => s.id === srcId);
+          if (!src || toPureNumber(src.quantity) < initAmt) { showToast('⚠️ 출금 계좌 잔액이 부족합니다.'); return; }
+          updatedStocks = updatedStocks.map(s => s.id === srcId ? { ...s, quantity: String(toPureNumber(s.quantity) - initAmt) } : s);
+        }
       } else {
         const amount = toPureNumber(finalStock.quantity);
         logTrade({ type: 'deposit', name: finalStock.name, amount, category: '저축/예금' });
       }
     }
 
+    setStocks(updatedStocks);
     setIsModalOpen(false);
     showToast(editingStockId ? `✅ 수정되었습니다.` : `✅ 추가되었습니다.`);
 
@@ -5556,7 +5590,7 @@ const AppContent = () => {
                           <div className="flex flex-wrap gap-1.5">
                             {accounts.filter(a => a.type === 'spending').map(a => (
                               <button key={a.id} type="button"
-                                onClick={() => { setCashSource(cashSource === a.id ? '' : a.id); setSelectedCard(''); setSpendingItem(''); }}
+                                onClick={() => { setCashSource(cashSource === a.id ? '' : a.id); setSelectedCard(''); setSpendingItem(''); setUseSpendingPoint(false); }}
                                 className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${cashSource === a.id ? 'bg-rose-500 text-white border-rose-500' : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'}`}>
                                 🛍️ {a.name}
                               </button>
@@ -5570,6 +5604,8 @@ const AppContent = () => {
                         )}
                         {paymentMethod === '현금' && cashSource && cashSource !== 'transfer' && (() => {
                           const items = stocks.filter(s => (s.accountId || 'default') === cashSource);
+                          const selectedItem = items.find(s => s.id === spendingItem);
+                          const hasWithdrawAcc = !!selectedItem?.withdrawAccId;
                           return (
                             <div className="flex flex-wrap gap-1.5 bg-rose-50/60 p-2 rounded-lg border border-rose-100">
                               <span className="w-full text-[9px] font-black text-rose-400 mb-0.5">결제 수단 선택</span>
@@ -5578,11 +5614,18 @@ const AppContent = () => {
                               ) : (
                                 items.map(s => (
                                   <button key={s.id} type="button"
-                                    onClick={() => setSpendingItem(spendingItem === s.id ? '' : s.id)}
+                                    onClick={() => { setSpendingItem(spendingItem === s.id ? '' : s.id); setUseSpendingPoint(false); }}
                                     className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${spendingItem === s.id ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                    {s.name} <span className="text-[9px] opacity-70">₩{formatNum(s.quantity)}</span>
+                                    {s.name} <span className="text-[9px] opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
                                   </button>
                                 ))
+                              )}
+                              {hasWithdrawAcc && (
+                                <button type="button"
+                                  onClick={() => setUseSpendingPoint(v => !v)}
+                                  className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${useSpendingPoint ? 'bg-amber-400 text-white border-amber-400' : 'bg-white text-amber-600 border-amber-300 hover:bg-amber-50'}`}>
+                                  🎁 포인트 사용 {useSpendingPoint ? 'ON' : 'OFF'}
+                                </button>
                               )}
                             </div>
                           );
@@ -5622,7 +5665,7 @@ const AppContent = () => {
                             ) : (
                               <>
                                 <div className="flex items-center justify-between mb-1">
-                                  <span className="text-[9px] font-black text-purple-600">총 인원 설정 (본인 제외)</span>
+                                  <span className="text-[9px] font-black text-purple-600">총 인원 설정</span>
                                   <div className="flex items-center gap-2">
                                     <button onClick={() => setNbbangList(nbbangList.length > 1 ? nbbangList.slice(0, -1) : nbbangList)} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm border border-purple-200 hover:bg-purple-50 transition-colors">-</button>
                                     <span className="text-xs font-black text-purple-800 w-4 text-center">{nbbangList.length}</span>
@@ -6715,6 +6758,18 @@ const AppContent = () => {
                     <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">현재금액</label><div className="relative flex items-center"><span className="absolute left-2.5 text-xs font-bold text-slate-400">₩</span><input type="text" className="w-full bg-slate-50 py-2 pl-6 pr-2.5 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={toCommaString(newStock.quantity)} onChange={e => handleFormattedChange('quantity', e.target.value)} placeholder="0" /></div></div>
                     <div className="space-y-1"><label className="text-[9px] font-black text-slate-400 block text-center">혜택</label><div className="relative flex items-center"><input type="text" className="w-full bg-slate-50 py-2 pl-2.5 pr-6 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-right" value={newStock.benefit} onChange={e => handleFormattedChange('benefit', e.target.value)} placeholder="0" /><span className="absolute right-2.5 text-xs font-bold text-slate-400">%</span></div></div>
                   </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-black text-slate-400 block text-center">출금 계좌 <span className="font-normal text-slate-300">(선택 안 하면 직접 충전)</span></label>
+                    <select className="w-full bg-slate-50 py-2 px-2 rounded-xl font-bold text-xs outline-none border focus:border-rose-300 text-center" value={newStock.withdrawAccId || ''} onChange={e => setNewStock({...newStock, withdrawAccId: e.target.value})}>
+                      <option value="">선택 안 함 (직접 충전)</option>
+                      {stocks.filter(s => {
+                        const acc = accounts.find(a => a.id === (s.accountId || 'default'));
+                        return acc?.type === 'savings';
+                      }).map(s => (
+                        <option key={`wa-${s.id}`} value={`stock:${s.id}`}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               ) : currentAccountStat?.type === 'card' ? (
                 <>
@@ -7569,7 +7624,7 @@ const AppContent = () => {
                             <div className="flex flex-wrap gap-1.5">
                               {accounts.filter(a => a.type === 'spending').map(a => (
                                 <button key={a.id} type="button"
-                                  onClick={() => { setCashSource(cashSource === a.id ? '' : a.id); setSelectedCard(''); setSpendingItem(''); }}
+                                  onClick={() => { setCashSource(cashSource === a.id ? '' : a.id); setSelectedCard(''); setSpendingItem(''); setUseSpendingPoint(false); }}
                                   className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${cashSource === a.id ? 'bg-rose-500 text-white border-rose-500' : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100'}`}>
                                   🛍️ {a.name}
                                 </button>
@@ -7583,6 +7638,8 @@ const AppContent = () => {
                           )}
                           {paymentMethod === '현금' && cashSource && cashSource !== 'transfer' && (() => {
                             const items = stocks.filter(s => (s.accountId || 'default') === cashSource);
+                            const selectedItem = items.find(s => s.id === spendingItem);
+                            const hasWithdrawAcc = !!selectedItem?.withdrawAccId;
                             return (
                               <div className="flex flex-wrap gap-1.5 bg-rose-50/60 p-2 rounded-lg border border-rose-100">
                                 <span className="w-full text-[9px] font-black text-rose-400 mb-0.5">결제 수단 선택</span>
@@ -7591,11 +7648,18 @@ const AppContent = () => {
                                 ) : (
                                   items.map(s => (
                                     <button key={s.id} type="button"
-                                      onClick={() => setSpendingItem(spendingItem === s.id ? '' : s.id)}
+                                      onClick={() => { setSpendingItem(spendingItem === s.id ? '' : s.id); setUseSpendingPoint(false); }}
                                       className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${spendingItem === s.id ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-100'}`}>
-                                      {s.name} <span className="text-[9px] opacity-70">₩{formatNum(s.quantity)}</span>
+                                      {s.name} <span className="text-[9px] opacity-70">₩{formatNum(toPureNumber(s.quantity))}</span>
                                     </button>
                                   ))
+                                )}
+                                {hasWithdrawAcc && (
+                                  <button type="button"
+                                    onClick={() => setUseSpendingPoint(v => !v)}
+                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-colors border ${useSpendingPoint ? 'bg-amber-400 text-white border-amber-400' : 'bg-white text-amber-600 border-amber-300 hover:bg-amber-50'}`}>
+                                    🎁 포인트 사용 {useSpendingPoint ? 'ON' : 'OFF'}
+                                  </button>
                                 )}
                               </div>
                             );
@@ -7655,7 +7719,7 @@ const AppContent = () => {
                               ) : (
                                 <>
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[9px] font-black text-purple-600">총 인원 설정 (본인 제외)</span>
+                                    <span className="text-[9px] font-black text-purple-600">총 인원 설정</span>
                                     <div className="flex items-center gap-2">
                                       <button onClick={() => setNbbangList(nbbangList.length > 1 ? nbbangList.slice(0, -1) : nbbangList)} className="w-5 h-5 flex items-center justify-center bg-white rounded-full text-purple-600 font-black shadow-sm border border-purple-200 hover:bg-purple-50 transition-colors">-</button>
                                       <span className="text-xs font-black text-purple-800 w-4 text-center">{nbbangList.length}</span>
@@ -7709,8 +7773,8 @@ const AppContent = () => {
 
                           if (isExpense && isNbbang) {
                             const validPeople = nbbangList.filter(n => n.name.trim() !== '');
-                            finalNbbangCount = validPeople.length + 1; 
-                            if (finalNbbangCount > 1) {
+                            finalNbbangCount = validPeople.length;
+                            if (finalNbbangCount > 0) {
                               myShare = Math.floor(amt / finalNbbangCount);
                               perPersonShare = Math.floor(amt / finalNbbangCount);
                               finalNbbangNames = validPeople.map(n => n.name.trim()).join(', ');
@@ -7738,11 +7802,32 @@ const AppContent = () => {
                                if (cashSource && cashSource !== 'transfer') {
                                   if (spendingItem) {
                                      const item = updatedStocks.find(s => s.id === spendingItem);
-                                     if (!item || toPureNumber(item.quantity) < myShare) return showToast("⚠️ 잔액이 부족합니다.");
-                                     const benefit = toPureNumber(item.benefit) || 0;
-                                     const accumulation = Math.floor(myShare * benefit / 100);
-                                     updatedStocks = updatedStocks.map(s => s.id === spendingItem ? { ...s, quantity: String(toPureNumber(s.quantity) - myShare + accumulation) } : s);
-                                     if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
+                                     const benefit = toPureNumber(item?.benefit) || 0;
+                                     const wid = item?.withdrawAccId || '';
+                                     if (wid.startsWith('stock:')) {
+                                        const srcId = String(wid.slice(6));
+                                        const src = updatedStocks.find(s => String(s.id) === srcId);
+                                        const pointBal = toPureNumber(item?.quantity) || 0;
+                                        let pointUsed = 0;
+                                        let cashNeeded = myShare;
+                                        if (useSpendingPoint && pointBal > 0) {
+                                           pointUsed = Math.min(pointBal, myShare);
+                                           cashNeeded = myShare - pointUsed;
+                                        }
+                                        if (!src || toPureNumber(src.quantity) < cashNeeded) return showToast("⚠️ 출금 계좌 잔액이 부족합니다.");
+                                        const accumulation = Math.floor(myShare * benefit / 100);
+                                        updatedStocks = updatedStocks.map(s => {
+                                           if (String(s.id) === String(spendingItem)) return { ...s, quantity: String(pointBal - pointUsed + accumulation) };
+                                           if (String(s.id) === srcId) return { ...s, quantity: String(toPureNumber(s.quantity) - cashNeeded) };
+                                           return s;
+                                        });
+                                        if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
+                                     } else {
+                                        if (!item || toPureNumber(item.quantity) < myShare) return showToast("⚠️ 잔액이 부족합니다.");
+                                        const accumulation = Math.floor(myShare * benefit / 100);
+                                        updatedStocks = updatedStocks.map(s => s.id === spendingItem ? { ...s, quantity: String(toPureNumber(s.quantity) - myShare + accumulation) } : s);
+                                        if (accumulation > 0) showToast(`✅ ₩${formatNum(accumulation)} 적립!`);
+                                     }
                                   }
                                } else if (cashSource === 'transfer' && transferAccId) {
                                   if (transferAccId.startsWith('stock:')) {
@@ -7758,9 +7843,12 @@ const AppContent = () => {
                             } else {
                                const selectedCardInfo = myCards.find(c => c.name === selectedCard)
                                  || stocks.find(s => s.name === selectedCard && accounts.find(a => a.id === (s.accountId || 'default'))?.type === 'card');
+                               const isCredit = selectedCardInfo?.cardType === '신용';
                                const linkedAccId = selectedCardInfo?.linkedAcc || selectedCardInfo?.cardLinkedAcc || '';
                                const deductFrom = linkedAccId || '';
-                               if (deductFrom.startsWith('stock:')) {
+                               if (isCredit) {
+                                  isPaidNow = false;
+                               } else if (deductFrom.startsWith('stock:')) {
                                   const stockId = deductFrom.replace('stock:', '');
                                   const targetStock = updatedStocks.find(s => String(s.id) === stockId);
                                   if (!targetStock || toPureNumber(targetStock.quantity) < myShare) return showToast("⚠️ 연동된 통장 잔액이 부족합니다.");
@@ -7848,7 +7936,7 @@ const AppContent = () => {
                               setFixedExpenses(prev => [...prev, newFe]);
                             }
                           }
-                          setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput('');
+                          setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput(''); setUseSpendingPoint(false);
                           showToast(`🎉 ${logCat} 처리 완료!`);
                           saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, updatedGlobalCash);
                         }} className={`${t.main} px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm`}>확인</button>
