@@ -4121,59 +4121,68 @@ const AppContent = () => {
                     const catColors = { '식비': 'bg-orange-50 border-orange-100 text-orange-600', '생필품': 'bg-amber-50 border-amber-100 text-amber-600', '의류비': 'bg-pink-50 border-pink-100 text-pink-600', '고정비': 'bg-slate-100 border-slate-200 text-slate-600', '기타': 'bg-slate-50 border-slate-200 text-slate-500' };
                     const defaultCatColor = 'bg-rose-50 border-rose-100 text-rose-600';
 
+                    // 고정비 대분류별 합계
+                    const fixedGrouped = {};
+                    fixedExpenses.forEach(fe => {
+                      const dash = fe.name.indexOf('-');
+                      const cat = dash > 0 ? fe.name.slice(0, dash).trim() : fe.name.trim();
+                      const krw = fe.isUSD ? Math.round(Number(fe.amount) * (toPureNumber(exchangeRate) || 1350)) : Number(fe.amount);
+                      fixedGrouped[cat] = (fixedGrouped[cat] || 0) + krw;
+                    });
+                    const fixedGroupEntries = Object.entries(fixedGrouped).sort((a,b) => b[1]-a[1]);
+                    const totalFixed = fixedGroupEntries.reduce((s,[,v])=>s+v,0);
+
                     return (
-                      <div className="fixed inset-0 z-[100000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+                      <div className="fixed inset-0 z-[100000] bg-black/40 flex items-center justify-center p-4 animate-in fade-in duration-200"
                         onClick={() => setShowCatStats(false)}>
-                        <div ref={catStatsRef} className="bg-white rounded-2xl w-full max-w-xs shadow-2xl flex flex-col max-h-[85vh] animate-in zoom-in duration-200"
+                        <div ref={catStatsRef} className="bg-white rounded-2xl w-full max-w-xs shadow-xl flex flex-col max-h-[85vh] animate-in zoom-in duration-200"
                           onClick={e => e.stopPropagation()}>
+                          {/* 헤더 */}
                           <div className="flex justify-between items-center px-5 pt-5 pb-3 border-b border-slate-100 shrink-0">
-                            <h3 className="font-black text-sm text-slate-800">📊 {label} 통계</h3>
-                            <button onClick={() => setShowCatStats(false)} className="p-1 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
-                          </div>
-                          {/* 월/연 토글 + 월 이동 */}
-                          <div className="flex items-center px-5 pt-3 gap-1 shrink-0">
-                            {!isYear && (
-                              <button onClick={() => goMonth(-1)} className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors shrink-0"><ChevronRight size={14} className="rotate-180"/></button>
-                            )}
-                            <button onClick={() => setCatStatsMode('month')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${catStatsMode === 'month' ? t.main : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{statsMonth + 1}월</button>
-                            {!isYear && (
-                              <button onClick={() => goMonth(1)} className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors shrink-0"><ChevronRight size={14}/></button>
-                            )}
-                            <button onClick={() => setCatStatsMode('year')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${catStatsMode === 'year' ? t.main : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>{statsYear}년</button>
-                          </div>
-                          <div className="overflow-y-auto flex-1 px-5 py-3 flex flex-col gap-3" style={{ touchAction: 'pan-y' }}>
-                            {/* 수입/투자 */}
                             <div>
-                              <p className="text-[9px] font-black text-slate-400 mb-1.5">💰 수입 · 투자</p>
-                              <div className="flex flex-col gap-1.5">
-                                <div className="flex justify-between items-center bg-emerald-50 border border-emerald-100 px-3 py-2 rounded-xl">
-                                  <span className="text-[10px] font-black text-emerald-700">급여</span>
-                                  <span className="text-[11px] font-black text-slate-800">₩{formatNum(totalSalary)}</span>
-                                </div>
-                                <div className="flex justify-between items-center bg-blue-50 border border-blue-100 px-3 py-2 rounded-xl">
-                                  <span className="text-[10px] font-black text-blue-700">수익 (배당 포함)</span>
-                                  <span className="text-[11px] font-black text-slate-800">₩{formatNum(totalIncome)}</span>
-                                </div>
-                                <div className="flex justify-between items-center bg-purple-50 border border-purple-100 px-3 py-2 rounded-xl">
-                                  <span className="text-[10px] font-black text-purple-700">투자</span>
-                                  <span className="text-[11px] font-black text-slate-800">₩{formatNum(totalInvest)}</span>
-                                </div>
+                              <p className="text-[10px] font-bold text-slate-400">지출 요약</p>
+                              <h3 className="font-black text-[15px] text-slate-800">{label}</h3>
+                            </div>
+                            <button onClick={() => setShowCatStats(false)} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X size={14}/></button>
+                          </div>
+                          {/* 월/연 토글 */}
+                          <div className="flex items-center px-5 pt-3 gap-1.5 shrink-0">
+                            {!isYear && <button onClick={() => goMonth(-1)} className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg shrink-0"><ChevronRight size={14} className="rotate-180"/></button>}
+                            <button onClick={() => setCatStatsMode('month')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${catStatsMode === 'month' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{statsMonth + 1}월</button>
+                            {!isYear && <button onClick={() => goMonth(1)} className="p-1 text-slate-400 hover:bg-slate-100 rounded-lg shrink-0"><ChevronRight size={14}/></button>}
+                            <button onClick={() => setCatStatsMode('year')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-black transition-colors ${catStatsMode === 'year' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>{statsYear}년</button>
+                          </div>
+                          <div className="overflow-y-auto flex-1 px-5 py-4 flex flex-col gap-4" style={{ touchAction: 'pan-y' }}>
+                            {/* 수입·투자 */}
+                            <div>
+                              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide mb-2">수입 · 투자</p>
+                              <div className="flex flex-col divide-y divide-slate-50 bg-slate-50 rounded-xl overflow-hidden">
+                                {[['급여', totalSalary], ['수익 (배당 포함)', totalIncome], ['투자', totalInvest]].map(([label, val]) => (
+                                  <div key={label} className="flex justify-between items-center px-3 py-2.5">
+                                    <span className="text-[11px] font-bold text-slate-600">{label}</span>
+                                    <span className="text-[12px] font-black text-slate-800">₩{formatNum(val)}</span>
+                                  </div>
+                                ))}
                               </div>
                             </div>
-                            {/* 소비 카테고리 */}
+                            {/* 생활비 */}
                             <div>
-                              <p className="text-[9px] font-black text-slate-400 mb-1.5">🛍️ 소비 — 합계 ₩{formatNum(totalExp)}</p>
+                              <div className="flex items-baseline justify-between mb-2">
+                                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">생활비</p>
+                                {totalExp > 0 && <span className="text-[11px] font-black text-slate-700">₩{formatNum(totalExp)}</span>}
+                              </div>
                               {sortedCats.length === 0
-                                ? <p className="text-[10px] text-slate-400 font-bold text-center py-3">소비 기록이 없습니다</p>
-                                : <div className="flex flex-col gap-1.5">
+                                ? <p className="text-[11px] text-slate-400 text-center py-3">기록 없음</p>
+                                : <div className="flex flex-col divide-y divide-slate-50 bg-slate-50 rounded-xl overflow-hidden">
                                     {sortedCats.map(([cat, amt]) => {
                                       const pct = totalExp > 0 ? Math.round((amt / totalExp) * 100) : 0;
-                                      const cls = catColors[cat] || defaultCatColor;
-                                      const [bg, border, textCls] = cls.split(' ');
                                       return (
-                                        <div key={cat} className={`border rounded-xl px-3 py-2 ${bg} ${border} flex justify-between items-center`}>
-                                          <span className={`text-[10px] font-black ${textCls}`}>{cat}</span>
-                                          <span className="text-[11px] font-black text-slate-800">₩{formatNum(amt)}</span>
+                                        <div key={cat} className="flex justify-between items-center px-3 py-2.5">
+                                          <span className="text-[11px] font-bold text-slate-600">{cat}</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-[10px] text-slate-400">{pct}%</span>
+                                            <span className="text-[12px] font-black text-slate-800">₩{formatNum(amt)}</span>
+                                          </div>
                                         </div>
                                       );
                                     })}
@@ -4181,34 +4190,25 @@ const AppContent = () => {
                               }
                             </div>
                             {/* 고정비 */}
-                            {(() => {
-                              const fixedInPeriod = fixedExpenses.filter(fe => {
-                                if (isYear) return true;
-                                return true; // 고정비는 매달 지출이므로 항상 포함
-                              });
-                              if (fixedInPeriod.length === 0) return null;
-                              const totalFixed = fixedInPeriod.reduce((s, fe) => s + (fe.isUSD ? Math.round(Number(fe.amount) * (toPureNumber(exchangeRate) || 1350)) : Number(fe.amount)), 0);
-                              const multiplier = isYear ? 12 : 1;
-                              return (
-                                <div>
-                                  <p className="text-[9px] font-black text-slate-400 mb-1.5">📌 고정비 — 월 ₩{formatNum(totalFixed)}{isYear ? ` · 연 ₩${formatNum(totalFixed * 12)}` : ''}</p>
-                                  <div className="flex flex-col gap-1.5">
-                                    {fixedInPeriod.map(fe => {
-                                      const krw = fe.isUSD ? Math.round(Number(fe.amount) * (toPureNumber(exchangeRate) || 1350)) : Number(fe.amount);
-                                      return (
-                                        <div key={fe.id} className="border rounded-xl px-3 py-2 bg-slate-50 border-slate-200 flex justify-between items-center">
-                                          <span className="text-[10px] font-black text-slate-600 truncate flex-1 mr-2">{fe.name}</span>
-                                          <div className="flex flex-col items-end shrink-0">
-                                            <span className="text-[11px] font-black text-slate-800">₩{formatNum(isYear ? krw * 12 : krw)}</span>
-                                            {isYear && <span className="text-[8px] text-slate-400">월 ₩{formatNum(krw)}</span>}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                            {fixedGroupEntries.length > 0 && (
+                              <div>
+                                <div className="flex items-baseline justify-between mb-2">
+                                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">고정비</p>
+                                  <span className="text-[11px] font-black text-slate-700">월 ₩{formatNum(totalFixed)}{isYear && ` · 연 ₩${formatNum(totalFixed*12)}`}</span>
                                 </div>
-                              );
-                            })()}
+                                <div className="flex flex-col divide-y divide-slate-50 bg-slate-50 rounded-xl overflow-hidden">
+                                  {fixedGroupEntries.map(([cat, krw]) => (
+                                    <div key={cat} className="flex justify-between items-center px-3 py-2.5">
+                                      <span className="text-[11px] font-bold text-slate-600">{cat}</span>
+                                      <div className="flex flex-col items-end">
+                                        <span className="text-[12px] font-black text-slate-800">₩{formatNum(isYear ? krw*12 : krw)}</span>
+                                        {isYear && <span className="text-[9px] text-slate-400">월 ₩{formatNum(krw)}</span>}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -5810,7 +5810,7 @@ const AppContent = () => {
                                                 <span className="text-[7px] text-slate-400">{subLabel} · {fe.day}일</span>
                                               </div>
                                               <div className="flex flex-col items-end shrink-0">
-                                                <span className="text-[8.5px] font-black text-slate-800">{fe.isUSD ? `$${formatNum(fe.amount)}` : `₩${formatNum(krwAmt)}`}</span>
+                                                <span className="text-[8.5px] font-black text-slate-800">{fe.isUSD ? `$${formatNum(fe.amount, 2)}` : `₩${formatNum(krwAmt)}`}</span>
                                                 {fe.isUSD && <span className="text-[7px] text-slate-400">≈₩{formatNum(krwAmt)}</span>}
                                               </div>
                                             </div>
