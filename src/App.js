@@ -864,6 +864,9 @@ const AppContent = () => {
   const watchlistTickerTimerRef = useRef(null);
   const watchlistClickTimerRef = useRef({});
   const watchlistLongPressTimerRef = useRef({});
+  const watchlistDragRef = useRef({ dragId: null, overCat: null, overId: null });
+  const [watchlistDragState, setWatchlistDragState] = useState({ draggingId: null, overIdx: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
+  const [watchlistFlowId, setWatchlistFlowId] = useState(null);
   const [isSubDivModalOpen, setIsSubDivModalOpen] = useState(false);
   const [isGlobalDivModalOpen, setIsGlobalDivModalOpen] = useState(false);
   const [divInputView, setDivInputView] = useState('schedule');
@@ -2954,95 +2957,91 @@ const AppContent = () => {
               </div>
             )}
             <div className={`grid grid-cols-2 gap-2 sm:gap-3 mb-4 ${['card','loan'].includes(currentAccountStat?.type) ? 'hidden' : ''}`}>
-              {!['savings','spending','card','loan'].includes(currentAccountStat?.type) && <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden relative col-span-1">
-                 <div className="flex justify-between items-center mb-1">
-                   <span className={`text-[10px] sm:text-[11px] font-black text-slate-500 flex items-center gap-1 sm:gap-1.5 truncate ${currentAccountStat?.type === 'savings' ? `cursor-pointer hover:${t.text} transition-colors group/label` : ''}`} onClick={() => { if(currentAccountStat?.type === 'savings') { setEditLabelInput(currentAccountStat.label || '입출금 통장'); setIsEditLabelModalOpen(true); } }}>
-                     <PieChart size={12} className="shrink-0"/> <span className="truncate">[{currentAccountStat?.name}] {currentAccountStat?.type === 'savings' ? currentAccountStat.label : currentAccountStat?.type === 'spending' ? '소비 계좌' : '총 평가액'}</span>
-                   </span>
-                   <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black text-white shrink-0 ml-1 ${currentAccountStat?.type === 'stock' ? (currentAccountStat?.totalROI >= 0 ? t.main.split(' ')[0] : 'bg-blue-400') : 'opacity-0 invisible'}`}>
-                     {currentAccountStat?.totalROI >= 0 ? '▲' : '▼'} {formatNum(Math.abs(currentAccountStat?.totalROI), 1)}%
-                   </div>
-                 </div>
-                 <div className="flex items-baseline gap-1 sm:gap-1.5 overflow-hidden">
-                   <span className="text-slate-400 text-xs sm:text-sm font-black shrink-0">₩</span>
-                   {isEditingAccCash && ['savings','spending'].includes(currentAccountStat?.type) ? (
-                      <div className="flex items-center gap-1 z-20"><input type="text" className="w-16 sm:w-24 text-right border-b border-slate-300 font-black text-slate-800 text-sm sm:text-xl outline-none bg-transparent" value={toCommaString(editAccCashAmount)} onChange={e => setEditAccCashAmount(e.target.value.replace(/[^0-9]/g, ''))} autoFocus /><button onClick={() => { const val = editAccCashAmount.trim() === '' ? currentAccountStat?.cash : toPureNumber(editAccCashAmount); setAccounts(accounts.map(a => a.id === selectedAccountId ? { ...a, cash: String(val) } : a)); setIsEditingAccCash(false); }} className={`${t.main} px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold`}>저장</button></div>
-                   ) : (
-                     <span className="text-[17px] sm:text-2xl font-black text-slate-800 tracking-tight leading-none cursor-pointer flex items-center gap-1.5 truncate py-1" onClick={() => { if(['savings','spending'].includes(currentAccountStat?.type)) { setEditAccCashAmount(''); setIsEditingAccCash(true); } }}>
-                       {formatNum(['savings','spending'].includes(currentAccountStat?.type) ? currentAccountStat?.cash : (currentAccountStat?.totalValue || 0) + (currentAccountStat?.cash || 0))}
-                       {['savings','spending'].includes(currentAccountStat?.type) && <Edit2 size={10} className="text-slate-300 hover:text-slate-500 shrink-0"/>}
-                     </span>
-                   )}
-                   {currentAccountStat?.type === 'stock' && <span className="text-[8px] sm:text-[9px] font-black text-slate-400 ml-1 opacity-80 uppercase hidden sm:inline whitespace-nowrap">원금 ₩{formatNum(currentAccountStat?.totalInvestedKRW)}</span>}
-                   {['savings','spending'].includes(currentAccountStat?.type) && !inlineConsume.isOpen && (
-                     <div className="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0 relative -top-0.5">
-                       <button onClick={(e) => { e.stopPropagation(); setInlineConsume({isOpen: true, amount: ''}) }} className={`${t.light} px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black transition-colors`}>🛍️ 소비</button>
-                       <button onClick={(e) => { e.stopPropagation(); setSavingsWithdrawModal({ isOpen: true, amount: '', targetAccId: '' }) }} className="bg-slate-100 text-slate-600 px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black hover:bg-slate-200 transition-colors">💸 출금</button>
-                     </div>
-                   )}
-                   {['savings','spending'].includes(currentAccountStat?.type) && inlineConsume.isOpen && (
-                     <div className="flex items-center gap-1 ml-auto shrink-0 relative -top-0.5">
-                       <div className="flex items-center gap-0.5 sm:gap-1 bg-slate-50 rounded p-1 border border-slate-200">
-                         <input type="text" className="w-12 sm:w-16 text-[9px] sm:text-[10px] p-0.5 rounded text-right outline-none text-slate-600 font-black bg-white" placeholder="금액" value={toCommaString(inlineConsume.amount)} onChange={e => setInlineConsume({...inlineConsume, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus />
-                         <button onClick={handleInlineConsumeConfirm} className={`${t.main} px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black whitespace-nowrap`}>확정</button>
-                         <button onClick={() => setInlineConsume({isOpen: false, amount: ''})} className="bg-slate-200 text-slate-600 px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black hover:bg-slate-300 whitespace-nowrap">취소</button>
-                       </div>
-                     </div>
-                   )}
-                 </div>
-              </div>}
+              {!['savings','spending','card','loan'].includes(currentAccountStat?.type) && (
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3 sm:p-4 min-h-[80px] flex flex-col justify-between overflow-hidden relative col-span-1">
+                {/* 상단 행: 라벨(좌) + 주문가능금액 버튼(우) */}
+                <div className="flex justify-between items-center mb-1">
+                  <span className={`text-[10px] sm:text-[11px] font-black text-slate-500 flex items-center gap-1 sm:gap-1.5 truncate`}>
+                    <PieChart size={12} className="shrink-0"/> <span className="truncate">{currentAccountStat?.type === 'savings' ? currentAccountStat.label : currentAccountStat?.type === 'spending' ? '소비 계좌' : '총 평가액'}</span>
+                  </span>
+                  {currentAccountStat?.type === 'stock' && !selectedAccountId.startsWith('__all__') && (
+                    <button onClick={() => openTransferModal(currentAccountStat.id, '')} className="flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-lg text-[8px] font-black transition-colors border border-slate-200 whitespace-nowrap shrink-0 ml-1">
+                      <span className="opacity-60">₩</span>{formatNum(currentAccountStat?.cash)}
+                    </button>
+                  )}
+                </div>
+                {/* 중간: 금액 */}
+                <div className="flex items-baseline gap-1 overflow-hidden">
+                  <span className="text-slate-400 text-xs sm:text-sm font-black shrink-0">₩</span>
+                  {isEditingAccCash && ['savings','spending'].includes(currentAccountStat?.type) ? (
+                    <div className="flex items-center gap-1 z-20"><input type="text" className="w-16 sm:w-24 text-right border-b border-slate-300 font-black text-slate-800 text-sm sm:text-xl outline-none bg-transparent" value={toCommaString(editAccCashAmount)} onChange={e => setEditAccCashAmount(e.target.value.replace(/[^0-9]/g, ''))} autoFocus /><button onClick={() => { const val = editAccCashAmount.trim() === '' ? currentAccountStat?.cash : toPureNumber(editAccCashAmount); setAccounts(accounts.map(a => a.id === selectedAccountId ? { ...a, cash: String(val) } : a)); setIsEditingAccCash(false); }} className={`${t.main} px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold`}>저장</button></div>
+                  ) : (
+                    <span className="text-[17px] sm:text-2xl font-black text-slate-800 tracking-tight leading-none cursor-pointer flex items-center gap-1.5 truncate py-0.5" onClick={() => { if(['savings','spending'].includes(currentAccountStat?.type)) { setEditAccCashAmount(''); setIsEditingAccCash(true); } }}>
+                      {formatNum(['savings','spending'].includes(currentAccountStat?.type) ? currentAccountStat?.cash : (currentAccountStat?.totalValue || 0) + (currentAccountStat?.cash || 0))}
+                      {['savings','spending'].includes(currentAccountStat?.type) && <Edit2 size={10} className="text-slate-300 hover:text-slate-500 shrink-0"/>}
+                    </span>
+                  )}
+                  {['savings','spending'].includes(currentAccountStat?.type) && !inlineConsume.isOpen && (
+                    <div className="flex items-center gap-0.5 sm:gap-1 ml-auto shrink-0"><button onClick={(e) => { e.stopPropagation(); setInlineConsume({isOpen: true, amount: ''}) }} className={`${t.light} px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black transition-colors`}>🛍️ 소비</button><button onClick={(e) => { e.stopPropagation(); setSavingsWithdrawModal({ isOpen: true, amount: '', targetAccId: '' }) }} className="bg-slate-100 text-slate-600 px-1.5 sm:px-2 py-1 rounded shadow-sm text-[8px] sm:text-[9px] font-black hover:bg-slate-200 transition-colors">💸 출금</button></div>
+                  )}
+                  {['savings','spending'].includes(currentAccountStat?.type) && inlineConsume.isOpen && (
+                    <div className="flex items-center gap-1 ml-auto shrink-0"><div className="flex items-center gap-0.5 sm:gap-1 bg-slate-50 rounded p-1 border border-slate-200"><input type="text" className="w-12 sm:w-16 text-[9px] sm:text-[10px] p-0.5 rounded text-right outline-none text-slate-600 font-black bg-white" placeholder="금액" value={toCommaString(inlineConsume.amount)} onChange={e => setInlineConsume({...inlineConsume, amount: e.target.value.replace(/[^0-9]/g, '')})} autoFocus /><button onClick={handleInlineConsumeConfirm} className={`${t.main} px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black whitespace-nowrap`}>확정</button><button onClick={() => setInlineConsume({isOpen: false, amount: ''})} className="bg-slate-200 text-slate-600 px-1 sm:px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black hover:bg-slate-300 whitespace-nowrap">취소</button></div></div>
+                  )}
+                </div>
+                {/* 하단 행: 원금(좌) + 수익률(우) */}
+                {currentAccountStat?.type === 'stock' && (
+                  <div className="flex justify-between items-center mt-1">
+                    <span className="text-[8px] font-black text-slate-400 truncate">원금 ₩{formatNum(currentAccountStat?.totalInvestedKRW)}</span>
+                    <div className={`px-1.5 py-0.5 rounded-md text-[9px] font-black text-white shrink-0 ml-1 ${currentAccountStat?.totalROI >= 0 ? t.main.split(' ')[0] : 'bg-blue-400'}`}>
+                      {currentAccountStat?.totalROI >= 0 ? '▲' : '▼'} {formatNum(Math.abs(currentAccountStat?.totalROI), 1)}%
+                    </div>
+                  </div>
+                )}
+              </div>)}
 
-              <div className={`bg-white rounded-xl border border-orange-100 shadow-sm p-3 sm:p-4 min-h-[70px] flex flex-col justify-center overflow-hidden ${['savings','spending'].includes(currentAccountStat?.type) ? 'col-span-2' : 'col-span-1'}`}>
-                 <div className="flex justify-between items-center mb-1">
-                   <span className="text-[10px] sm:text-[11px] font-black text-orange-500 flex items-center gap-1 sm:gap-1.5 truncate">
-                     {currentAccountStat?.type === 'stock' ? <><Star size={12} className="shrink-0"/> <span className="truncate">예상 연 배당금</span></> : <><Landmark size={12} className="shrink-0"/> <span className="truncate">{currentAccountStat?.type === 'spending' ? '현재 잔액' : '현재 저축 합계'}</span></>}
-                   </span>
-                   {currentAccountStat?.type === 'stock' ? (
-                     <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black border border-orange-100 text-orange-600 bg-orange-50 shrink-0 ml-1 ${currentAccountStat?.futureExpectedTotalROI >= 0 ? '' : 'text-blue-500 bg-blue-50 border-blue-100'}`}>
-                       <span className="opacity-90 hidden lg:inline">배당포함</span> {formatNum(Math.abs(currentAccountStat?.futureExpectedTotalROI), 1)}%
-                     </div>
-                   ) : currentAccountStat?.type === 'savings' ? (
-                     <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[8px] sm:text-[10px] font-black shrink-0 ml-1 ${t.altText} ${t.altBgOnly}`}>
-                       <span className="hidden sm:inline">만기 예상</span> ₩{formatNum(currentAccountStat?.savingsExpectedTotal)}
-                     </div>
-                   ) : null}
-                 </div>
-                 <div className="flex items-baseline gap-1 sm:gap-1.5 overflow-hidden">
-                   <span className="text-orange-400 text-xs sm:text-sm font-black shrink-0">₩</span>
-                   <span className="text-[17px] sm:text-2xl lg:text-3xl font-black text-slate-800 tracking-tight leading-none truncate py-1">{formatNum(currentAccountStat?.type === 'stock' ? currentAccountStat?.futureTotalDiv : currentAccountStat?.type === 'spending' ? currentAccountStat?.spendingItemsTotal : currentAccountStat?.totalValue)}</span>
-                   <span className={`text-[8px] sm:text-[9px] font-black text-slate-400 ml-1 opacity-80 uppercase hidden sm:inline whitespace-nowrap ${currentAccountStat?.type === 'savings' ? 'opacity-0 invisible' : ''}`}>누적 ₩{formatNum(currentAccountStat?.totalReceivedDivKRW)}</span>
-                 </div>
+              <div className={`bg-white rounded-xl border border-orange-100 shadow-sm p-3 sm:p-4 min-h-[80px] flex flex-col justify-between overflow-hidden ${['savings','spending'].includes(currentAccountStat?.type) ? 'col-span-2' : 'col-span-1'}`}>
+                {/* 상단 행: 라벨(좌) + 배당버튼(우) */}
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-[10px] sm:text-[11px] font-black text-orange-500 flex items-center gap-1 sm:gap-1.5 truncate">
+                    {currentAccountStat?.type === 'stock' ? <><Star size={12} className="shrink-0"/> <span className="truncate">예상 연 배당금</span></> : <><Landmark size={12} className="shrink-0"/> <span className="truncate">{currentAccountStat?.type === 'spending' ? '현재 잔액' : '현재 저축 합계'}</span></>}
+                  </span>
+                  {currentAccountStat?.type === 'stock' && (
+                    <button onClick={() => openGlobalDivModal('batch', null, selectedAccountId.startsWith('__all__') ? null : selectedAccountId)} className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-lg text-[8px] font-black border border-amber-200 transition-colors whitespace-nowrap shrink-0 ml-1">
+                      <CircleDollarSign size={10}/> 배당
+                    </button>
+                  )}
+                  {currentAccountStat?.type === 'savings' && (
+                    <div className={`px-1 sm:px-1.5 py-0.5 rounded-md text-[8px] sm:text-[10px] font-black shrink-0 ml-1 ${t.altText} ${t.altBgOnly}`}>
+                      <span className="hidden sm:inline">만기 예상</span> ₩{formatNum(currentAccountStat?.savingsExpectedTotal)}
+                    </div>
+                  )}
+                </div>
+                {/* 중간: 금액 */}
+                <div className="flex items-baseline gap-1 sm:gap-1.5 overflow-hidden">
+                  <span className="text-orange-400 text-xs sm:text-sm font-black shrink-0">₩</span>
+                  <span className="text-[17px] sm:text-2xl lg:text-3xl font-black text-slate-800 tracking-tight leading-none truncate py-0.5">{formatNum(currentAccountStat?.type === 'stock' ? currentAccountStat?.futureTotalDiv : currentAccountStat?.type === 'spending' ? currentAccountStat?.spendingItemsTotal : currentAccountStat?.totalValue)}</span>
+                </div>
+                {/* 하단 행: 누적배당(좌) + 배당포함수익률(우) */}
+                {currentAccountStat?.type === 'stock' && (
+                  <div className="flex justify-between items-center mt-1">
+                    <span className="text-[8px] font-black text-slate-400 truncate">누적 ₩{formatNum(currentAccountStat?.totalReceivedDivKRW)}</span>
+                    <div className={`px-1.5 py-0.5 rounded-md text-[9px] font-black border shrink-0 ml-1 ${currentAccountStat?.futureExpectedTotalROI >= 0 ? 'text-orange-600 bg-orange-50 border-orange-100' : 'text-blue-500 bg-blue-50 border-blue-100'}`}>
+                      {formatNum(Math.abs(currentAccountStat?.futureExpectedTotalROI), 1)}%
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="flex justify-between items-center mb-3 px-1 gap-1 w-full">
               <h3 className={`font-black text-slate-800 flex items-center gap-1 text-[11px] sm:text-sm h-[28px] shrink-0`}>
                 <Heart size={14} className={t.text} /> 내 {currentAccountStat?.type === 'stock' ? '보유 종목' : currentAccountStat?.type === 'card' ? '카드 항목' : currentAccountStat?.type === 'spending' ? '소비 항목' : currentAccountStat?.type === 'loan' ? '대출 상품' : '저축 상품'}
-                {/* 잔고분석(OCR) 버튼 — 제목 바로 옆 */}
-                {currentAccountStat?.type === 'stock' && !selectedAccountId.startsWith('__all__') && (
-                  <>
-                    <button type="button" disabled={isOcrLoading} onClick={() => ocrFileInputRef.current?.click()} className={`ml-1 flex items-center justify-center w-6 h-6 rounded-lg text-[9px] font-black border transition-colors shrink-0 ${isOcrLoading ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-wait' : 'bg-indigo-50 text-indigo-500 border-indigo-200 hover:bg-indigo-100'}`}>
-                      {isOcrLoading ? <span className="animate-pulse text-[7px]">…</span> : <Camera size={11}/>}
-                    </button>
-                    <input type="file" accept="image/*" className="hidden" ref={ocrFileInputRef} onChange={handleScreenshotOcr} />
-                  </>
-                )}
               </h3>
               {currentAccountStat?.type === 'stock' && (
                 <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar pb-0 justify-end flex-1 shrink-0">
-                  {/* 주문가능 금액 — 전체 모드 제외 */}
-                  {!selectedAccountId.startsWith('__all__') && (
-                    <button onClick={() => openTransferModal(currentAccountStat.id, '')} className="flex items-center gap-1 px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[9px] font-black transition-colors shrink-0 whitespace-nowrap border border-slate-200">
-                      <span className="text-[8px] opacity-60">₩</span>{formatNum(currentAccountStat?.cash)}
-                    </button>
-                  )}
                   {/* 관심종목 */}
                   <button onClick={() => setIsWatchlistModalOpen(true)} className="flex items-center gap-1 px-2 py-1 bg-yellow-50 hover:bg-yellow-100 text-yellow-600 rounded-lg text-[9px] font-black border border-yellow-200 transition-colors shrink-0 whitespace-nowrap">
                     <Star size={10}/> 관심종목
-                  </button>
-                  {/* 배당관리 */}
-                  <button onClick={() => openGlobalDivModal('batch', null, selectedAccountId.startsWith('__all__') ? null : selectedAccountId)} className="flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-lg text-[9px] font-black border border-amber-200 transition-colors shrink-0 whitespace-nowrap">
-                    <CircleDollarSign size={10}/> 배당
                   </button>
                   {/* 일괄구매 */}
                   <button onClick={() => { const initial = {}; const currentCash = toPureNumber(currentAccountStat?.cash || 0); const rate = toPureNumber(exchangeRate) || 1392; currentAccountStat?.rebalanceData.forEach(s => { const targetR = toPureNumber(s.targetRatio); if(targetR > 0) { const allocated = currentCash * (targetR / 100); const curP = toPureNumber(s.currentPrice); const mult = s.isUSD ? rate : 1; const shares = (curP > 0 && mult > 0) ? Math.floor(allocated / (curP * mult)) : 0; if(shares > 0) initial[s.id] = shares; } }); setBatchBuyInputs(initial); setIsBatchBuyModalOpen(true); }} className="flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[9px] font-black border border-blue-200 transition-colors shrink-0 whitespace-nowrap">
@@ -5585,7 +5584,7 @@ const AppContent = () => {
           const modalW = Math.min(watchlistCategories.length * (colW + 12) + 40, window.innerWidth - 32);
           return (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 overflow-hidden" onClick={closeWatchlist}>
-              <div className="bg-white rounded-[2rem] p-5 shadow-2xl flex flex-col max-h-[85vh] transition-all duration-300" style={{ width: `${modalW}px`, minWidth: '340px', maxWidth: 'calc(100vw - 32px)' }} onClick={e => { e.stopPropagation(); if (watchlistDeleteTarget) setWatchlistDeleteTarget(null); }}>
+              <div className="bg-white rounded-[2rem] p-4 shadow-2xl flex flex-col max-h-[92vh] transition-all duration-300" style={{ width: `${modalW}px`, minWidth: '340px', maxWidth: 'calc(100vw - 32px)' }} onClick={e => { e.stopPropagation(); if (watchlistDeleteTarget) setWatchlistDeleteTarget(null); }}>
 
                 {/* 헤더 */}
                 <div className="flex items-center justify-between mb-3 shrink-0">
@@ -5718,6 +5717,7 @@ const AppContent = () => {
                     {watchlistCategories.map(cat => {
                       const catStocks = watchlist.filter(w => (watchlistCategoryMap[w.ticker] || (w.isETF ? 'ETF' : w.isUSD ? '미국주식' : '한국주식')) === cat);
                       const flag = catFlag[cat] || '';
+                      const isDraggingInThisCat = watchlistDragState.draggingId && watchlistDragState.overCat === cat;
                       return (
                         <div key={cat} className="flex flex-col shrink-0" style={{ width: `${colW}px` }}>
                           {/* 카테고리 헤더 */}
@@ -5732,12 +5732,12 @@ const AppContent = () => {
                           {/* 구분선 */}
                           <div className={`h-0.5 rounded-full mb-2 ${t.bg} opacity-20`}/>
                           {/* 종목 리스트 */}
-                          <div className="flex flex-col gap-1 overflow-y-auto custom-scrollbar flex-1 max-h-[300px]">
+                          <div className="flex flex-col gap-0.5 overflow-y-auto custom-scrollbar flex-1 max-h-[55vh]">
                             {catStocks.length === 0 ? (
                               <div className="text-center py-5 text-slate-200">
                                 <p className="text-[9px] font-black">종목 없음</p>
                               </div>
-                            ) : catStocks.map(w => {
+                            ) : catStocks.map((w, wIdx) => {
                               const priceData = watchlistPrices[w.id];
                               const currentPrice = priceData?.price;
                               const prevClose = priceData?.prevClose;
@@ -5745,6 +5745,16 @@ const AppContent = () => {
                               const changePct = change !== null && prevClose ? (change / prevClose) * 100 : null;
                               const isUp = changePct !== null && changePct >= 0;
                               const isDeleteMode = watchlistDeleteTarget === w.id;
+                              const isDragging = watchlistDragState.draggingId === w.id;
+                              // 드래그 중 이 카드가 밀려나야 하는지 계산
+                              const overIdx = isDraggingInThisCat ? catStocks.findIndex(x => x.id === watchlistDragState.overId) : -1;
+                              const draggingCatIdx = isDraggingInThisCat ? catStocks.findIndex(x => x.id === watchlistDragState.draggingId) : -1;
+                              let translateY = 0;
+                              if (isDraggingInThisCat && !isDragging && overIdx >= 0 && draggingCatIdx >= 0) {
+                                const CARD_H = 46;
+                                if (draggingCatIdx < overIdx && wIdx > draggingCatIdx && wIdx <= overIdx) translateY = -CARD_H;
+                                else if (draggingCatIdx > overIdx && wIdx >= overIdx && wIdx < draggingCatIdx) translateY = CARD_H;
+                              }
                               const deleteStock = () => {
                                 showConfirm(`"${w.name}" 을(를) 관심종목에서 삭제할까요?`, () => {
                                   setWatchlist(prev => prev.filter(x => x.id !== w.id));
@@ -5752,37 +5762,115 @@ const AppContent = () => {
                                   setWatchlistDeleteTarget(null);
                                 });
                               };
+                              const isFlowing = watchlistFlowId === w.id;
                               return (
                                 <div key={w.id}
-                                  className={`rounded-xl px-2.5 py-1.5 flex items-center justify-between gap-1 cursor-pointer transition-all select-none ${isDeleteMode ? 'bg-rose-50 border-2 border-rose-400' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100 active:bg-slate-200'}`}
+                                  style={{
+                                    transform: isDragging
+                                      ? `translate(${watchlistDragState.x - watchlistDragState.startX}px, ${watchlistDragState.y - watchlistDragState.startY}px)`
+                                      : `translateY(${translateY}px)`,
+                                    transition: isDragging ? 'none' : 'transform 0.18s ease',
+                                    zIndex: isDragging ? 50 : 'auto',
+                                    position: 'relative',
+                                    opacity: isDragging ? 0.85 : 1,
+                                    boxShadow: isDragging ? '0 8px 24px rgba(0,0,0,0.15)' : undefined,
+                                  }}
+                                  className={`rounded-xl px-2 py-1.5 flex items-center justify-between gap-1.5 transition-colors select-none ${isDeleteMode ? 'bg-rose-50 border-2 border-rose-400' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'} ${isDeleteMode ? 'cursor-grab' : 'cursor-pointer'}`}
                                   onContextMenu={e => { e.preventDefault(); setWatchlistDeleteTarget(isDeleteMode ? null : w.id); }}
-                                  onTouchStart={() => {
+                                  onPointerDown={e => {
+                                    if (!isDeleteMode) return;
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                    setWatchlistDragState({ draggingId: w.id, overIdx: wIdx, overId: w.id, overCat: cat, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY });
+                                  }}
+                                  onPointerMove={e => {
+                                    if (watchlistDragState.draggingId !== w.id) return;
+                                    // 현재 포인터 위치로 상태 업데이트
+                                    setWatchlistDragState(prev => ({ ...prev, x: e.clientX, y: e.clientY }));
+                                    // 어느 카드 위에 올라가 있는지 감지
+                                    const el = document.elementFromPoint(e.clientX, e.clientY);
+                                    const overCard = el?.closest('[data-watchlist-id]');
+                                    if (overCard) {
+                                      const oid = overCard.getAttribute('data-watchlist-id');
+                                      const ocat = overCard.getAttribute('data-watchlist-cat');
+                                      if (oid && oid !== w.id) setWatchlistDragState(prev => ({ ...prev, overId: oid, overCat: ocat }));
+                                    }
+                                  }}
+                                  onPointerUp={e => {
+                                    if (watchlistDragState.draggingId !== w.id) return;
+                                    const fromId = w.id;
+                                    const toId = watchlistDragState.overId;
+                                    if (toId && toId !== fromId) {
+                                      setWatchlist(prev => {
+                                        const arr = [...prev];
+                                        const fromIdx = arr.findIndex(x => x.id === fromId);
+                                        const toIdx = arr.findIndex(x => x.id === toId);
+                                        if (fromIdx < 0 || toIdx < 0) return prev;
+                                        const [item] = arr.splice(fromIdx, 1);
+                                        arr.splice(toIdx, 0, item);
+                                        return arr;
+                                      });
+                                    }
+                                    setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
+                                  }}
+                                  onPointerCancel={() => {
+                                    setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
+                                  }}
+                                  onTouchStart={e => {
+                                    if (isDeleteMode) return; // 드래그 모드에선 롱프레스 스킵
+                                    watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
                                     watchlistLongPressTimerRef.current[w.id] = setTimeout(() => {
-                                      setWatchlistDeleteTarget(isDeleteMode ? null : w.id);
+                                      watchlistLongPressTimerRef.current[w.id + '_fired'] = true;
+                                      setWatchlistDeleteTarget(prev => prev === w.id ? null : w.id);
                                     }, 500);
                                   }}
-                                  onTouchEnd={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
+                                  onTouchEnd={e => {
+                                    clearTimeout(watchlistLongPressTimerRef.current[w.id]);
+                                    if (watchlistLongPressTimerRef.current[w.id + '_fired']) {
+                                      e.preventDefault();
+                                      watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
+                                    }
+                                  }}
                                   onTouchMove={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
                                   onClick={e => {
                                     e.stopPropagation();
+                                    // 드래그 후 click 무시 (5px 이상 이동했으면)
+                                    const dx = Math.abs(watchlistDragState.x - watchlistDragState.startX);
+                                    const dy = Math.abs(watchlistDragState.y - watchlistDragState.startY);
+                                    if (dx > 5 || dy > 5) return;
                                     if (isDeleteMode) { deleteStock(); return; }
                                     setWatchlistChartStock(w); setWatchlistChartPeriod('1Y'); fetchWatchlistChart(w, '1Y');
                                   }}
+                                  data-watchlist-id={w.id}
+                                  data-watchlist-cat={cat}
                                 >
-                                  <div className="flex flex-col min-w-0 flex-1">
-                                    <div className="flex items-baseline gap-1 flex-wrap">
-                                      <span className={`font-black text-[10px] truncate leading-tight ${isDeleteMode ? 'text-rose-600' : 'text-slate-800'}`}>{w.name}</span>
-                                      {changePct !== null && !isDeleteMode && (
-                                        <span className={`text-[9px] font-black shrink-0 ${isUp ? 'text-rose-500' : 'text-blue-500'}`}>{isUp ? '+' : ''}{changePct.toFixed(2)}%</span>
-                                      )}
-                                      {isDeleteMode && <span className="text-[9px] font-black text-rose-400">삭제</span>}
-                                    </div>
+                                  {/* 좌측: 종목명 + 티커 */}
+                                  <div className="flex flex-col min-w-0 flex-1 overflow-hidden">
+                                    <span
+                                      className={`font-black text-[10px] leading-tight ${isDeleteMode ? 'text-rose-600' : 'text-slate-800'} ${isFlowing ? 'animate-flow whitespace-nowrap block' : 'truncate'}`}
+                                      onDoubleClick={e => { e.stopPropagation(); setWatchlistFlowId(isFlowing ? null : w.id); }}
+                                    >{w.name}</span>
                                     <span className={`text-[8px] font-black truncate ${isDeleteMode ? 'text-rose-300' : 'text-slate-400'}`}>{w.ticker}{w.tickerSuffix}</span>
                                   </div>
-                                  {isDeleteMode
-                                    ? <button onClick={e => { e.stopPropagation(); setWatchlistDeleteTarget(null); }} className="text-slate-400 hover:text-slate-600 shrink-0 ml-1 bg-white rounded-full p-0.5"><X size={11}/></button>
-                                    : null
-                                  }
+                                  {/* 우측: 주가 + 등락 */}
+                                  {!isDeleteMode && (
+                                    <div className="flex flex-col items-end shrink-0">
+                                      {currentPrice ? (
+                                        <>
+                                          <span className="font-black text-[10px] text-slate-800 leading-tight">{w.isUSD ? `$${formatNum(currentPrice, 2)}` : `₩${formatNum(currentPrice)}`}</span>
+                                          {changePct !== null && (
+                                            <span className={`text-[8px] font-black ${isUp ? 'text-rose-500' : 'text-blue-500'}`}>
+                                              {isUp ? '▲' : '▼'} {isUp ? '+' : ''}{changePct.toFixed(2)}%
+                                            </span>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span className="text-[8px] font-black text-slate-300">-</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {isDeleteMode && (
+                                    <button onClick={e => { e.stopPropagation(); setWatchlistDeleteTarget(null); }} className="text-slate-400 hover:text-slate-600 shrink-0 bg-white rounded-full p-0.5 touch-none"><X size={11}/></button>
+                                  )}
                                 </div>
                               );
                             })}
