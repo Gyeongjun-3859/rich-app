@@ -5623,7 +5623,7 @@ const AppContent = () => {
                 {/* 검색창 */}
                 <div className="relative mb-3 shrink-0">
                   <div className="flex gap-1.5">
-                    <div className="relative flex-[2]">
+                    <div className="relative flex-[2] min-w-0" style={{flex:'2 1 0'}}>
                       <Search className="absolute right-2 top-2 text-slate-300" size={13}/>
                       <input type="text" placeholder="종목명 검색" className={`w-full bg-slate-50 py-2 pl-3 pr-7 rounded-xl outline-none border focus:${t.border} font-bold text-xs`}
                         value={watchlistSearch}
@@ -5644,7 +5644,7 @@ const AppContent = () => {
                         onFocus={() => setWatchlistIsDropdownOpen(true)}
                       />
                     </div>
-                    <input type="text" placeholder="티커" className={`flex-[1] bg-slate-50 py-2 px-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center`}
+                    <input type="text" placeholder="티커" style={{flex:'1 1 0'}} className={`min-w-0 bg-slate-50 py-2 px-2 rounded-xl outline-none border focus:${t.border} font-bold text-xs text-center`}
                       value={watchlistTickerQuery}
                       onChange={e => {
                         const q = e.target.value.toUpperCase();
@@ -5816,10 +5816,12 @@ const AppContent = () => {
                                     setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
                                   }}
                                   onTouchStart={e => {
-                                    if (isDeleteMode) return; // 드래그 모드에선 롱프레스 스킵
+                                    if (isDeleteMode) return;
                                     watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
+                                    watchlistLongPressTimerRef.current[w.id + '_firedAt'] = 0;
                                     watchlistLongPressTimerRef.current[w.id] = setTimeout(() => {
                                       watchlistLongPressTimerRef.current[w.id + '_fired'] = true;
+                                      watchlistLongPressTimerRef.current[w.id + '_firedAt'] = Date.now();
                                       setWatchlistDeleteTarget(prev => prev === w.id ? null : w.id);
                                     }, 500);
                                   }}
@@ -5833,6 +5835,9 @@ const AppContent = () => {
                                   onTouchMove={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
                                   onClick={e => {
                                     e.stopPropagation();
+                                    // 롱프레스 직후 발생한 click 무시 (300ms 이내)
+                                    const firedAt = watchlistLongPressTimerRef.current[w.id + '_firedAt'] || 0;
+                                    if (Date.now() - firedAt < 300) return;
                                     // 드래그 후 click 무시 (5px 이상 이동했으면)
                                     const dx = Math.abs(watchlistDragState.x - watchlistDragState.startX);
                                     const dy = Math.abs(watchlistDragState.y - watchlistDragState.startY);
