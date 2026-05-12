@@ -5694,8 +5694,8 @@ const AppContent = () => {
                       <button onClick={() => setWatchlistAddingCategory(v => !v)} className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-all ${watchlistAddingCategory ? `${t.main} border-transparent` : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-400'}`}>+ 분류</button>
                       {watchlistAddingCategory && (
                         <>
-                          <div className="fixed inset-0 z-[50]" onClick={() => { setWatchlistAddingCategory(false); setWatchlistNewCategory(''); }}/>
-                          <div className="absolute right-0 bottom-8 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-48">
+                          <div className="fixed inset-0 z-[199997] bg-slate-900/40" onClick={() => { setWatchlistAddingCategory(false); setWatchlistNewCategory(''); }}/>
+                          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-56">
                             <p className="text-[10px] font-black text-slate-600 mb-2">분류명 입력</p>
                             <input autoFocus type="text" placeholder="예: 채권, 리츠..." value={watchlistNewCategory} onChange={e => setWatchlistNewCategory(e.target.value)}
                               onKeyDown={e => {
