@@ -22,7 +22,7 @@ function isSpecialKRCode(sym: string): boolean {
 }
 
 // Yahoo Finance로 시세 조회
-async function fetchPriceYahoo(sym: string): Promise<{ price: number; prevClose: number } | null> {
+async function fetchPriceYahoo(sym: string): Promise<{ price: number; prevClose: number; time?: number } | null> {
   try {
     const res = await fetch(`${YAHOO_CHART}/${encodeURIComponent(sym)}`, {
       headers: { 'User-Agent': UA }
@@ -33,7 +33,8 @@ async function fetchPriceYahoo(sym: string): Promise<{ price: number; prevClose:
     if (!meta || !meta.regularMarketPrice) return null;
     return {
       price: meta.regularMarketPrice,
-      prevClose: meta.chartPreviousClose ?? meta.previousClose ?? meta.regularMarketPrice
+      prevClose: meta.chartPreviousClose ?? meta.previousClose ?? meta.regularMarketPrice,
+      time: meta.regularMarketTime ?? undefined,
     };
   } catch {
     return null;
@@ -114,15 +115,16 @@ Deno.serve(async (req) => {
         quoteType?: string; exchDisp?: string; exchange?: string;
       }>;
 
+      const KNOWN_SUFFIXES = ['.KS','.KQ','.T','.HK','.SS','.SZ','.BO','.NS','.F','.DE','.HA','.DU','.PA','.L','.AX','.TO'];
       const items = quotes
         .filter(q => q.quoteType === 'EQUITY' || q.quoteType === 'ETF' || q.quoteType === 'MUTUALFUND')
         .map(q => {
           const sym = q.symbol;
-          const isKR = sym.endsWith('.KS') || sym.endsWith('.KQ');
-          const isUSD = !isKR;
+          const matchedSuffix = KNOWN_SUFFIXES.find(s => sym.endsWith(s)) || '';
           const isETF = q.quoteType === 'ETF';
-          const ticker = isKR ? sym.replace(/\.(KS|KQ)$/, '') : sym;
-          const suffix = sym.endsWith('.KQ') ? '.KQ' : (isKR ? '.KS' : '');
+          const ticker = matchedSuffix ? sym.slice(0, sym.length - matchedSuffix.length) : sym;
+          const suffix = matchedSuffix;
+          const isUSD = !matchedSuffix; // suffix 없으면 미국
           return {
             name: q.longname || q.shortname || sym,
             ticker,

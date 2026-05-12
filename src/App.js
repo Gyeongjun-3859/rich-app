@@ -12,14 +12,20 @@ import { createClient } from '@supabase/supabase-js';
 
 // ⚠️ 주의: 본인의 Supabase Project URL과 anon key로 반드시 변경하세요!
 const supabaseUrl = 'https://slpzlgpbcetnspmjcqee.supabase.co';
-const supabaseKey = 'sb_publishable_YjqpB1tMubbU4oV-ZGzOEw_TnVmGzqk';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNscHpsZ3BiY2V0bnNwbWpjcWVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNjE1NTgsImV4cCI6MjA4OTczNzU1OH0.q1t-MZAMcA9aLbIhnbrjsgy0vOD3WBMHm4O-y4ZOp_o';
 const supabase = createClient(supabaseUrl, supabaseKey);
 // 🎯 Edge Function을 통해 시세/지수 일괄 조회 (서버에서 Yahoo 호출, CORS 안전, 안정적)
+const edgeFnHeaders = () => ({
+  'Content-Type': 'application/json',
+  'apikey': supabaseKey,
+  'Authorization': `Bearer ${supabaseKey}`,
+});
+
 const fetchMarketDataViaEdgeFn = async (symbols) => {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey },
+      headers: edgeFnHeaders(),
       body: JSON.stringify({ symbols }),
     });
     const data = await res.json();
@@ -34,7 +40,7 @@ const searchStocksViaEdgeFn = async (query) => {
   try {
     const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey },
+      headers: edgeFnHeaders(),
       body: JSON.stringify({ search: query }),
     });
     const data = await res.json();
@@ -574,14 +580,22 @@ const AppContent = () => {
           if (s.loans) setLoans(s.loans);
           if (s.shopItems) setShopItems(s.shopItems);
           if (s.excludeLoanFromTotal !== undefined) setExcludeLoanFromTotal(s.excludeLoanFromTotal);
-          setWatchlistReadyToSave(false);
-          if (s.watchlist) setWatchlist(s.watchlist);
-          if (s.watchlistCategories) setWatchlistCategories(s.watchlistCategories);
-          if (s.watchlistCategoryMap) setWatchlistCategoryMap(s.watchlistCategoryMap);
-          setTimeout(() => { setWatchlistReadyToSave(true); }, 500);
+          if (s.watchlist) { setWatchlist(s.watchlist); watchlistRef.current = s.watchlist; }
+          if (s.watchlistCategories) {
+            const migrated = s.watchlistCategories.map(c => c === '한국주식' ? '한국' : c === '미국주식' ? '미국' : c);
+            setWatchlistCategories(migrated);
+            watchlistCategoriesRef.current = migrated;
+          }
+          if (s.watchlistCategoryMap) {
+            const migrated = {};
+            Object.entries(s.watchlistCategoryMap).forEach(([k, v]) => {
+              migrated[k] = v === '한국주식' ? '한국' : v === '미국주식' ? '미국' : v;
+            });
+            setWatchlistCategoryMap(migrated);
+            watchlistCategoryMapRef.current = migrated;
+          }
        } else {
           // 신규 가입자: 모든 데이터 빈 상태로 초기화
-          setWatchlistReadyToSave(false);
           await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0, settings: {}, history_records: [] }]);
           setGlobalCash(0);
           setAccounts([{ id: 'default', name: '메인 계좌', cash: "0", type: 'stock', label: '입출금 통장' }]);
@@ -599,7 +613,6 @@ const AppContent = () => {
           setAnnualLimit(2000000);
           setZoomLevel(100);
           setExchangeRate("1392");
-          setTimeout(() => { setWatchlistReadyToSave(true); }, 500);
        }
 
        setIsCloudDataLoaded(true); // 불러오기 완료 도장 쾅!
@@ -630,16 +643,16 @@ const AppContent = () => {
          trade_logs: tradeLogs,
          my_cards: myCards,
          history_records: historyRecords,
-         settings: { ...settings, monthlyGoals, fixedExpenses, shopItems, excludeLoanFromTotal },
+         settings: { ...settings, monthlyGoals, fixedExpenses, shopItems, excludeLoanFromTotal, watchlist: watchlistRef.current, watchlistCategories: watchlistCategoriesRef.current, watchlistCategoryMap: watchlistCategoryMapRef.current },
          updated_at: new Date().toISOString()
        }, { onConflict: 'user_id' });
 
        if (error) console.error("❌ 클라우드 저장 실패:", error);
     };
 
-    const timeoutId = setTimeout(saveToCloud, 2000);
+    const timeoutId = setTimeout(saveToCloud, 3000);
     return () => clearTimeout(timeoutId);
-  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, myDisplayName, session, isCloudDataLoaded, monthlyGoals, fixedExpenses, shopItems]);
+  }, [globalCash, accounts, stocks, tradeLogs, myCards, historyRecords, appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, myDisplayName, session, isCloudDataLoaded, monthlyGoals, fixedExpenses, shopItems, excludeLoanFromTotal]);
 
   // 고정비 자동 지출: 로드 후 오늘 날짜에 해당하는 고정비를 미처리 시 자동 기록
   useEffect(() => {
@@ -858,19 +871,27 @@ const AppContent = () => {
   const [watchlistIsSearching, setWatchlistIsSearching] = useState(false);
   const [watchlistIsDropdownOpen, setWatchlistIsDropdownOpen] = useState(false);
   const [watchlistPrices, setWatchlistPrices] = useState({});
-  const [watchlistCategories, setWatchlistCategories] = useState(['한국주식','미국주식','ETF']);
+  const [watchlistRefreshing, setWatchlistRefreshing] = useState(false);
+  const [watchlistCatUpdatedAt, setWatchlistCatUpdatedAt] = useState({});
+  const [watchlistCategories, setWatchlistCategories] = useState(['한국','미국']);
   const [watchlistCategoryMap, setWatchlistCategoryMap] = useState({});
+  const watchlistRef = useRef([]);
+  const watchlistCategoriesRef = useRef(['한국','미국']);
+  const watchlistCategoryMapRef = useRef({});
+  useEffect(() => { watchlistRef.current = watchlist; }, [watchlist]);
+  useEffect(() => { watchlistCategoriesRef.current = watchlistCategories; }, [watchlistCategories]);
+  useEffect(() => { watchlistCategoryMapRef.current = watchlistCategoryMap; }, [watchlistCategoryMap]);
   const [watchlistChartStock, setWatchlistChartStock] = useState(null);
   const [watchlistChartPeriod, setWatchlistChartPeriod] = useState('1Y');
   const [watchlistChartData, setWatchlistChartData] = useState([]);
   const [watchlistChartLoading, setWatchlistChartLoading] = useState(false);
   const [watchlistNewCategory, setWatchlistNewCategory] = useState('');
+  const [watchlistNewCatSelect, setWatchlistNewCatSelect] = useState('');
   const [watchlistAddingCategory, setWatchlistAddingCategory] = useState(false);
   const [watchlistSelectedCategory, setWatchlistSelectedCategory] = useState(null);
   const [watchlistDeleteTarget, setWatchlistDeleteTarget] = useState(null); // 삭제 대기 중인 종목 id
   const [watchlistEditTarget, setWatchlistEditTarget] = useState(null); // 수정 모달 대상 { id, name, ticker, tickerSuffix }
   const [watchlistEditName, setWatchlistEditName] = useState('');
-  const [watchlistReadyToSave, setWatchlistReadyToSave] = useState(false);
   const watchlistSearchTimerRef = useRef(null);
   const watchlistTickerTimerRef = useRef(null);
   const watchlistClickTimerRef = useRef({});
@@ -972,41 +993,71 @@ const AppContent = () => {
   const stocksRef = useRef(stocks);
   useEffect(() => { stocksRef.current = stocks; }, [stocks]);
 
-  // 관심종목 Supabase 동기화 저장
-  useEffect(() => {
-    if (!session?.user?.id || !isCloudDataLoaded || !watchlistReadyToSave) return;
-    const saveWatchlist = async () => {
-      const { data: existing } = await supabase.from('app_data').select('settings').eq('user_id', session.user.id).maybeSingle();
-      if (!existing) return;
-      const prevSettings = (typeof existing.settings === 'string' ? JSON.parse(existing.settings) : existing.settings) || {};
-      const { error } = await supabase.from('app_data').upsert({
-        user_id: session.user.id,
-        settings: { ...prevSettings, watchlist, watchlistCategories, watchlistCategoryMap },
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id' });
-      if (error) console.error("❌ 관심종목 저장 실패:", error);
-    };
-    const t = setTimeout(saveWatchlist, 2000);
-    return () => clearTimeout(t);
-  }, [watchlist, watchlistCategories, watchlistCategoryMap, session, isCloudDataLoaded, watchlistReadyToSave]);
-
-  // 관심종목 현재가 자동 갱신 (10분마다)
-  useEffect(() => {
-    const fetchWatchlistPrices = async () => {
-      if (watchlist.length === 0) return;
-      const symbols = watchlist.map(w => w.isUSD ? w.ticker : `${w.ticker}${w.tickerSuffix || '.KS'}`);
+  // 관심종목 현재가 갱신
+  const fetchWatchlistPrices = async ({ manual = false } = {}) => {
+    const wl = watchlistRef.current;
+    if (wl.length === 0) return;
+    if (manual) setWatchlistRefreshing(true);
+    try {
+      const symbols = wl.map(w => w.isUSD ? w.ticker : `${w.ticker}${w.tickerSuffix || '.KS'}`);
       const results = await fetchMarketDataViaEdgeFn(symbols);
       const newPrices = {};
-      watchlist.forEach(w => {
+      wl.forEach(w => {
         const sym = w.isUSD ? w.ticker : `${w.ticker}${w.tickerSuffix || '.KS'}`;
         if (results[sym]) newPrices[w.id] = results[sym];
       });
-      setWatchlistPrices(newPrices);
-    };
+      if (Object.keys(newPrices).length > 0) {
+        setWatchlistPrices(newPrices);
+        const now = Math.floor(Date.now() / 1000);
+        setWatchlistCatUpdatedAt(prev => {
+          const next = { ...prev };
+          watchlistCategoriesRef.current.forEach(cat => {
+            const catStocks = wl.filter(w => {
+              const mapped = watchlistCategoryMapRef.current[w.ticker];
+              if (mapped) return mapped === cat;
+              const suffix = w.tickerSuffix || '';
+              if (w.isETF) return cat === 'ETF';
+              if (suffix === '.T') return cat === '일본';
+              if (suffix === '.BO' || suffix === '.NS') return cat === '인도';
+              if (suffix === '.SS' || suffix === '.SZ') return cat === '중국';
+              if (suffix === '.KS' || suffix === '.KQ') return cat === '한국';
+              return cat === (w.isUSD ? '미국' : '한국');
+            });
+            const times = catStocks.map(w => {
+              const sym = w.isUSD ? w.ticker : `${w.ticker}${w.tickerSuffix || '.KS'}`;
+              return results[sym]?.time;
+            }).filter(Boolean);
+            const ts = times.length > 0 ? Math.max(...times) : (catStocks.length > 0 ? now : null);
+            if (ts) next[cat] = ts;
+          });
+          return next;
+        });
+      }
+    } catch (e) { console.error('watchlist price fetch error:', e); }
+    if (manual) setWatchlistRefreshing(false);
+  };
+
+  // 관심종목 현재가 자동 갱신 (10분마다)
+  useEffect(() => {
     fetchWatchlistPrices();
-    const interval = setInterval(fetchWatchlistPrices, 10 * 60 * 1000);
+    const interval = setInterval(() => fetchWatchlistPrices(), 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [watchlist]);
+
+  // 관심종목 변경 시 저장
+  useEffect(() => {
+    if (!session?.user?.id || !isCloudDataLoaded) return;
+    const save = async () => {
+      const s = { appTitle, appSubtitle, characterName, appTheme, profileImage, fireTarget, annualLimit, zoomLevel, exchangeRate, myDisplayName, monthlyGoals, fixedExpenses, shopItems, excludeLoanFromTotal, watchlist, watchlistCategories, watchlistCategoryMap };
+      await supabase.from('app_data').upsert({
+        user_id: session.user.id,
+        global_cash: globalCash, accounts, stocks, trade_logs: tradeLogs, my_cards: myCards, history_records: historyRecords,
+        settings: s, updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+    };
+    const id = setTimeout(save, 1500);
+    return () => clearTimeout(id);
+  }, [watchlist, watchlistCategories, watchlistCategoryMap]); // eslint-disable-line
 
   // 관심종목 차트 데이터 로딩 (Edge Function 경유)
   const fetchWatchlistChart = async (stock, period) => {
@@ -1020,7 +1071,7 @@ const AppContent = () => {
       const iv = intervalMap[period] || '1wk';
       const res = await fetch(`${supabaseUrl}/functions/v1/get-market-data`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'apikey': supabaseKey },
+        headers: edgeFnHeaders(),
         body: JSON.stringify({ chart: sym, range, interval: iv }),
       });
       const data = await res.json();
@@ -5663,19 +5714,31 @@ const AppContent = () => {
             d.name.toLowerCase().includes(watchlistSearch.toLowerCase()) ||
             d.ticker.toLowerCase().includes(watchlistSearch.toLowerCase())
           );
-          const catFlag = { '한국주식': '🇰🇷', '미국주식': '🇺🇸' };
+          const catFlag = { '한국': '🇰🇷', '미국': '🇺🇸', '인도': '🇮🇳', '일본': '🇯🇵', '중국': '🇨🇳', 'ETF': '📊' };
           const closeWatchlist = () => { setIsWatchlistModalOpen(false); setWatchlistSearch(''); setWatchlistTickerQuery(''); setWatchlistIsDropdownOpen(false); setWatchlistSearchResults([]); setWatchlistNewCategory(''); setWatchlistSelectedCategory(null); setWatchlistDeleteTarget(null); };
+          const getWatchlistAutoCat = (w) => {
+            const suffix = w.tickerSuffix || '';
+            const exch = (w.exchange || '').toLowerCase();
+            if (w.isETF) return 'ETF';
+            if (suffix === '.T' || exch.includes('tokyo') || exch.includes('osaka')) return '일본';
+            if (suffix === '.BO' || suffix === '.NS' || exch.includes('india') || exch.includes('bombay') || exch.includes('nse')) return '인도';
+            if (suffix === '.SS' || suffix === '.SZ' || exch.includes('shanghai') || exch.includes('shenzhen')) return '중국';
+            if (suffix === '.HK' || exch.includes('hong kong') || exch.includes('hkse') || exch.includes('hkex') || exch.includes('홍콩')) return '중국';
+            if (suffix === '.KS' || suffix === '.KQ') return '한국';
+            if (w.isUSD) return '미국';
+            return '한국';
+          };
           const addToWatchlist = async (item, isFromDB) => {
             const newItem = isFromDB
-              ? { id: Date.now().toString(), name: item.name, ticker: item.ticker, isUSD: item.isUSD, tickerSuffix: item.tickerSuffix || '', isETF: item.isETF }
-              : { id: Date.now().toString(), name: item.name, ticker: item.ticker, isUSD: item.isUSD, tickerSuffix: item.suffix || '', isETF: item.isETF };
+              ? { id: Date.now().toString(), name: item.name, ticker: item.ticker, isUSD: item.isUSD, tickerSuffix: item.tickerSuffix || '', isETF: item.isETF, exchange: item.exchange || '' }
+              : { id: Date.now().toString(), name: item.name, ticker: item.ticker, isUSD: item.isUSD, tickerSuffix: item.suffix || '', isETF: item.isETF, exchange: item.exchange || '' };
             if (watchlist.some(w => w.ticker === newItem.ticker)) { setWatchlistSearch(''); setWatchlistTickerQuery(''); setWatchlistIsDropdownOpen(false); setWatchlistSearchResults([]); return; }
             const sym = newItem.isUSD ? newItem.ticker : `${newItem.ticker}${newItem.tickerSuffix || '.KS'}`;
             const res = await fetchMarketDataViaEdgeFn([sym]);
             const priceData = res[sym];
             setWatchlist(prev => [...prev, newItem]);
             if (priceData) setWatchlistPrices(prev => ({ ...prev, [newItem.id]: priceData }));
-            const autoCat = watchlistSelectedCategory || (newItem.isETF ? 'ETF' : newItem.isUSD ? '미국주식' : '한국주식');
+            const autoCat = watchlistSelectedCategory || getWatchlistAutoCat(newItem);
             if (watchlistCategories.includes(autoCat)) setWatchlistCategoryMap(prev => ({ ...prev, [newItem.ticker]: autoCat }));
             setWatchlistSearch(''); setWatchlistTickerQuery(''); setWatchlistIsDropdownOpen(false); setWatchlistSearchResults([]);
           };
@@ -5686,38 +5749,83 @@ const AppContent = () => {
               <div className="bg-white rounded-[2rem] p-4 shadow-2xl flex flex-col max-h-[92vh] transition-all duration-300" style={{ width: `${modalW}px`, minWidth: '340px', maxWidth: 'calc(100vw - 32px)' }} onClick={e => { e.stopPropagation(); if (watchlistDeleteTarget) setWatchlistDeleteTarget(null); }}>
 
                 {/* 헤더 */}
-                <div className="flex items-center justify-between mb-3 shrink-0">
-                  <h3 className={`font-black text-sm flex items-center gap-2 ${t.text}`}><Star size={15}/> 관심종목</h3>
+                <div className="flex items-center justify-between mb-1 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className={`font-black text-sm flex items-center gap-1.5 ${t.text}`}><Star size={15}/> 관심종목</h3>
+                    <button onClick={() => fetchWatchlistPrices({ manual: true })} disabled={watchlistRefreshing}
+                      className="text-[9px] font-black px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-all disabled:opacity-40">
+                      {watchlistRefreshing ? '갱신 중...' : '↻ 갱신'}
+                    </button>
+                  </div>
                   <div className="flex items-center gap-1.5">
                     {/* + 분류 추가 버튼 */}
                     <div className="relative">
                       <button onClick={() => setWatchlistAddingCategory(v => !v)} className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-all ${watchlistAddingCategory ? `${t.main} border-transparent` : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-400'}`}>+ 분류</button>
-                      {watchlistAddingCategory && (
-                        <>
-                          <div className="fixed inset-0 z-[199997] bg-slate-900/40" onClick={() => { setWatchlistAddingCategory(false); setWatchlistNewCategory(''); }}/>
-                          <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-56">
-                            <p className="text-[10px] font-black text-slate-600 mb-2">분류명 입력</p>
-                            <input autoFocus type="text" placeholder="예: 채권, 리츠..." value={watchlistNewCategory} onChange={e => setWatchlistNewCategory(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter' && watchlistNewCategory.trim()) {
-                                  if (!watchlistCategories.includes(watchlistNewCategory.trim())) setWatchlistCategories(prev => [...prev, watchlistNewCategory.trim()]);
-                                  setWatchlistNewCategory(''); setWatchlistAddingCategory(false);
-                                }
-                                if (e.key === 'Escape') { setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }
-                              }}
-                              className="w-full bg-slate-50 py-2 px-2.5 rounded-xl outline-none border border-slate-200 text-[11px] font-black text-slate-700 mb-3"
-                            />
-                            <div className="flex gap-1.5">
-                              <button onClick={() => { if (watchlistNewCategory.trim() && !watchlistCategories.includes(watchlistNewCategory.trim())) setWatchlistCategories(prev => [...prev, watchlistNewCategory.trim()]); setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className={`flex-1 text-[11px] font-black py-1.5 rounded-xl ${t.main}`}>추가</button>
-                              <button onClick={() => { setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className="flex-1 text-[11px] font-black py-1.5 rounded-xl bg-slate-100 text-slate-500">취소</button>
+                      {watchlistAddingCategory && (() => {
+                        const presetOptions = ['한국','미국','ETF','인도','일본','중국','기타'];
+                        const presetFlag = { '한국': '🇰🇷', '미국': '🇺🇸', 'ETF': '📊', '인도': '🇮🇳', '일본': '🇯🇵', '중국': '🇨🇳' };
+                        const availableOptions = presetOptions.filter(o => !watchlistCategories.includes(o));
+                        const addCategory = () => {
+                          const val = watchlistNewCatSelect === '기타' ? watchlistNewCategory.trim() : watchlistNewCatSelect;
+                          if (!val || watchlistCategories.includes(val)) return;
+                          setWatchlistCategories(prev => [...prev, val]);
+                          setWatchlistNewCatSelect(''); setWatchlistNewCategory(''); setWatchlistAddingCategory(false);
+                        };
+                        return (
+                          <>
+                            <div className="fixed inset-0 z-[199997] bg-slate-900/40" onClick={() => { setWatchlistAddingCategory(false); setWatchlistNewCatSelect(''); setWatchlistNewCategory(''); }}/>
+                            <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-56">
+                              <p className="text-[10px] font-black text-slate-600 mb-2">분류 추가</p>
+                              {availableOptions.length === 0 ? (
+                                <p className="text-[10px] text-slate-400 mb-3">추가할 수 있는 분류가 없어요.</p>
+                              ) : (
+                                <select autoFocus value={watchlistNewCatSelect} onChange={e => { setWatchlistNewCatSelect(e.target.value); setWatchlistNewCategory(''); }}
+                                  className="w-full bg-slate-50 py-2 px-2.5 rounded-xl outline-none border border-slate-200 text-[11px] font-black text-slate-700 mb-2">
+                                  <option value="">선택하세요</option>
+                                  {availableOptions.map(o => <option key={o} value={o}>{presetFlag[o] ? `${presetFlag[o]} ${o}` : o}</option>)}
+                                </select>
+                              )}
+                              {watchlistNewCatSelect === '기타' && (
+                                <input autoFocus type="text" placeholder="분류명 입력..." value={watchlistNewCategory} onChange={e => setWatchlistNewCategory(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') addCategory(); if (e.key === 'Escape') { setWatchlistNewCatSelect(''); setWatchlistNewCategory(''); setWatchlistAddingCategory(false); } }}
+                                  className="w-full bg-slate-50 py-2 px-2.5 rounded-xl outline-none border border-slate-200 text-[11px] font-black text-slate-700 mb-2"
+                                />
+                              )}
+                              <div className="flex gap-1.5">
+                                <button onClick={addCategory} disabled={!watchlistNewCatSelect || (watchlistNewCatSelect === '기타' && !watchlistNewCategory.trim())} className={`flex-1 text-[11px] font-black py-1.5 rounded-xl ${t.main} disabled:opacity-40`}>추가</button>
+                                <button onClick={() => { setWatchlistNewCatSelect(''); setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className="flex-1 text-[11px] font-black py-1.5 rounded-xl bg-slate-100 text-slate-500">취소</button>
+                              </div>
                             </div>
-                          </div>
-                        </>
-                      )}
+                          </>
+                        );
+                      })()}
                     </div>
                     <button onClick={closeWatchlist} className="p-1 text-slate-400 hover:text-slate-600 bg-slate-100 rounded-full"><X size={15}/></button>
                   </div>
                 </div>
+
+                {/* 분류별 갱신시간 */}
+                {(() => {
+                  const catFlag2 = { '한국': '🇰🇷', '미국': '🇺🇸', 'ETF': '📊', '인도': '🇮🇳', '일본': '🇯🇵', '중국': '🇨🇳' };
+                  const rows = watchlistCategories.map(cat => {
+                    const ts = watchlistCatUpdatedAt[cat];
+                    if (!ts) return null;
+                    const d = new Date(ts * 1000);
+                    const label = `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+                    return { cat, label };
+                  }).filter(Boolean);
+                  if (rows.length === 0) return null;
+                  return (
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2 shrink-0">
+                      {rows.map(({ cat, label }) => (
+                        <div key={cat} className="flex items-center gap-0.5">
+                          <span className="text-[9px]">{catFlag2[cat] || ''}</span>
+                          <span className="text-[9px] text-slate-400 font-medium">{cat} {label} 기준</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* 검색창 */}
                 <div className="relative mb-3 shrink-0">
@@ -5814,7 +5922,7 @@ const AppContent = () => {
                 <div className="flex-1 overflow-hidden">
                   <div className="flex gap-3 overflow-x-auto custom-scrollbar h-full pb-1">
                     {watchlistCategories.map(cat => {
-                      const catStocks = watchlist.filter(w => (watchlistCategoryMap[w.ticker] || (w.isETF ? 'ETF' : w.isUSD ? '미국주식' : '한국주식')) === cat);
+                      const catStocks = watchlist.filter(w => (watchlistCategoryMap[w.ticker] || getWatchlistAutoCat(w)) === cat);
                       const flag = catFlag[cat] || '';
                       const isDraggingInThisCat = watchlistDragState.draggingId && watchlistDragState.overCat === cat;
                       return (
@@ -5824,7 +5932,7 @@ const AppContent = () => {
                             <span className={`text-[11px] font-black ${t.text}`}>{flag} {cat}</span>
                             <button onClick={() => {
                               if (watchlistCategories.length <= 1) return;
-                              if (catStocks.length > 0) { alert(`${cat} 분류에 종목이 있어 삭제할 수 없어요.`); return; }
+                              if (catStocks.length > 0) { showToast(`⚠️ ${cat} 분류에 종목이 있어 삭제할 수 없어요.`); return; }
                               setWatchlistCategories(prev => prev.filter(c => c !== cat));
                             }} className="text-slate-300 hover:text-rose-400 transition-colors"><X size={10}/></button>
                           </div>
@@ -5931,25 +6039,92 @@ const AppContent = () => {
                                   onMouseUp={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
                                   onMouseLeave={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
                                   onTouchStart={e => {
-                                    if (isDeleteMode) return;
                                     if (e.touches.length > 1) return;
+                                    const t = e.touches[0];
+                                    if (isDeleteMode) {
+                                      // 수정모드: 드래그 시작 준비 — 스크롤 방지
+                                      e.preventDefault();
+                                      watchlistLongPressTimerRef.current[w.id + '_touchDragStartX'] = t.clientX;
+                                      watchlistLongPressTimerRef.current[w.id + '_touchDragStartY'] = t.clientY;
+                                      watchlistLongPressTimerRef.current[w.id + '_touchDragging'] = false;
+                                      return;
+                                    }
                                     watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
                                     watchlistLongPressTimerRef.current[w.id + '_firedAt'] = 0;
+                                    watchlistLongPressTimerRef.current[w.id + '_startX'] = t.clientX;
+                                    watchlistLongPressTimerRef.current[w.id + '_startY'] = t.clientY;
                                     watchlistLongPressTimerRef.current[w.id] = setTimeout(() => {
                                       watchlistLongPressTimerRef.current[w.id + '_fired'] = true;
                                       watchlistLongPressTimerRef.current[w.id + '_firedAt'] = Date.now();
                                       setWatchlistDeleteTarget(prev => prev === w.id ? null : w.id);
                                     }, 500);
                                   }}
+                                  onTouchMove={e => {
+                                    if (e.touches.length !== 1) return;
+                                    const t = e.touches[0];
+                                    if (isDeleteMode) {
+                                      e.preventDefault();
+                                      const startX = watchlistLongPressTimerRef.current[w.id + '_touchDragStartX'] || t.clientX;
+                                      const startY = watchlistLongPressTimerRef.current[w.id + '_touchDragStartY'] || t.clientY;
+                                      const dx = Math.abs(t.clientX - startX);
+                                      const dy = Math.abs(t.clientY - startY);
+                                      if (!watchlistLongPressTimerRef.current[w.id + '_touchDragging'] && (dx > 5 || dy > 5)) {
+                                        watchlistLongPressTimerRef.current[w.id + '_touchDragging'] = true;
+                                        setWatchlistDragState({ draggingId: w.id, overIdx: wIdx, overId: w.id, overCat: cat, x: startX, y: startY, startX, startY });
+                                      }
+                                      if (watchlistLongPressTimerRef.current[w.id + '_touchDragging']) {
+                                        setWatchlistDragState(prev => ({ ...prev, x: t.clientX, y: t.clientY }));
+                                        const el = document.elementFromPoint(t.clientX, t.clientY);
+                                        const overCard = el?.closest('[data-watchlist-id]');
+                                        if (overCard) {
+                                          const oid = overCard.getAttribute('data-watchlist-id');
+                                          const ocat = overCard.getAttribute('data-watchlist-cat');
+                                          if (oid && oid !== w.id) setWatchlistDragState(prev => ({ ...prev, overId: oid, overCat: ocat }));
+                                        }
+                                      }
+                                      return;
+                                    }
+                                    const dx = Math.abs(t.clientX - (watchlistLongPressTimerRef.current[w.id + '_startX'] || 0));
+                                    const dy = Math.abs(t.clientY - (watchlistLongPressTimerRef.current[w.id + '_startY'] || 0));
+                                    if (dx > 8 || dy > 8) clearTimeout(watchlistLongPressTimerRef.current[w.id]);
+                                  }}
                                   onTouchEnd={e => {
-                                    if (e.touches.length > 0) return;
+                                    if (isDeleteMode) {
+                                      e.preventDefault();
+                                      const wasDragging = watchlistLongPressTimerRef.current[w.id + '_touchDragging'];
+                                      watchlistLongPressTimerRef.current[w.id + '_touchDragging'] = false;
+                                      if (wasDragging) {
+                                        // 드래그 완료: 순서 변경
+                                        const fromId = w.id;
+                                        const toId = watchlistDragRef.current.overId || watchlistDragState.overId;
+                                        if (toId && toId !== fromId) {
+                                          setWatchlist(prev => {
+                                            const arr = [...prev];
+                                            const fromIdx = arr.findIndex(x => x.id === fromId);
+                                            const toIdx = arr.findIndex(x => x.id === toId);
+                                            if (fromIdx < 0 || toIdx < 0) return prev;
+                                            const [item] = arr.splice(fromIdx, 1);
+                                            arr.splice(toIdx, 0, item);
+                                            return arr;
+                                          });
+                                        }
+                                        setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
+                                        watchlistLongPressTimerRef.current[w.id + '_firedAt'] = Date.now();
+                                      } else {
+                                        // 드래그 없이 탭: 다른 종목이면 수정모드 해제, 같은 종목이면 수정 모달
+                                        if (!isDeleteMode) return;
+                                        setWatchlistDeleteTarget(null);
+                                      }
+                                      return;
+                                    }
                                     clearTimeout(watchlistLongPressTimerRef.current[w.id]);
                                     if (watchlistLongPressTimerRef.current[w.id + '_fired']) {
                                       e.preventDefault();
+                                      e.stopPropagation();
                                       watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
                                     }
                                   }}
-                                  onTouchMove={e => { if (e.touches.length === 1) clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
+                                  onContextMenu={e => e.preventDefault()}
                                   onClick={e => {
                                     e.stopPropagation();
                                     // 롱프레스 직후 발생한 click 무시 (600ms 이내)
@@ -5959,6 +6134,8 @@ const AppContent = () => {
                                     const dx = Math.abs(watchlistDragState.x - watchlistDragState.startX);
                                     const dy = Math.abs(watchlistDragState.y - watchlistDragState.startY);
                                     if (dx > 5 || dy > 5) return;
+                                    // 수정모드 중 다른 종목 클릭 → 수정모드 해제
+                                    if (watchlistDeleteTarget && watchlistDeleteTarget !== w.id) { setWatchlistDeleteTarget(null); return; }
                                     if (isDeleteMode) { setWatchlistEditTarget(w); setWatchlistEditName(w.name); return; }
                                     setWatchlistChartStock(w); setWatchlistChartPeriod('1Y'); fetchWatchlistChart(w, '1Y');
                                   }}
