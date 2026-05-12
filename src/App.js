@@ -574,8 +574,14 @@ const AppContent = () => {
           if (s.loans) setLoans(s.loans);
           if (s.shopItems) setShopItems(s.shopItems);
           if (s.excludeLoanFromTotal !== undefined) setExcludeLoanFromTotal(s.excludeLoanFromTotal);
+          setWatchlistReadyToSave(false);
+          if (s.watchlist) setWatchlist(s.watchlist);
+          if (s.watchlistCategories) setWatchlistCategories(s.watchlistCategories);
+          if (s.watchlistCategoryMap) setWatchlistCategoryMap(s.watchlistCategoryMap);
+          setTimeout(() => { setWatchlistReadyToSave(true); }, 500);
        } else {
           // 신규 가입자: 모든 데이터 빈 상태로 초기화
+          setWatchlistReadyToSave(false);
           await supabase.from('app_data').insert([{ user_id: user.id, global_cash: 0, settings: {}, history_records: [] }]);
           setGlobalCash(0);
           setAccounts([{ id: 'default', name: '메인 계좌', cash: "0", type: 'stock', label: '입출금 통장' }]);
@@ -593,8 +599,9 @@ const AppContent = () => {
           setAnnualLimit(2000000);
           setZoomLevel(100);
           setExchangeRate("1392");
+          setTimeout(() => { setWatchlistReadyToSave(true); }, 500);
        }
-       
+
        setIsCloudDataLoaded(true); // 불러오기 완료 도장 쾅!
     };
     loadCloudData();
@@ -656,6 +663,7 @@ const AppContent = () => {
         paymentMethod: fe.paymentMethod || '현금',
         cardName: fe.cardName || '',
         fixedExpenseId: fe.id,
+        excludeFromPerf: fe.excludeFromPerf || false,
       };
     });
     setTradeLogs(prev => [...newLogs, ...prev]);
@@ -843,15 +851,15 @@ const AppContent = () => {
   const [tickerQuery, setTickerQuery] = useState('');      // 티커 직접 입력
   const tickerTimerRef = useRef(null);
   const [isWatchlistModalOpen, setIsWatchlistModalOpen] = useState(false);
-  const [watchlist, setWatchlist] = useState(() => { try { return JSON.parse(localStorage.getItem('kj_watchlist') || '[]'); } catch { return []; } });
+  const [watchlist, setWatchlist] = useState([]);
   const [watchlistSearch, setWatchlistSearch] = useState('');
   const [watchlistTickerQuery, setWatchlistTickerQuery] = useState('');
   const [watchlistSearchResults, setWatchlistSearchResults] = useState([]);
   const [watchlistIsSearching, setWatchlistIsSearching] = useState(false);
   const [watchlistIsDropdownOpen, setWatchlistIsDropdownOpen] = useState(false);
   const [watchlistPrices, setWatchlistPrices] = useState({});
-  const [watchlistCategories, setWatchlistCategories] = useState(() => { try { return JSON.parse(localStorage.getItem('kj_watchlist_categories') || '["한국주식","미국주식","ETF"]'); } catch { return ['한국주식','미국주식','ETF']; } });
-  const [watchlistCategoryMap, setWatchlistCategoryMap] = useState(() => { try { return JSON.parse(localStorage.getItem('kj_watchlist_catmap') || '{}'); } catch { return {}; } });
+  const [watchlistCategories, setWatchlistCategories] = useState(['한국주식','미국주식','ETF']);
+  const [watchlistCategoryMap, setWatchlistCategoryMap] = useState({});
   const [watchlistChartStock, setWatchlistChartStock] = useState(null);
   const [watchlistChartPeriod, setWatchlistChartPeriod] = useState('1Y');
   const [watchlistChartData, setWatchlistChartData] = useState([]);
@@ -860,6 +868,9 @@ const AppContent = () => {
   const [watchlistAddingCategory, setWatchlistAddingCategory] = useState(false);
   const [watchlistSelectedCategory, setWatchlistSelectedCategory] = useState(null);
   const [watchlistDeleteTarget, setWatchlistDeleteTarget] = useState(null); // 삭제 대기 중인 종목 id
+  const [watchlistEditTarget, setWatchlistEditTarget] = useState(null); // 수정 모달 대상 { id, name, ticker, tickerSuffix }
+  const [watchlistEditName, setWatchlistEditName] = useState('');
+  const [watchlistReadyToSave, setWatchlistReadyToSave] = useState(false);
   const watchlistSearchTimerRef = useRef(null);
   const watchlistTickerTimerRef = useRef(null);
   const watchlistClickTimerRef = useRef({});
@@ -929,6 +940,7 @@ const AppContent = () => {
   const [newFixedCatName, setNewFixedCatName] = useState('');
   const [newFixedPayment, setNewFixedPayment] = useState({ method: '현금', cardName: '', transferAccId: '' });
   const [newFixedIsUSD, setNewFixedIsUSD] = useState(false);
+  const [newFixedExcludePerf, setNewFixedExcludePerf] = useState(false);
   const [editFixedModal, setEditFixedModal] = useState(null); // { fe, confirmDelete? } or null
   const [editFixedAmount, setEditFixedAmount] = useState('');
   const [editFixedDay, setEditFixedDay] = useState('');
@@ -959,9 +971,24 @@ const AppContent = () => {
 
   const stocksRef = useRef(stocks);
   useEffect(() => { stocksRef.current = stocks; }, [stocks]);
-  useEffect(() => { localStorage.setItem('kj_watchlist', JSON.stringify(watchlist)); }, [watchlist]);
-  useEffect(() => { localStorage.setItem('kj_watchlist_categories', JSON.stringify(watchlistCategories)); }, [watchlistCategories]);
-  useEffect(() => { localStorage.setItem('kj_watchlist_catmap', JSON.stringify(watchlistCategoryMap)); }, [watchlistCategoryMap]);
+
+  // 관심종목 Supabase 동기화 저장
+  useEffect(() => {
+    if (!session?.user?.id || !isCloudDataLoaded || !watchlistReadyToSave) return;
+    const saveWatchlist = async () => {
+      const { data: existing } = await supabase.from('app_data').select('settings').eq('user_id', session.user.id).maybeSingle();
+      if (!existing) return;
+      const prevSettings = (typeof existing.settings === 'string' ? JSON.parse(existing.settings) : existing.settings) || {};
+      const { error } = await supabase.from('app_data').upsert({
+        user_id: session.user.id,
+        settings: { ...prevSettings, watchlist, watchlistCategories, watchlistCategoryMap },
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' });
+      if (error) console.error("❌ 관심종목 저장 실패:", error);
+    };
+    const t = setTimeout(saveWatchlist, 2000);
+    return () => clearTimeout(t);
+  }, [watchlist, watchlistCategories, watchlistCategoryMap, session, isCloudDataLoaded, watchlistReadyToSave]);
 
   // 관심종목 현재가 자동 갱신 (10분마다)
   useEffect(() => {
@@ -1764,6 +1791,23 @@ const AppContent = () => {
     setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput(''); setBonusDestAccId(''); setUseSpendingPoint(false);
     showToast(`🎉 ${logCat} 처리 완료!`);
     saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, updatedGlobalCash);
+
+    // trade_logs 즉시 저장 (2초 디바운스 없이)
+    if (session?.user?.id && isCloudDataLoaded) {
+      const finalLogs = isExpense && isNbbang && finalNbbangCount > 1
+        ? [...logsToAdd.reverse(), ...tradeLogs]
+        : [{ ...baseLog, id: Date.now().toString() }, ...tradeLogs];
+      supabase.from('app_data').upsert({
+        user_id: session.user.id,
+        global_cash: updatedGlobalCash,
+        accounts: updatedAccs,
+        stocks: updatedStocks,
+        trade_logs: finalLogs,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'user_id' }).then(({ error }) => {
+        if (error) console.error("❌ 즉시 저장 실패:", error);
+      });
+    }
   };
 
   const handleExportData = () => {
@@ -2631,7 +2675,7 @@ const AppContent = () => {
           const parsed = editFixedIsUSD ? Number(editFixedAmount) : Number(editFixedAmount.replace(/[^0-9]/g, ''));
           const dayNum = Number(editFixedDay);
           if (!parsed || !dayNum || dayNum < 1 || dayNum > 31) { showToast('금액과 날짜(일)를 올바르게 입력하세요'); return; }
-          setFixedExpenses(fixedExpenses.map(f => f.id === fe.id ? { ...f, amount: parsed, day: dayNum, paymentMethod: editFixedPayment.method, cardName: editFixedPayment.cardName, transferAccId: editFixedPayment.transferAccId, isUSD: editFixedIsUSD } : f));
+          setFixedExpenses(fixedExpenses.map(f => f.id === fe.id ? { ...f, amount: parsed, day: dayNum, paymentMethod: editFixedPayment.method, cardName: editFixedPayment.cardName, transferAccId: editFixedPayment.transferAccId, isUSD: editFixedIsUSD, excludeFromPerf: !!editFixedModal.excludeFromPerf } : f));
           setEditFixedModal(null);
           showToast('✅ 고정비 수정 완료');
         };
@@ -2679,6 +2723,12 @@ const AppContent = () => {
                     })}
                   </div>
                 </div>
+              </div>
+              <div className="px-4 pb-2">
+                <button onClick={() => setEditFixedModal(prev => ({ ...prev, excludeFromPerf: !prev.excludeFromPerf }))}
+                  className={`w-full py-2 rounded-xl text-[10px] font-black border transition-colors ${editFixedModal.excludeFromPerf ? 'bg-slate-600 text-white border-slate-600' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'}`}>
+                  {editFixedModal.excludeFromPerf ? '✓ 실적제외 중 (클릭 시 포함)' : '실적에서 제외'}
+                </button>
               </div>
               <div className="flex gap-2 px-4 pb-4">
                 <button onClick={() => setEditFixedModal({ fe, confirmDelete: true })} className="flex-1 bg-red-50 text-red-500 py-2.5 rounded-xl text-[11px] font-black border border-red-100 hover:bg-red-100 transition-colors">삭제</button>
@@ -5108,7 +5158,7 @@ const AppContent = () => {
                        // 🎯 카드 요약본 모바일 1열, PC 2열 그리드 배치
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
                          {myCards.map(c => {
-                           const periodFiltered = (tradeLogs || []).filter(r => r.cardName === c.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang && (() => { const d = parseLocalDate(r.date || r.timestamp); return d && d.getFullYear() === calYear && d.getMonth() === calMonth; })());
+                           const periodFiltered = (tradeLogs || []).filter(r => r.cardName === c.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang && !r.excludeFromPerf && (() => { const d = parseLocalDate(r.date || r.timestamp); return d && d.getFullYear() === calYear && d.getMonth() === calMonth; })());
                            const totalUsed = periodFiltered.reduce((sum, r) => { const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare)*Number(r.nbbangCount) : toPureNumber(r.amount); return sum + full; }, 0);
                            const target = Number(c.target || 0);
                            const percent = target > 0 ? Math.min((totalUsed / target) * 100, 100) : 0;
@@ -5175,7 +5225,7 @@ const AppContent = () => {
                            const acc = accounts.find(a => a.id === (s.accountId || 'default'));
                            return acc?.type === 'card' && !myCards.some(c => c.name === s.name);
                          }).map(s => {
-                           const rawUsedLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang);
+                           const rawUsedLogs = (tradeLogs || []).filter(r => r.cardName === s.name && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang && !r.excludeFromPerf);
                            const totalUsed = rawUsedLogs.filter(r => { const d = parseLocalDate(r.date || r.timestamp); return d && d.getFullYear() === calYear && d.getMonth() === calMonth; }).reduce((sum, r) => { const full = (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare)*Number(r.nbbangCount) : toPureNumber(r.amount); return sum + full; }, 0);
                            const target = toPureNumber(s.performance);
                            // 이번달/다음달 결제예정 분리: 이번달 = 현재 기준일 범위, 다음달 = 다음 기준일 범위
@@ -5326,6 +5376,7 @@ const AppContent = () => {
                                        <div className="flex items-center justify-between gap-1">
                                          <span className="text-[9px] font-black text-slate-800 truncate leading-tight flex-1">{log.displayTitle}</span>
                                          <div className="flex items-center gap-0.5 shrink-0">
+                                           {log.excludeFromPerf && <span className="text-[7px] font-black text-slate-400 bg-slate-100 px-1 py-0.5 rounded">실적제외</span>}
                                            {log.hasNbbang && <span className="text-[7px] font-black text-violet-500 bg-violet-50 px-1 py-0.5 rounded">N빵</span>}
                                            {isPaidItem && <span className="text-[7px] font-black text-emerald-500 bg-emerald-50 px-1 py-0.5 rounded">완납</span>}
                                          </div>
@@ -5336,9 +5387,19 @@ const AppContent = () => {
                                          {log.hasNbbang && <span className="text-[8px] font-bold text-slate-400">내 몫 ₩{formatNum(log.myAmount)}</span>}
                                          {isActive && !isFromPortfolio && <span className="text-[8px] font-black text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded-md animate-in fade-in duration-150 self-end">결제하기</span>}
                                          {isEditing && (
-                                           <div className="flex gap-1 mt-1 animate-in fade-in duration-150" onClick={e => e.stopPropagation()}>
-                                             <button onClick={() => handleDeleteItem(log)} className="flex-1 py-1 bg-rose-500 text-white rounded-lg text-[8px] font-black hover:bg-rose-600 active:scale-95 transition-all">🗑 삭제</button>
-                                             <button onClick={() => setPrepayEditKey(null)} className="flex-1 py-1 bg-slate-200 text-slate-600 rounded-lg text-[8px] font-black hover:bg-slate-300 active:scale-95 transition-all">취소</button>
+                                           <div className="flex flex-col gap-1 mt-1 animate-in fade-in duration-150" onClick={e => e.stopPropagation()}>
+                                             <button onClick={() => {
+                                               const newVal = !log.excludeFromPerf;
+                                               setTradeLogs(prev => prev.map(r => log.combinedIds.map(String).includes(String(r.id)) ? { ...r, excludeFromPerf: newVal } : r));
+                                               setPrepayEditKey(null);
+                                               showToast(newVal ? '실적에서 제외했습니다.' : '실적에 다시 포함했습니다.');
+                                             }} className={`w-full py-1 rounded-lg text-[8px] font-black active:scale-95 transition-all ${log.excludeFromPerf ? 'bg-slate-500 text-white hover:bg-slate-600' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                                               {log.excludeFromPerf ? '✓ 실적제외 중 (클릭 시 포함)' : '실적에서 제외'}
+                                             </button>
+                                             <div className="flex gap-1">
+                                               <button onClick={() => handleDeleteItem(log)} className="flex-1 py-1 bg-rose-500 text-white rounded-lg text-[8px] font-black hover:bg-rose-600 active:scale-95 transition-all">🗑 삭제</button>
+                                               <button onClick={() => setPrepayEditKey(null)} className="flex-1 py-1 bg-slate-200 text-slate-600 rounded-lg text-[8px] font-black hover:bg-slate-300 active:scale-95 transition-all">취소</button>
+                                             </div>
                                            </div>
                                          )}
                                        </div>
@@ -5559,6 +5620,44 @@ const AppContent = () => {
       })()}
 
         {/* --- WATCHLIST MODAL --- */}
+        {watchlistEditTarget && (() => {
+          const doConfirm = () => {
+            if (!watchlistEditName.trim()) return;
+            setWatchlist(prev => prev.map(x => x.id === watchlistEditTarget.id ? { ...x, name: watchlistEditName.trim() } : x));
+            setWatchlistDeleteTarget(null);
+            setWatchlistEditTarget(null);
+          };
+          return (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[999999] flex items-end sm:items-center justify-center p-4 pb-8" onClick={() => setWatchlistEditTarget(null)}>
+              <div className="bg-white rounded-[2rem] p-5 shadow-2xl w-full max-w-xs" onClick={e => e.stopPropagation()}>
+                <h3 className={`font-black text-sm mb-4 ${t.text}`}>종목 수정</h3>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 mb-1 block">티커 (변경 불가)</label>
+                    <input type="text" value={`${watchlistEditTarget.ticker}${watchlistEditTarget.tickerSuffix || ''}`} disabled className="w-full rounded-xl border border-slate-200 bg-slate-100 text-slate-400 px-3 py-2 text-sm font-black cursor-not-allowed"/>
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black text-slate-400 mb-1 block">종목명</label>
+                    <input autoFocus type="text" value={watchlistEditName} onChange={e => setWatchlistEditName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') doConfirm(); if (e.key === 'Escape') setWatchlistEditTarget(null); }}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-black focus:outline-none focus:border-slate-500"/>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-5">
+                  <button onClick={() => {
+                    showConfirm(`"${watchlistEditTarget.name}" 을(를) 관심종목에서 삭제할까요?`, () => {
+                      setWatchlist(prev => prev.filter(x => x.id !== watchlistEditTarget.id));
+                      setWatchlistCategoryMap(prev => { const n = {...prev}; delete n[watchlistEditTarget.ticker]; return n; });
+                      setWatchlistDeleteTarget(null);
+                      setWatchlistEditTarget(null);
+                    });
+                  }} className="flex-1 py-2 rounded-xl bg-rose-50 text-rose-500 font-black text-sm border border-rose-200">삭제</button>
+                  <button onClick={doConfirm} className={`flex-1 py-2 rounded-xl ${t.main} font-black text-sm`}>확인</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {isWatchlistModalOpen && (() => {
           const filteredWDB = STOCK_DATABASE.filter(d =>
             d.name.toLowerCase().includes(watchlistSearch.toLowerCase()) ||
@@ -5592,11 +5691,11 @@ const AppContent = () => {
                   <div className="flex items-center gap-1.5">
                     {/* + 분류 추가 버튼 */}
                     <div className="relative">
-                      <button onClick={() => setWatchlistAddingCategory(v => !v)} className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-all ${watchlistAddingCategory ? `${t.bg} text-white border-transparent` : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-400'}`}>+ 분류</button>
+                      <button onClick={() => setWatchlistAddingCategory(v => !v)} className={`text-[10px] font-black px-2 py-1 rounded-lg border transition-all ${watchlistAddingCategory ? `${t.main} border-transparent` : 'bg-slate-50 text-slate-400 border-slate-200 hover:border-slate-400'}`}>+ 분류</button>
                       {watchlistAddingCategory && (
                         <>
                           <div className="fixed inset-0 z-[50]" onClick={() => { setWatchlistAddingCategory(false); setWatchlistNewCategory(''); }}/>
-                          <div className="absolute right-0 top-8 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-48">
+                          <div className="absolute right-0 bottom-8 z-[199998] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 w-48">
                             <p className="text-[10px] font-black text-slate-600 mb-2">분류명 입력</p>
                             <input autoFocus type="text" placeholder="예: 채권, 리츠..." value={watchlistNewCategory} onChange={e => setWatchlistNewCategory(e.target.value)}
                               onKeyDown={e => {
@@ -5609,7 +5708,7 @@ const AppContent = () => {
                               className="w-full bg-slate-50 py-2 px-2.5 rounded-xl outline-none border border-slate-200 text-[11px] font-black text-slate-700 mb-3"
                             />
                             <div className="flex gap-1.5">
-                              <button onClick={() => { if (watchlistNewCategory.trim() && !watchlistCategories.includes(watchlistNewCategory.trim())) setWatchlistCategories(prev => [...prev, watchlistNewCategory.trim()]); setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className={`flex-1 text-[11px] font-black py-1.5 rounded-xl ${t.bg} text-white`}>추가</button>
+                              <button onClick={() => { if (watchlistNewCategory.trim() && !watchlistCategories.includes(watchlistNewCategory.trim())) setWatchlistCategories(prev => [...prev, watchlistNewCategory.trim()]); setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className={`flex-1 text-[11px] font-black py-1.5 rounded-xl ${t.main}`}>추가</button>
                               <button onClick={() => { setWatchlistNewCategory(''); setWatchlistAddingCategory(false); }} className="flex-1 text-[11px] font-black py-1.5 rounded-xl bg-slate-100 text-slate-500">취소</button>
                             </div>
                           </div>
@@ -5774,6 +5873,7 @@ const AppContent = () => {
                                     position: 'relative',
                                     opacity: isDragging ? 0.85 : 1,
                                     boxShadow: isDragging ? '0 8px 24px rgba(0,0,0,0.15)' : undefined,
+                                    pointerEvents: isDragging ? 'none' : undefined,
                                   }}
                                   className={`rounded-xl px-2 py-1.5 flex items-center justify-between gap-1.5 transition-colors select-none ${isDeleteMode ? 'bg-rose-50 border-2 border-rose-400' : 'bg-slate-50 border border-slate-100 hover:bg-slate-100'} ${isDeleteMode ? 'cursor-grab' : 'cursor-pointer'}`}
                                   onContextMenu={e => { e.preventDefault(); setWatchlistDeleteTarget(isDeleteMode ? null : w.id); }}
@@ -5799,6 +5899,8 @@ const AppContent = () => {
                                     if (watchlistDragState.draggingId !== w.id) return;
                                     const fromId = w.id;
                                     const toId = watchlistDragState.overId;
+                                    const didDrag = Math.abs(watchlistDragState.x - watchlistDragState.startX) > 5 || Math.abs(watchlistDragState.y - watchlistDragState.startY) > 5;
+                                    if (didDrag) watchlistLongPressTimerRef.current[w.id + '_firedAt'] = Date.now();
                                     if (toId && toId !== fromId) {
                                       setWatchlist(prev => {
                                         const arr = [...prev];
@@ -5815,8 +5917,22 @@ const AppContent = () => {
                                   onPointerCancel={() => {
                                     setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
                                   }}
+                                  onMouseDown={e => {
+                                    if (isDeleteMode) return;
+                                    if (e.button !== 0) return;
+                                    watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
+                                    watchlistLongPressTimerRef.current[w.id + '_firedAt'] = 0;
+                                    watchlistLongPressTimerRef.current[w.id] = setTimeout(() => {
+                                      watchlistLongPressTimerRef.current[w.id + '_fired'] = true;
+                                      watchlistLongPressTimerRef.current[w.id + '_firedAt'] = Date.now();
+                                      setWatchlistDeleteTarget(prev => prev === w.id ? null : w.id);
+                                    }, 500);
+                                  }}
+                                  onMouseUp={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
+                                  onMouseLeave={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
                                   onTouchStart={e => {
                                     if (isDeleteMode) return;
+                                    if (e.touches.length > 1) return;
                                     watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
                                     watchlistLongPressTimerRef.current[w.id + '_firedAt'] = 0;
                                     watchlistLongPressTimerRef.current[w.id] = setTimeout(() => {
@@ -5826,23 +5942,24 @@ const AppContent = () => {
                                     }, 500);
                                   }}
                                   onTouchEnd={e => {
+                                    if (e.touches.length > 0) return;
                                     clearTimeout(watchlistLongPressTimerRef.current[w.id]);
                                     if (watchlistLongPressTimerRef.current[w.id + '_fired']) {
                                       e.preventDefault();
                                       watchlistLongPressTimerRef.current[w.id + '_fired'] = false;
                                     }
                                   }}
-                                  onTouchMove={() => { clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
+                                  onTouchMove={e => { if (e.touches.length === 1) clearTimeout(watchlistLongPressTimerRef.current[w.id]); }}
                                   onClick={e => {
                                     e.stopPropagation();
-                                    // 롱프레스 직후 발생한 click 무시 (300ms 이내)
+                                    // 롱프레스 직후 발생한 click 무시 (600ms 이내)
                                     const firedAt = watchlistLongPressTimerRef.current[w.id + '_firedAt'] || 0;
-                                    if (Date.now() - firedAt < 300) return;
+                                    if (Date.now() - firedAt < 600) return;
                                     // 드래그 후 click 무시 (5px 이상 이동했으면)
                                     const dx = Math.abs(watchlistDragState.x - watchlistDragState.startX);
                                     const dy = Math.abs(watchlistDragState.y - watchlistDragState.startY);
                                     if (dx > 5 || dy > 5) return;
-                                    if (isDeleteMode) { deleteStock(); return; }
+                                    if (isDeleteMode) { setWatchlistEditTarget(w); setWatchlistEditName(w.name); return; }
                                     setWatchlistChartStock(w); setWatchlistChartPeriod('1Y'); fetchWatchlistChart(w, '1Y');
                                   }}
                                   data-watchlist-id={w.id}
@@ -6322,7 +6439,7 @@ const AppContent = () => {
                             const period = mc ? mc.period : sc?.cardPeriod;
                             const target = mc ? Number(mc.target || 0) : toPureNumber(sc?.performance);
                             if (!target || target <= 0) return null;
-                            const rawLogs = (tradeLogs || []).filter(r => r.cardName === selectedCard && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang);
+                            const rawLogs = (tradeLogs || []).filter(r => r.cardName === selectedCard && (r.paymentMethod === '체크카드' || r.paymentMethod === '신용카드') && !r.isNbbang && !r.excludeFromPerf);
                             const totalUsed = filterByCurrentMonth(rawLogs).reduce((sum, r) => {
                               const full = r.totalAmount ? Number(r.totalAmount) : (r.nbbangCount > 1 && r.perPersonShare) ? Number(r.perPersonShare) * Number(r.nbbangCount) : toPureNumber(r.amount);
                               return sum + full;
@@ -6476,8 +6593,8 @@ const AppContent = () => {
                             const amt = Number(newFixedAmount);
                             const day = Number(newFixedDay);
                             if (!cat || !amt || !day || day < 1 || day > 31) { showToast('대분류, 금액, 날짜(일)를 모두 입력하세요'); return; }
-                            setFixedExpenses([...fixedExpenses, { id: Date.now().toString(), name, amount: amt, day, paymentMethod: newFixedPayment.method, cardName: newFixedPayment.cardName, transferAccId: newFixedPayment.transferAccId, isUSD: newFixedIsUSD }]);
-                            setNewFixedName(''); setNewFixedSub(''); setNewFixedAmount(''); setNewFixedDay(''); setNewFixedPayment({ method: '현금', cardName: '', transferAccId: '' }); setNewFixedIsUSD(false);
+                            setFixedExpenses([...fixedExpenses, { id: Date.now().toString(), name, amount: amt, day, paymentMethod: newFixedPayment.method, cardName: newFixedPayment.cardName, transferAccId: newFixedPayment.transferAccId, isUSD: newFixedIsUSD, excludeFromPerf: newFixedExcludePerf }]);
+                            setNewFixedName(''); setNewFixedSub(''); setNewFixedAmount(''); setNewFixedDay(''); setNewFixedPayment({ method: '현금', cardName: '', transferAccId: '' }); setNewFixedIsUSD(false); setNewFixedExcludePerf(false);
                             showToast(`📌 ${name} 고정비 등록 완료`);
                           };
                           return (
@@ -6493,6 +6610,7 @@ const AppContent = () => {
                                 <button onClick={() => setNewFixedIsUSD(v => !v)} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 border transition-colors ${newFixedIsUSD ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>{newFixedIsUSD ? '$' : '₩'}</button>
                                 <input id="fixedAmtInput" type="text" className="flex-1 min-w-0 text-right text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white" placeholder={newFixedIsUSD ? 'USD 금액' : '금액'} value={newFixedIsUSD ? newFixedAmount : toCommaString(newFixedAmount)} onChange={e => setNewFixedAmount(newFixedIsUSD ? e.target.value.replace(/[^0-9.]/g, '') : e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') document.getElementById('fixedDayInput')?.focus(); }} />
                                 <input id="fixedDayInput" type="text" inputMode="numeric" className="w-[46px] text-center text-[10px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-amber-400 bg-white shrink-0" placeholder="일" value={newFixedDay} onChange={e => { const v = e.target.value.replace(/[^0-9]/g, ''); if (Number(v) <= 31) setNewFixedDay(v); }} onKeyDown={e => { if (e.key === 'Enter') doRegister(); }} />
+                                <button onClick={() => setNewFixedExcludePerf(v => !v)} className={`px-2 py-2 rounded-lg text-[10px] font-black shrink-0 border transition-colors ${newFixedExcludePerf ? 'bg-slate-600 text-white border-slate-600' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'}`} title="실적제외: 카드 실적 달성 계산에서 제외">실적제외</button>
                                 <button onClick={doRegister} className="bg-amber-400 text-white px-3 py-2 rounded-lg text-[10px] font-black shrink-0 shadow-sm hover:bg-amber-500 transition-colors">등록</button>
                                 <button onClick={() => { setShowFixedCatInput(v => !v); setNewFixedCatName(''); }} className={`px-2.5 py-2 rounded-lg text-[10px] font-black shrink-0 shadow-sm transition-colors border ${showFixedCatInput ? 'bg-slate-700 text-white border-slate-700' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'}`}>+분류</button>
                               </div>
@@ -6614,7 +6732,7 @@ const AppContent = () => {
                                           return (
                                             <div key={fe.id}
                                               onDoubleClick={() => {
-                                                setEditFixedModal({ fe });
+                                                setEditFixedModal({ fe, excludeFromPerf: !!fe.excludeFromPerf });
                                                 setEditFixedAmount(String(fe.amount));
                                                 setEditFixedDay(String(fe.day));
                                                 setEditFixedPayment({ method: fe.paymentMethod || '현금', cardName: fe.cardName || '', transferAccId: fe.transferAccId || '' });
@@ -6651,8 +6769,8 @@ const AppContent = () => {
                         if (val.length >= 3) val = val.slice(0, 2) + '/' + val.slice(2);
                         setExpenseDateInput(val);
                       }} />
-                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-blue-400 min-w-0" placeholder="총 금액 입력" value={toCommaString(incomeAmount)} onChange={e => setIncomeAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') { const amt = toPureNumber(incomeAmount); if (amt <= 0) return; const label = incomeMode === 'salary' ? '월급' : incomeMode === 'bonus' ? '수익' : incomeMode === 'expense' ? '소비' : '고정비'; showConfirm(`₩${formatNum(amt)} ${label}을 기록하시겠습니까?`, handleMoneyLogSubmit); } }} />
-                      <button onClick={() => { const amt = toPureNumber(incomeAmount); if (amt <= 0) return; const label = incomeMode === 'salary' ? '월급' : incomeMode === 'bonus' ? '수익' : incomeMode === 'expense' ? '소비' : '고정비'; showConfirm(`₩${formatNum(amt)} ${label}을 기록하시겠습니까?`, handleMoneyLogSubmit); }} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-rose-600 transition-colors">확인</button>
+                      <input type="text" className="flex-1 text-right text-[11px] font-black text-slate-800 border border-slate-200 rounded-lg p-2 outline-none focus:border-blue-400 min-w-0" placeholder="총 금액 입력" value={toCommaString(incomeAmount)} onChange={e => setIncomeAmount(e.target.value.replace(/[^0-9]/g, ''))} onKeyDown={e => { if (e.key === 'Enter') { const amt = toPureNumber(incomeAmount); if (amt <= 0) return; const label = incomeMode === 'salary' ? '월급' : incomeMode === 'bonus' ? '수익' : incomeMode === 'expense' ? '소비' : '고정비'; const eul = label === '소비' ? '를' : '을'; showConfirm(`₩${formatNum(amt)} ${label}${eul} 기록하시겠습니까?`, handleMoneyLogSubmit); } }} />
+                      <button onClick={() => { const amt = toPureNumber(incomeAmount); if (amt <= 0) return; const label = incomeMode === 'salary' ? '월급' : incomeMode === 'bonus' ? '수익' : incomeMode === 'expense' ? '소비' : '고정비'; const eul = label === '소비' ? '를' : '을'; showConfirm(`₩${formatNum(amt)} ${label}${eul} 기록하시겠습니까?`, handleMoneyLogSubmit); }} className="bg-rose-500 text-white px-4 py-2 rounded-lg text-[11px] font-black shrink-0 shadow-sm hover:bg-rose-600 transition-colors">확인</button>
                     </div>
                     )}
                   </div>
