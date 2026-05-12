@@ -6020,6 +6020,7 @@ const AppContent = () => {
                                         return arr;
                                       });
                                     }
+                                    if (didDrag) watchlistLongPressTimerRef.current[w.id + '_didDragAt'] = Date.now();
                                     setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
                                   }}
                                   onPointerCancel={() => {
@@ -6110,10 +6111,13 @@ const AppContent = () => {
                                         }
                                         setWatchlistDragState({ draggingId: null, overIdx: null, overId: null, overCat: null, x: 0, y: 0, startX: 0, startY: 0 });
                                         watchlistLongPressTimerRef.current[w.id + '_firedAt'] = Date.now();
+                                        watchlistLongPressTimerRef.current[w.id + '_didDragAt'] = Date.now();
                                       } else {
-                                        // 드래그 없이 탭: 다른 종목이면 수정모드 해제, 같은 종목이면 수정 모달
-                                        if (!isDeleteMode) return;
-                                        setWatchlistDeleteTarget(null);
+                                        // 드래그 없이 탭: 롱프레스로 막 켜진 직후(300ms 이내)면 무시
+                                        const firedAt = watchlistLongPressTimerRef.current[w.id + '_firedAt'] || 0;
+                                        if (Date.now() - firedAt < 300) return;
+                                        // 그 외엔 삭제 알림창 표시
+                                        deleteStock();
                                       }
                                       return;
                                     }
@@ -6130,10 +6134,9 @@ const AppContent = () => {
                                     // 롱프레스 직후 발생한 click 무시 (600ms 이내)
                                     const firedAt = watchlistLongPressTimerRef.current[w.id + '_firedAt'] || 0;
                                     if (Date.now() - firedAt < 600) return;
-                                    // 드래그 후 click 무시 (5px 이상 이동했으면)
-                                    const dx = Math.abs(watchlistDragState.x - watchlistDragState.startX);
-                                    const dy = Math.abs(watchlistDragState.y - watchlistDragState.startY);
-                                    if (dx > 5 || dy > 5) return;
+                                    // 드래그 직후 발생한 click 무시 (300ms 이내)
+                                    const didDragAt = watchlistLongPressTimerRef.current[w.id + '_didDragAt'] || 0;
+                                    if (Date.now() - didDragAt < 300) return;
                                     // 수정모드 중 다른 종목 클릭 → 수정모드 해제
                                     if (watchlistDeleteTarget && watchlistDeleteTarget !== w.id) { setWatchlistDeleteTarget(null); return; }
                                     if (isDeleteMode) { setWatchlistEditTarget(w); setWatchlistEditName(w.name); return; }
