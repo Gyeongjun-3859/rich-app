@@ -977,6 +977,17 @@ const AppContent = () => {
   const yearOptions = Array.from({ length: 20 }, (_, i) => 2020 + i);
   const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
   
+  // 모달이 하나라도 열리면 배경 스크롤/터치 이동 잠금
+  const anyModalOpen = isWatchlistModalOpen || isFireModalOpen || isBalanceEditOpen || showGoalModal || showShopList || showIndices || confirmModal.isOpen || inputModal.isOpen || !!editFixedModal || settledDetailModal.isOpen || isModalOpen;
+  useEffect(() => {
+    if (anyModalOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      document.body.style.touchAction = 'none';
+      return () => { document.body.style.overflow = prev; document.body.style.touchAction = ''; };
+    }
+  }, [anyModalOpen]);
+
   const todayDate = new Date();
   const dateString = `${todayDate.getFullYear()}.${String(todayDate.getMonth() + 1).padStart(2, '0')}.${String(todayDate.getDate()).padStart(2, '0')}`;
 
@@ -1839,7 +1850,7 @@ const AppContent = () => {
         setFixedExpenses(prev => [...prev, newFe]);
       }
     }
-    setIncomeMode(null); setIncomeAmount(''); setIsNbbang(false); setExpenseMemo(''); setExpenseDateInput(''); setBonusDestAccId(''); setUseSpendingPoint(false);
+    setIncomeAmount(''); setIsNbbang(false); setIsNbbangConfirmed(false); setNbbangList([{id:Date.now(), name:''}]); setExpenseMemo(''); setExpenseDateInput(''); setBonusDestAccId(''); setUseSpendingPoint(false); setSelectedCard(''); setCashSource(''); setTransferAccId('');
     showToast(`🎉 ${logCat} 처리 완료!`);
     saveConfig(updatedAccs, exchangeRate, appTitle, appSubtitle, characterName, appTheme, updatedGlobalCash);
 
